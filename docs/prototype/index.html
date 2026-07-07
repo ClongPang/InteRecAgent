@@ -1,0 +1,2210 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>InteRecAgent 页面原型</title>
+    <style>
+      :root {
+        --bg: #f4f7f6;
+        --surface: #ffffff;
+        --surface-soft: #eef5f3;
+        --ink: #17201f;
+        --muted: #65716f;
+        --subtle: #899593;
+        --line: #dbe5e2;
+        --line-strong: #c4d2ce;
+        --teal: #0f8f83;
+        --teal-dark: #087269;
+        --blue: #2f68d8;
+        --amber: #b7791f;
+        --rose: #bf4160;
+        --green: #2f855a;
+        --shadow: 0 12px 28px rgba(23, 32, 31, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        min-width: 320px;
+        background: var(--bg);
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        letter-spacing: 0;
+        background: var(--bg);
+      }
+
+      button,
+      input {
+        font: inherit;
+        letter-spacing: 0;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      .prototype-shell {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 244px minmax(0, 1fr);
+      }
+
+      .screen-map {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        overflow: auto;
+        border-right: 1px solid var(--line);
+        background: #ffffff;
+        padding: 18px 14px;
+      }
+
+      .map-brand {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 18px;
+      }
+
+      .mark {
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        border: 1px solid #a8d7d0;
+        border-radius: 8px;
+        color: var(--teal-dark);
+        background: #e6f7f4;
+        font-weight: 800;
+      }
+
+      .map-brand h1 {
+        margin: 0;
+        font-size: 16px;
+        line-height: 1.15;
+      }
+
+      .map-brand p {
+        margin: 2px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .map-note {
+        margin: 0 0 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+        color: var(--muted);
+        background: #f7faf9;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .map-section {
+        margin-top: 18px;
+      }
+
+      .map-section h2 {
+        margin: 0 0 8px;
+        color: var(--muted);
+        font-size: 11px;
+        text-transform: uppercase;
+      }
+
+      .screen-button {
+        width: 100%;
+        min-height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        padding: 0 10px;
+        color: var(--ink);
+        background: transparent;
+        font-size: 13px;
+        text-align: left;
+      }
+
+      .screen-button:hover {
+        background: #f2f6f5;
+      }
+
+      .screen-button.active {
+        border-color: #9edbd4;
+        color: var(--teal-dark);
+        background: #e8f7f4;
+        font-weight: 700;
+      }
+
+      .canvas {
+        padding: 18px;
+      }
+
+      .page-tab {
+        display: block;
+      }
+
+      .page-tab:not(.active) {
+        display: none;
+      }
+
+      .product-frame {
+        width: 100%;
+        max-width: 1280px;
+        margin: 0 auto;
+      }
+
+      .product-header {
+        min-height: 64px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px 14px;
+        background: rgba(255, 255, 255, 0.94);
+        box-shadow: var(--shadow);
+      }
+
+      .product-brand {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .product-brand h2 {
+        margin: 0;
+        font-size: 16px;
+      }
+
+      .product-brand p {
+        margin: 2px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .header-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .icon-button,
+      .secondary-button,
+      .primary-button {
+        min-height: 38px;
+        border-radius: 8px;
+        padding: 0 12px;
+        font-weight: 700;
+      }
+
+      .icon-button,
+      .secondary-button {
+        border: 1px solid var(--line-strong);
+        color: var(--ink);
+        background: #fff;
+      }
+
+      .icon-button {
+        width: 38px;
+        padding: 0;
+      }
+
+      .primary-button {
+        border: 1px solid var(--teal);
+        color: #fff;
+        background: var(--teal);
+      }
+
+      .screen-title {
+        margin: 18px 0 12px;
+      }
+
+      .screen-title h2 {
+        margin: 0;
+        font-size: 22px;
+        line-height: 1.2;
+      }
+
+      .screen-title p {
+        max-width: 760px;
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .panel {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .panel-header {
+        min-height: 54px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .panel-title {
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.2;
+      }
+
+      .panel-meta {
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .assistant-layout {
+        display: grid;
+        grid-template-columns: minmax(620px, 1.34fr) minmax(320px, 0.66fr);
+        gap: 16px;
+        align-items: start;
+      }
+
+      .chat-results-panel {
+        display: grid;
+        gap: 16px;
+      }
+
+      .chat-panel {
+        min-height: 430px;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+      }
+
+      .chat-thread {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        padding: 26px;
+        overflow: auto;
+      }
+
+      .message {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+
+      .message.user {
+        justify-content: flex-end;
+      }
+
+      .avatar {
+        width: 28px;
+        height: 28px;
+        flex: 0 0 auto;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        color: var(--teal-dark);
+        background: #dff5f1;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .bubble {
+        max-width: min(620px, 82%);
+        border-radius: 8px;
+        padding: 13px 14px;
+        color: var(--ink);
+        background: #f2f6f5;
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .user .bubble {
+        color: #fff;
+        background: var(--teal);
+      }
+
+      .quick-actions,
+      .flow-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .chip-button {
+        min-height: 32px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0 10px;
+        color: var(--ink);
+        background: #fff;
+        font-size: 13px;
+      }
+
+      .chip-button.active,
+      .chip-button:hover {
+        border-color: #8ed6cc;
+        color: var(--teal-dark);
+        background: #e7f7f4;
+      }
+
+      .composer {
+        padding: 14px;
+        border-top: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .composer-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+      }
+
+      .composer input {
+        width: 100%;
+        height: 42px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        padding: 0 12px;
+        color: var(--ink);
+        outline: none;
+        background: #fff;
+      }
+
+      .composer input:focus {
+        border-color: var(--teal);
+        box-shadow: 0 0 0 3px rgba(15, 143, 131, 0.16);
+      }
+
+      .workflow-panel {
+        position: sticky;
+        top: 18px;
+        max-height: calc(100vh - 36px);
+        overflow: auto;
+      }
+
+      .results-panel .panel-header {
+        align-items: flex-start;
+      }
+
+      .results-intro {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .workflow-summary {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .workflow-step {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+        background: #fff;
+      }
+
+      .workflow-step.warning {
+        border-color: #efd29a;
+        background: #fff9e8;
+      }
+
+      .workflow-index {
+        width: 24px;
+        height: 24px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        color: #fff;
+        background: var(--teal);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .workflow-step.warning .workflow-index {
+        background: var(--amber);
+      }
+
+      .workflow-step strong {
+        display: block;
+        font-size: 13px;
+      }
+
+      .workflow-step span {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .workflow-note {
+        margin: 0;
+        border: 1px solid #bfe0dc;
+        border-radius: 8px;
+        padding: 10px;
+        color: #285752;
+        background: #eaf8f5;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .intent-strip {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        padding: 10px;
+        border-bottom: 1px solid var(--line);
+        background: #fbfcfc;
+      }
+
+      .intent-item {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 9px;
+        background: #fff;
+      }
+
+      .intent-label {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .intent-value {
+        margin-top: 4px;
+        font-size: 13px;
+        font-weight: 700;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .recommendations {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .product-card {
+        display: grid;
+        grid-template-columns: 128px minmax(0, 1fr);
+        gap: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        background: #fff;
+      }
+
+      .product-visual {
+        position: relative;
+        min-height: 144px;
+        overflow: hidden;
+        border: 1px solid #d8e2de;
+        border-radius: 8px;
+        background:
+          linear-gradient(135deg, #eaf6f3 0 45%, #f8fbfa 45% 100%),
+          #eff5f3;
+      }
+
+      .product-visual::after {
+        content: "";
+        position: absolute;
+        left: 18px;
+        right: 18px;
+        bottom: 18px;
+        height: 10px;
+        border-radius: 99px;
+        background: rgba(23, 32, 31, 0.1);
+      }
+
+      .band {
+        position: absolute;
+        left: 22px;
+        top: 28px;
+        width: 58px;
+        height: 52px;
+        border: 7px solid #2f3b3a;
+        border-bottom: 0;
+        border-radius: 70px 70px 16px 16px;
+      }
+
+      .cup {
+        position: absolute;
+        top: 70px;
+        width: 28px;
+        height: 38px;
+        border-radius: 12px;
+        background: #2f3b3a;
+      }
+
+      .cup.left {
+        left: 18px;
+      }
+
+      .cup.right {
+        right: 18px;
+      }
+
+      .buds::before,
+      .buds::after {
+        content: "";
+        position: absolute;
+        top: 40px;
+        width: 30px;
+        height: 40px;
+        border: 7px solid #33403f;
+        border-radius: 18px 18px 24px 24px;
+        background: #fff;
+      }
+
+      .buds::before {
+        left: 22px;
+        transform: rotate(-14deg);
+      }
+
+      .buds::after {
+        right: 22px;
+        transform: rotate(14deg);
+      }
+
+      .stem {
+        position: absolute;
+        top: 76px;
+        width: 10px;
+        height: 36px;
+        border-radius: 99px;
+        background: #33403f;
+      }
+
+      .stem.left {
+        left: 46px;
+      }
+
+      .stem.right {
+        right: 46px;
+      }
+
+      .accent-bar {
+        position: absolute;
+        left: 28px;
+        bottom: 34px;
+        width: 48px;
+        height: 7px;
+        border-radius: 99px;
+        background: var(--teal);
+      }
+
+      .product-content {
+        min-width: 0;
+      }
+
+      .product-head {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .product-title {
+        margin: 0;
+        font-size: 14px;
+        line-height: 1.32;
+      }
+
+      .product-note {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .price {
+        color: var(--teal-dark);
+        font-size: 16px;
+        font-weight: 800;
+        white-space: nowrap;
+      }
+
+      .tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin: 8px 0;
+      }
+
+      .tag {
+        min-height: 22px;
+        display: inline-flex;
+        align-items: center;
+        border-radius: 8px;
+        padding: 0 7px;
+        color: #30504c;
+        background: #e6f5f2;
+        font-size: 11px;
+      }
+
+      .tag.blue {
+        color: #284c8e;
+        background: #e8efff;
+      }
+
+      .tag.amber {
+        color: #76510d;
+        background: #fff4d9;
+      }
+
+      .tag.rose {
+        color: #874157;
+        background: #ffe8ee;
+      }
+
+      .evidence-list {
+        display: grid;
+        gap: 4px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .flow-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.14fr) minmax(300px, 0.74fr);
+        gap: 16px;
+      }
+
+      .flow-stack {
+        display: grid;
+        gap: 12px;
+      }
+
+      .copy {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .option-list,
+      .timeline-list {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .option-item,
+      .evidence-block,
+      .metric-card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        background: #fff;
+      }
+
+      .option-item.selected {
+        border-color: #8ed6cc;
+        background: #eaf8f5;
+      }
+
+      .option-item strong,
+      .evidence-block h4,
+      .timeline-item strong {
+        display: block;
+        margin: 0;
+        font-size: 13px;
+      }
+
+      .option-item span,
+      .timeline-item span {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .detail-layout {
+        display: grid;
+        grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1fr);
+        gap: 16px;
+      }
+
+      .detail-visual {
+        min-height: 320px;
+      }
+
+      .detail-copy h3 {
+        margin: 0;
+        font-size: 22px;
+        line-height: 1.25;
+      }
+
+      .comparison-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      .comparison-table th,
+      .comparison-table td {
+        border-bottom: 1px solid var(--line);
+        padding: 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .comparison-table th {
+        color: var(--muted);
+        background: #f8fbfa;
+        font-size: 12px;
+      }
+
+      .comparison-table tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .timeline-item {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 10px;
+      }
+
+      .timeline-dot {
+        width: 10px;
+        height: 10px;
+        margin-top: 5px;
+        border-radius: 99px;
+        background: var(--teal);
+      }
+
+      .internal-frame .product-header {
+        border-color: #cbd7d4;
+        background: #f9fbfa;
+      }
+
+      .status-strip,
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .metric-grid {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+      }
+
+      .status-card,
+      .metric-card {
+        min-width: 0;
+      }
+
+      .status-card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 11px;
+        background: #fff;
+      }
+
+      .status-card strong {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 13px;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 99px;
+        background: var(--green);
+      }
+
+      .status-card span:last-child,
+      .metric-card span {
+        display: block;
+        margin-top: 5px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .metric-card strong {
+        display: block;
+        font-size: 20px;
+      }
+
+      .state-hero {
+        display: grid;
+        place-items: center;
+        min-height: 340px;
+        padding: 32px;
+        text-align: center;
+      }
+
+      .state-hero h3 {
+        margin: 0;
+        font-size: 20px;
+      }
+
+      .state-hero p {
+        max-width: 520px;
+        margin: 8px auto 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .loading-stack {
+        display: grid;
+        gap: 10px;
+        width: min(560px, 100%);
+      }
+
+      .skeleton-line,
+      .skeleton-card {
+        overflow: hidden;
+        border-radius: 8px;
+        background: linear-gradient(90deg, #edf3f1 0%, #f8fbfa 45%, #edf3f1 90%);
+        background-size: 220% 100%;
+        animation: shimmer 1.4s ease-in-out infinite;
+      }
+
+      .skeleton-line {
+        height: 14px;
+      }
+
+      .skeleton-card {
+        height: 86px;
+        border: 1px solid var(--line);
+      }
+
+      .state-icon {
+        width: 46px;
+        height: 46px;
+        display: grid;
+        place-items: center;
+        margin: 0 auto 14px;
+        border-radius: 8px;
+        color: var(--teal-dark);
+        background: #e6f7f4;
+        font-size: 22px;
+        font-weight: 800;
+      }
+
+      .state-icon.warn {
+        color: #76510d;
+        background: #fff4d9;
+      }
+
+      .state-icon.error {
+        color: #874157;
+        background: #ffe8ee;
+      }
+
+      @keyframes shimmer {
+        from {
+          background-position: 120% 0;
+        }
+        to {
+          background-position: -120% 0;
+        }
+      }
+
+      .state-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .state-field {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+        background: #fff;
+      }
+
+      .state-field.full {
+        grid-column: 1 / -1;
+      }
+
+      .state-field label {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .state-field div {
+        margin-top: 5px;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      pre {
+        max-height: 520px;
+        overflow: auto;
+        margin: 0;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px;
+        color: #263231;
+        background: #f7faf9;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .stage-list {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .stage {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 11px;
+        background: #fff;
+      }
+
+      .stage-index {
+        width: 26px;
+        height: 26px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        color: #fff;
+        background: var(--teal);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .stage.warn .stage-index {
+        background: var(--amber);
+      }
+
+      .stage-title {
+        margin: 0;
+        font-size: 13px;
+      }
+
+      .stage-detail {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .stage-metric {
+        min-width: 56px;
+        color: var(--muted);
+        font-size: 12px;
+        text-align: right;
+      }
+
+      @media (max-width: 1180px) {
+        .prototype-shell {
+          grid-template-columns: 1fr;
+        }
+
+        .screen-map {
+          position: static;
+          height: auto;
+        }
+
+        .map-section {
+          display: inline-block;
+          vertical-align: top;
+          width: min(31%, 220px);
+          margin-right: 10px;
+        }
+
+        .assistant-layout,
+        .flow-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .workflow-panel {
+          position: static;
+          max-height: none;
+        }
+
+        .metric-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 760px) {
+        .canvas {
+          padding: 10px;
+        }
+
+        .product-header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .header-actions {
+          justify-content: flex-start;
+        }
+
+        .chat-panel {
+          min-height: 620px;
+        }
+
+        .chat-thread {
+          padding: 16px;
+        }
+
+        .intent-strip,
+        .product-card,
+        .detail-layout,
+        .status-strip,
+        .metric-grid,
+        .state-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .map-section {
+          width: 100%;
+          margin-right: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="prototype-shell">
+      <aside class="screen-map" aria-label="Prototype screen map">
+        <div class="map-brand">
+          <div class="mark">IR</div>
+          <div>
+            <h1>InteRecAgent</h1>
+            <p>Prototype screens</p>
+          </div>
+        </div>
+        <p class="map-note">
+          This left rail is a prototype index, not part of the consumer product UI.
+        </p>
+
+        <div class="map-section">
+          <h2>Consumer Flow</h2>
+          <button class="screen-button active" type="button" data-page="consumer">Shopping assistant</button>
+          <button class="screen-button" type="button" data-page="clarify">Clarification</button>
+          <button class="screen-button" type="button" data-page="detail">Evidence drawer</button>
+          <button class="screen-button" type="button" data-page="compare">Comparison</button>
+          <button class="screen-button" type="button" data-page="feedback">Updated results</button>
+          <button class="screen-button" type="button" data-page="gift">Gift request</button>
+          <button class="screen-button" type="button" data-page="fallback">Unsupported request</button>
+        </div>
+
+        <div class="map-section">
+          <h2>System States</h2>
+          <button class="screen-button" type="button" data-page="loading">Loading</button>
+          <button class="screen-button" type="button" data-page="empty">Empty result</button>
+          <button class="screen-button" type="button" data-page="error">Error</button>
+          <button class="screen-button" type="button" data-page="evidence">Evidence missing</button>
+          <button class="screen-button" type="button" data-page="unknown">Constraint unknown</button>
+          <button class="screen-button" type="button" data-page="limit">Clarification limit</button>
+        </div>
+
+        <div class="map-section">
+          <h2>Internal</h2>
+          <button class="screen-button" type="button" data-page="trace">Agent trace</button>
+          <button class="screen-button" type="button" data-page="eval">Evaluation</button>
+        </div>
+      </aside>
+
+      <div class="canvas">
+        <main class="page-tab active product-frame" id="page-consumer">
+          <header class="product-header">
+            <div class="product-brand">
+              <div class="mark">IR</div>
+              <div>
+                <h2>InteRecAgent</h2>
+                <p>Catalog-backed shopping assistant</p>
+              </div>
+            </div>
+          </header>
+
+          <section class="assistant-layout screen-title">
+            <div class="chat-results-panel">
+              <div class="panel chat-panel">
+                <div class="panel-header">
+                  <h3 class="panel-title">Shopping assistant</h3>
+                  <span class="panel-meta">Shopping session</span>
+                </div>
+                <div class="chat-thread">
+                  <article class="message user">
+                    <div class="bubble">
+                      I need wireless headphones under $100 for commuting. Comfortable for long wear.
+                    </div>
+                  </article>
+                  <article class="message">
+                    <div class="avatar">AI</div>
+                    <div class="bubble">
+                      I found a few good matches. I prioritized wireless fit, commute use,
+                      comfort comments, and your $100 budget.
+                    </div>
+                  </article>
+                  <article class="message user">
+                    <div class="bubble">Not too bulky. I also care about battery life.</div>
+                  </article>
+                  <article class="message">
+                    <div class="avatar">AI</div>
+                    <div class="bubble">
+                      Got it. I updated the list toward compact designs and stronger battery information.
+                      <div class="quick-actions">
+                        <button class="chip-button" type="button" data-feedback="price">Show cheaper</button>
+                        <button class="chip-button" type="button" data-feedback="brand">Avoid this brand</button>
+                        <button class="chip-button" type="button" data-feedback="portable">More portable</button>
+                        <button class="chip-button" type="button" data-page-shortcut="compare">Compare top picks</button>
+                      </div>
+                    </div>
+                  </article>
+                </div>
+                <form class="composer">
+                  <div class="composer-row">
+                    <input aria-label="Message" value="Show me something similar but cheaper" />
+                    <button class="primary-button" type="button">Send</button>
+                  </div>
+                </form>
+              </div>
+
+              <section class="panel results-panel">
+                <div class="panel-header">
+                  <div>
+                    <h3 class="panel-title">Recommended for you</h3>
+                    <p class="copy">Grounded in catalog information and review evidence.</p>
+                  </div>
+                  <span class="panel-meta">Updated just now</span>
+                </div>
+                <div class="intent-strip">
+                  <div class="intent-item">
+                    <div class="intent-label">Looking for</div>
+                    <div class="intent-value">Wireless headphones</div>
+                  </div>
+                  <div class="intent-item">
+                    <div class="intent-label">Budget</div>
+                    <div class="intent-value">Under $100</div>
+                  </div>
+                  <div class="intent-item">
+                    <div class="intent-label">Use</div>
+                    <div class="intent-value">Commuting</div>
+                  </div>
+                  <div class="intent-item">
+                    <div class="intent-label">Priorities</div>
+                    <div class="intent-value">Comfort, battery</div>
+                  </div>
+                </div>
+                <div class="recommendations">
+                  <article class="product-card">
+                    <div class="product-visual">
+                      <span class="band"></span>
+                      <span class="cup left"></span>
+                      <span class="cup right"></span>
+                      <span class="accent-bar"></span>
+                    </div>
+                    <div class="product-content">
+                      <div class="product-head">
+                        <h3 class="product-title">SoundCore MetroFit Wireless Headphones</h3>
+                        <div class="product-note">4.4 rating · over-ear wireless</div>
+                        <div class="price">$79.99</div>
+                      </div>
+                      <div class="tag-row">
+                        <span class="tag">Under $100</span>
+                        <span class="tag blue">Wireless</span>
+                        <span class="tag">Comfort mentioned often</span>
+                      </div>
+                      <ul class="evidence-list">
+                        <li>Product info lists lightweight folding design and long battery life.</li>
+                        <li>Reviews often mention comfortable commute use.</li>
+                      </ul>
+                    </div>
+                  </article>
+
+                  <article class="product-card">
+                    <div class="product-visual">
+                      <span class="band"></span>
+                      <span class="cup left"></span>
+                      <span class="cup right"></span>
+                      <span class="accent-bar"></span>
+                    </div>
+                    <div class="product-content">
+                      <div class="product-head">
+                        <h3 class="product-title">MovoAir QuietLite Bluetooth Headset</h3>
+                        <div class="product-note">4.2 rating · travel case included</div>
+                        <div class="price">$92.50</div>
+                      </div>
+                      <div class="tag-row">
+                        <span class="tag">Under $100</span>
+                        <span class="tag blue">Padded fit</span>
+                        <span class="tag rose">Noise cancellation not confirmed</span>
+                      </div>
+                      <ul class="evidence-list">
+                        <li>Product info confirms Bluetooth, padded earcups, and a travel case.</li>
+                      </ul>
+                    </div>
+                  </article>
+
+                  <article class="product-card">
+                    <div class="product-visual">
+                      <span class="buds"></span>
+                      <span class="stem left"></span>
+                      <span class="stem right"></span>
+                      <span class="accent-bar"></span>
+                    </div>
+                    <div class="product-content">
+                      <div class="product-head">
+                        <h3 class="product-title">AeroBuds Daily Wireless Earbuds</h3>
+                        <div class="product-note">4.1 rating · compact earbuds</div>
+                        <div class="price">$58.99</div>
+                      </div>
+                      <div class="tag-row">
+                        <span class="tag">Lowest price</span>
+                        <span class="tag blue">Very portable</span>
+                        <span class="tag amber">Fit reviews are mixed</span>
+                      </div>
+                      <ul class="evidence-list">
+                        <li>Best if portability and price matter more than comfort certainty.</li>
+                      </ul>
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </div>
+
+            <aside class="panel workflow-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">Why these recommendations</h3>
+                <span class="panel-meta">Summary</span>
+              </div>
+              <div class="workflow-summary">
+                <p class="workflow-note">
+                  These checks explain why the current recommendations are shown.
+                </p>
+                <div class="workflow-step">
+                  <div class="workflow-index">1</div>
+                  <div>
+                    <strong>Understood your need</strong>
+                    <span>Wireless headphones for commuting under $100.</span>
+                  </div>
+                </div>
+                <div class="workflow-step">
+                  <div class="workflow-index">2</div>
+                  <div>
+                    <strong>Checked catalog facts</strong>
+                    <span>Matched price, wireless support, product type, and available review evidence.</span>
+                  </div>
+                </div>
+                <div class="workflow-step">
+                  <div class="workflow-index">3</div>
+                  <div>
+                    <strong>Filtered hard mismatches</strong>
+                    <span>Items above budget or without wireless evidence are not shown.</span>
+                  </div>
+                </div>
+                <div class="workflow-step warning">
+                  <div class="workflow-index">4</div>
+                  <div>
+                    <strong>Marked uncertainty</strong>
+                    <span>Noise cancellation and fit risks are shown when catalog evidence is incomplete.</span>
+                  </div>
+                </div>
+                <div class="workflow-step">
+                  <div class="workflow-index">5</div>
+                  <div>
+                    <strong>Prepared ranked results</strong>
+                    <span>Balanced comfort, battery, portability, and price.</span>
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </section>
+        </main>
+
+        <main class="page-tab product-frame" id="page-clarify" hidden>
+          <header class="product-header">
+            <div class="product-brand">
+              <div class="mark">IR</div>
+              <div>
+                <h2>InteRecAgent</h2>
+                <p>One quick question before recommending</p>
+              </div>
+            </div>
+          </header>
+          <section class="screen-title">
+            <h2>A quick question</h2>
+            <p>This screen appears only when the answer would meaningfully change the products shown.</p>
+          </section>
+          <section class="panel">
+            <div class="flow-grid" style="padding: 16px">
+              <div class="flow-stack">
+                <div class="message user">
+                  <div class="bubble">I need headphones for travel, not too expensive.</div>
+                </div>
+                <div class="message">
+                  <div class="avatar">AI</div>
+                  <div class="bubble">
+                    For travel, what matters most to you?
+                    <div class="quick-actions">
+                      <button class="chip-button active" type="button">Block more noise</button>
+                      <button class="chip-button" type="button">Wear comfortably longer</button>
+                      <button class="chip-button" type="button">Keep the price low</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="flow-actions">
+                  <button class="primary-button" type="button">Continue</button>
+                  <button class="secondary-button" type="button">Recommend anyway</button>
+                </div>
+              </div>
+              <aside class="flow-stack">
+                <p class="copy">
+                  The page asks one focused question. It avoids exposing confidence scores or candidate variance.
+                </p>
+                <ul class="option-list">
+                  <li class="option-item selected">
+                    <strong>Why this is helpful</strong>
+                    <span>Travel products differ most on noise reduction, comfort, and price.</span>
+                  </li>
+                  <li class="option-item">
+                    <strong>If the user skips</strong>
+                    <span>Recommend with clear assumptions and editable preferences.</span>
+                  </li>
+                </ul>
+              </aside>
+            </div>
+          </section>
+        </main>
+
+        <main class="page-tab product-frame" id="page-detail" hidden>
+          <header class="product-header">
+            <div class="product-brand">
+              <div class="mark">IR</div>
+              <div>
+                <h2>InteRecAgent</h2>
+                <p>Lightweight evidence drawer</p>
+              </div>
+            </div>
+            <button class="secondary-button" type="button">Back to results</button>
+          </header>
+          <section class="screen-title">
+            <h2>Why this product matches</h2>
+            <p>This drawer helps the user inspect evidence without turning the demo into a full e-commerce PDP.</p>
+          </section>
+          <section class="panel">
+            <div class="detail-layout" style="padding: 16px">
+              <div class="product-visual detail-visual">
+                <span class="band"></span>
+                <span class="cup left"></span>
+                <span class="cup right"></span>
+                <span class="accent-bar"></span>
+              </div>
+              <div class="detail-copy flow-stack">
+                <div>
+                  <h3>Best balanced pick for commuting</h3>
+                  <div class="product-note">4.4 rating · wireless over-ear headphones</div>
+                  <div class="price">$79.99</div>
+                </div>
+                <div class="tag-row">
+                  <span class="tag">Under $100</span>
+                  <span class="tag blue">Wireless</span>
+                  <span class="tag">Comfort mentioned often</span>
+                  <span class="tag amber">Live availability not checked</span>
+                </div>
+                <div class="evidence-block">
+                  <h4>Why it fits</h4>
+                  <ul class="evidence-list">
+                    <li>Product information lists Bluetooth, folding design, and long battery life.</li>
+                    <li>User reviews frequently mention comfort during commute or office use.</li>
+                  </ul>
+                </div>
+                <div class="evidence-block">
+                  <h4>Things to know</h4>
+                  <ul class="evidence-list">
+                    <li>Active noise cancellation is not confirmed in the catalog data.</li>
+                    <li>Price is from the demo catalog, not a live marketplace check.</li>
+                  </ul>
+                </div>
+                <div class="flow-actions">
+                  <button class="primary-button" type="button">Keep this option</button>
+                  <button class="secondary-button" type="button">Find similar</button>
+                  <button class="secondary-button" type="button">Compare</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </main>
+
+        <main class="page-tab product-frame" id="page-compare" hidden>
+          <header class="product-header">
+            <div class="product-brand">
+              <div class="mark">IR</div>
+              <div>
+                <h2>InteRecAgent</h2>
+                <p>Compare top picks</p>
+              </div>
+            </div>
+          </header>
+          <section class="screen-title">
+            <h2>Compare the top options</h2>
+            <p>Comparison is presented as a decision aid, not as a model report.</p>
+          </section>
+          <section class="panel">
+            <table class="comparison-table">
+              <thead>
+                <tr>
+                  <th>Factor</th>
+                  <th>MetroFit</th>
+                  <th>QuietLite</th>
+                  <th>AeroBuds</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Price</td>
+                  <td>$79.99</td>
+                  <td>$92.50</td>
+                  <td>$58.99</td>
+                </tr>
+                <tr>
+                  <td>Best for</td>
+                  <td>Balanced commute use</td>
+                  <td>Padded over-ear fit</td>
+                  <td>Smallest carry size</td>
+                </tr>
+                <tr>
+                  <td>What supports it</td>
+                  <td>Comfort and battery information</td>
+                  <td>Travel case and padded earcups</td>
+                  <td>Compact size and lower price</td>
+                </tr>
+                <tr>
+                  <td>Constraint status</td>
+                  <td><span class="tag">Satisfied</span></td>
+                  <td><span class="tag">Satisfied</span></td>
+                  <td><span class="tag">Satisfied</span></td>
+                </tr>
+                <tr>
+                  <td>Evidence strength</td>
+                  <td>Strong: product info + repeated reviews</td>
+                  <td>Medium: product info, fewer review snippets</td>
+                  <td>Medium: portability supported, comfort mixed</td>
+                </tr>
+                <tr>
+                  <td>Unknown fields</td>
+                  <td>Active noise cancellation</td>
+                  <td>Active noise cancellation</td>
+                  <td>Long-wear comfort consistency</td>
+                </tr>
+                <tr>
+                  <td>Watch out for</td>
+                  <td>Noise cancellation not confirmed</td>
+                  <td>Near the top of budget</td>
+                  <td>Comfort reviews are mixed</td>
+                </tr>
+                <tr>
+                  <td>Suggested choice</td>
+                  <td><strong>Best overall</strong></td>
+                  <td>Best padded fit</td>
+                  <td>Best cheaper option</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        </main>
+
+        <main class="page-tab product-frame" id="page-feedback" hidden>
+          <header class="product-header">
+            <div class="product-brand">
+              <div class="mark">IR</div>
+              <div>
+                <h2>InteRecAgent</h2>
+                <p>Recommendations updated from feedback</p>
+              </div>
+            </div>
+          </header>
+          <section class="screen-title">
+            <h2>Updated recommendations</h2>
+            <p>The page explains what changed in user language, not internal state names.</p>
+          </section>
+          <section class="flow-grid">
+            <div class="panel flow-stack" style="padding: 16px">
+              <div class="message user">
+                <div class="bubble">Too expensive. Show me something similar but cheaper.</div>
+              </div>
+              <div class="message">
+                <div class="avatar">AI</div>
+                <div class="bubble">
+                  I lowered the price target and kept wireless commute use as the main requirement.
+                </div>
+              </div>
+              <article class="product-card">
+                <div class="product-visual">
+                  <span class="buds"></span>
+                  <span class="stem left"></span>
+                  <span class="stem right"></span>
+                  <span class="accent-bar"></span>
+                </div>
+                <div class="product-content">
+                  <div class="product-head">
+                    <h3 class="product-title">AeroBuds Daily Wireless Earbuds</h3>
+                    <div class="product-note">Cheaper similar option</div>
+                    <div class="price">$58.99</div>
+                  </div>
+                  <div class="tag-row">
+                    <span class="tag">Lower price</span>
+                    <span class="tag blue">Similar use</span>
+                    <span class="tag amber">Comfort reviews are mixed</span>
+                  </div>
+                  <ul class="evidence-list">
+                    <li>Kept wireless commute use. Lowered price priority.</li>
+                  </ul>
+                </div>
+              </article>
+            </div>
+            <aside class="panel flow-stack" style="padding: 16px">
+              <h3 class="panel-title">What changed</h3>
+              <ul class="option-list">
+                <li class="option-item selected">
+                  <strong>Price matters more now</strong>
+                  <span>Cheaper products are ranked higher than before.</span>
+                </li>
+                <li class="option-item">
+                  <strong>Similarity is preserved</strong>
+                  <span>Wireless commute use stays as the anchor.</span>
+                </li>
+                <li class="option-item">
+                  <strong>Tradeoff is visible</strong>
+                  <span>Lower price may come with less certain comfort fit.</span>
+                </li>
+              </ul>
+              <table class="comparison-table">
+                <thead>
+                  <tr>
+                    <th>Preference</th>
+                    <th>Before</th>
+                    <th>After</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Price priority</td>
+                    <td>Balanced</td>
+                    <td>Higher</td>
+                  </tr>
+                  <tr>
+                    <td>Anchor product</td>
+                    <td>MetroFit</td>
+                    <td>Keep similarity to MetroFit</td>
+                  </tr>
+                  <tr>
+                    <td>Tradeoff</td>
+                    <td>Comfort first</td>
+                    <td>Lower price, comfort still visible</td>
+                  </tr>
+                </tbody>
+              </table>
+            </aside>
+          </section>
+        </main>
+
+        <main class="page-tab product-frame" id="page-gift" hidden>
+          <header class="product-header">
+            <div class="product-brand">
+              <div class="mark">IR</div>
+              <div>
+                <h2>InteRecAgent</h2>
+                <p>Gift recommendation · partial support</p>
+              </div>
+            </div>
+          </header>
+          <section class="screen-title">
+            <h2>Gift idea for a music listener</h2>
+            <p>Gift requests need recipient context, but should avoid pretending to know private preferences.</p>
+          </section>
+          <section class="flow-grid">
+            <div class="panel flow-stack" style="padding: 16px">
+              <div class="message user">
+                <div class="bubble">I need a gift for my mom. She likes music, budget around $80.</div>
+              </div>
+              <div class="message">
+                <div class="avatar">AI</div>
+                <div class="bubble">
+                  A comfortable wireless headset is a safe pick around that budget.
+                  If she prefers smaller earbuds, I can adjust the list.
+                </div>
+              </div>
+              <article class="product-card">
+                <div class="product-visual">
+                  <span class="band"></span>
+                  <span class="cup left"></span>
+                  <span class="cup right"></span>
+                  <span class="accent-bar"></span>
+                </div>
+                <div class="product-content">
+                  <div class="product-head">
+                    <h3 class="product-title">SoundCore MetroFit Wireless Headphones</h3>
+                    <div class="product-note">Simple setup · comfort mentioned often</div>
+                    <div class="price">$79.99</div>
+                  </div>
+                </div>
+              </article>
+            </div>
+            <aside class="panel flow-stack" style="padding: 16px">
+              <h3 class="panel-title">Gift fit</h3>
+              <ul class="option-list">
+                <li class="option-item selected">
+                  <strong>Good for</strong>
+                  <span>Music listening, easy wireless use, comfort-focused gifting.</span>
+                </li>
+                <li class="option-item">
+                  <strong>Ask if needed</strong>
+                  <span>Does she prefer over-ear headphones or smaller earbuds?</span>
+                </li>
+                <li class="option-item">
+                  <strong>Not promised</strong>
+                  <span>No live shipping, inventory, or gift-wrap claims in this demo.</span>
+                </li>
+              </ul>
+            </aside>
+          </section>
+        </main>
+
+        <main class="page-tab product-frame" id="page-fallback" hidden>
+          <header class="product-header">
+            <div class="product-brand">
+              <div class="mark">IR</div>
+              <div>
+                <h2>InteRecAgent</h2>
+                <p>Unsupported request</p>
+              </div>
+            </div>
+          </header>
+          <section class="screen-title">
+            <h2>I can still help with catalog recommendations</h2>
+            <p>The product should be honest when live marketplace actions are not available.</p>
+          </section>
+          <section class="flow-grid">
+            <div class="panel flow-stack" style="padding: 16px">
+              <div class="message user">
+                <div class="bubble">Can you check which store has this in stock today and buy it for me?</div>
+              </div>
+              <div class="message">
+                <div class="avatar">AI</div>
+                <div class="bubble">
+                  I cannot check live stock or complete checkout in this demo. I can recommend similar
+                  catalog items and explain what information is available.
+                </div>
+              </div>
+              <div class="flow-actions">
+                <button class="primary-button" type="button">Show catalog alternatives</button>
+                <button class="secondary-button" type="button">Change request</button>
+              </div>
+            </div>
+            <aside class="panel flow-stack" style="padding: 16px">
+              <h3 class="panel-title">Available fallback</h3>
+              <ul class="option-list">
+                <li class="option-item selected">
+                  <strong>Can do</strong>
+                  <span>Recommend products from the loaded catalog.</span>
+                </li>
+                <li class="option-item">
+                  <strong>Cannot do</strong>
+                  <span>Live inventory, payment, checkout, shipping, or store pickup.</span>
+                </li>
+              </ul>
+            </aside>
+          </section>
+        </main>
+
+        <main class="page-tab product-frame" id="page-loading" hidden>
+          <header class="product-header">
+            <div class="product-brand">
+              <div class="mark">IR</div>
+              <div>
+                <h2>InteRecAgent</h2>
+                <p>Recommendation pipeline in progress</p>
+              </div>
+            </div>
+          </header>
+          <section class="screen-title">
+            <h2>Preparing recommendations</h2>
+            <p>Loading states should name the current user-friendly stage without exposing raw pipeline internals.</p>
+          </section>
+          <section class="panel state-hero">
+            <div class="loading-stack">
+              <div class="state-icon">...</div>
+              <h3>Checking the catalog</h3>
+              <p>We are matching your request against products, constraints, and available evidence.</p>
+              <div class="tag-row" style="justify-content: center">
+                <span class="tag">Understanding request</span>
+                <span class="tag blue">Checking catalog</span>
+                <span class="tag">Verifying constraints</span>
+                <span class="tag">Ranking candidates</span>
+                <span class="tag">Preparing answer</span>
+              </div>
+              <div class="skeleton-line" style="width: 74%"></div>
+              <div class="skeleton-line" style="width: 88%"></div>
+              <div class="skeleton-card"></div>
+              <div class="skeleton-card"></div>
+            </div>
+          </section>
+        </main>
+
+        <main class="page-tab product-frame" id="page-empty" hidden>
+          <header class="product-header">
+            <div class="product-brand">
+              <div class="mark">IR</div>
+              <div>
+                <h2>InteRecAgent</h2>
+                <p>No matching catalog result</p>
+              </div>
+            </div>
+          </header>
+          <section class="screen-title">
+            <h2>No strong matches found</h2>
+            <p>Empty states should help the user loosen constraints or rephrase instead of feeling like a dead end.</p>
+          </section>
+          <section class="panel state-hero">
+            <div>
+              <div class="state-icon warn">0</div>
+              <h3>No products matched all required conditions</h3>
+              <p>Try increasing the budget, removing a brand restriction, or choosing “show close matches”.</p>
+              <div class="flow-actions" style="justify-content: center">
+                <button class="primary-button" type="button">Show close matches</button>
+                <button class="secondary-button" type="button">Edit request</button>
+              </div>
+            </div>
+          </section>
+        </main>
+
+        <main class="page-tab product-frame" id="page-error" hidden>
+          <header class="product-header">
+            <div class="product-brand">
+              <div class="mark">IR</div>
+              <div>
+                <h2>InteRecAgent</h2>
+                <p>Recoverable service error</p>
+              </div>
+            </div>
+          </header>
+          <section class="screen-title">
+            <h2>Something went wrong</h2>
+            <p>Error states should avoid exposing stack traces and give the user a clear retry path.</p>
+          </section>
+          <section class="panel state-hero">
+            <div>
+              <div class="state-icon error">!</div>
+              <h3>We could not finish this recommendation</h3>
+              <p>Your request is still here. Retry the recommendation or continue with a simpler catalog search.</p>
+              <div class="flow-actions" style="justify-content: center">
+                <button class="primary-button" type="button">Try again</button>
+                <button class="secondary-button" type="button">Search catalog only</button>
+              </div>
+            </div>
+          </section>
+        </main>
+
+        <main class="page-tab product-frame" id="page-evidence" hidden>
+          <header class="product-header">
+            <div class="product-brand">
+              <div class="mark">IR</div>
+              <div>
+                <h2>InteRecAgent</h2>
+                <p>Evidence missing state</p>
+              </div>
+            </div>
+          </header>
+          <section class="screen-title">
+            <h2>Recommendation with limited evidence</h2>
+            <p>The UI should preserve the recommendation while clearly marking unsupported claims.</p>
+          </section>
+          <section class="flow-grid">
+            <div class="panel" style="padding: 16px">
+              <article class="product-card">
+                <div class="product-visual">
+                  <span class="band"></span>
+                  <span class="cup left"></span>
+                  <span class="cup right"></span>
+                  <span class="accent-bar"></span>
+                </div>
+                <div class="product-content">
+                  <div class="product-head">
+                    <h3 class="product-title">MovoAir QuietLite Bluetooth Headset</h3>
+                    <div class="product-note">Good catalog match, incomplete review evidence</div>
+                    <div class="price">$92.50</div>
+                  </div>
+                  <div class="tag-row">
+                    <span class="tag">Under $100</span>
+                    <span class="tag blue">Wireless</span>
+                    <span class="tag amber">Comfort evidence limited</span>
+                  </div>
+                  <ul class="evidence-list">
+                    <li>Product information confirms Bluetooth and padded earcups.</li>
+                    <li>There are not enough review snippets to support a strong comfort claim.</li>
+                  </ul>
+                </div>
+              </article>
+            </div>
+            <aside class="panel flow-stack" style="padding: 16px">
+              <h3 class="panel-title">Evidence note</h3>
+              <p class="copy">
+                The card should say what is known and what is not known. It should never invent review support.
+              </p>
+              <button class="secondary-button" type="button">Show products with stronger reviews</button>
+            </aside>
+          </section>
+        </main>
+
+        <main class="page-tab product-frame" id="page-unknown" hidden>
+          <header class="product-header">
+            <div class="product-brand">
+              <div class="mark">IR</div>
+              <div>
+                <h2>InteRecAgent</h2>
+                <p>Constraint unknown state</p>
+              </div>
+            </div>
+          </header>
+          <section class="screen-title">
+            <h2>Some constraints could not be verified</h2>
+            <p>Unknown fields are not treated as satisfied. The UI must show this distinction clearly.</p>
+          </section>
+          <section class="flow-grid">
+            <div class="panel" style="padding: 16px">
+              <article class="product-card">
+                <div class="product-visual">
+                  <span class="band"></span>
+                  <span class="cup left"></span>
+                  <span class="cup right"></span>
+                  <span class="accent-bar"></span>
+                </div>
+                <div class="product-content">
+                  <div class="product-head">
+                    <h3 class="product-title">QuietLite Bluetooth Headset</h3>
+                    <div class="product-note">Wireless confirmed · noise cancellation not confirmed</div>
+                    <div class="price">$92.50</div>
+                  </div>
+                  <div class="tag-row">
+                    <span class="tag">Budget satisfied</span>
+                    <span class="tag blue">Wireless confirmed</span>
+                    <span class="tag rose">Noise cancellation unknown</span>
+                  </div>
+                  <ul class="evidence-list">
+                    <li>Shown as a close match because the missing field is not critical in this request.</li>
+                  </ul>
+                </div>
+              </article>
+            </div>
+            <aside class="panel flow-stack" style="padding: 16px">
+              <h3 class="panel-title">Constraint status</h3>
+              <ul class="option-list">
+                <li class="option-item selected">
+                  <strong>Satisfied</strong>
+                  <span>Price under $100, wireless product type.</span>
+                </li>
+                <li class="option-item">
+                  <strong>Unknown</strong>
+                  <span>Active noise cancellation is not available in catalog fields.</span>
+                </li>
+              </ul>
+            </aside>
+          </section>
+        </main>
+
+        <main class="page-tab product-frame" id="page-limit" hidden>
+          <header class="product-header">
+            <div class="product-brand">
+              <div class="mark">IR</div>
+              <div>
+                <h2>InteRecAgent</h2>
+                <p>Clarification guardrail state</p>
+              </div>
+            </div>
+          </header>
+          <section class="screen-title">
+            <h2>Recommend after clarification limit</h2>
+            <p>When clarification reaches the guardrail, the assistant should move forward with explicit assumptions.</p>
+          </section>
+          <section class="flow-grid">
+            <div class="panel flow-stack" style="padding: 16px">
+              <div class="message">
+                <div class="avatar">AI</div>
+                <div class="bubble">
+                  I can continue with a reasonable assumption: wireless over-ear headphones under $100,
+                  prioritizing comfort over maximum noise cancellation.
+                </div>
+              </div>
+              <article class="product-card">
+                <div class="product-visual">
+                  <span class="band"></span>
+                  <span class="cup left"></span>
+                  <span class="cup right"></span>
+                  <span class="accent-bar"></span>
+                </div>
+                <div class="product-content">
+                  <div class="product-head">
+                    <h3 class="product-title">SoundCore MetroFit Wireless Headphones</h3>
+                    <div class="product-note">Recommended with assumptions</div>
+                    <div class="price">$79.99</div>
+                  </div>
+                  <div class="tag-row">
+                    <span class="tag">Assumption: over-ear</span>
+                    <span class="tag amber">Noise cancellation not prioritized</span>
+                  </div>
+                </div>
+              </article>
+            </div>
+            <aside class="panel flow-stack" style="padding: 16px">
+              <h3 class="panel-title">Guardrail applied</h3>
+              <p class="copy">
+                The user can still edit assumptions, but the assistant does not keep asking questions indefinitely.
+              </p>
+              <button class="secondary-button" type="button">Edit assumptions</button>
+            </aside>
+          </section>
+        </main>
+
+        <main class="page-tab product-frame internal-frame" id="page-trace" hidden>
+          <header class="product-header">
+            <div class="product-brand">
+              <div class="mark">IR</div>
+              <div>
+                <h2>Agent Trace Console</h2>
+                <p>Internal workflow inspection</p>
+              </div>
+            </div>
+          </header>
+          <section class="screen-title">
+            <h2>Trace data</h2>
+            <p>This screen is internal. It is intentionally separated from the consumer experience.</p>
+          </section>
+          <section class="flow-grid">
+            <div class="panel flow-stack" style="padding: 16px">
+              <div class="status-strip">
+                <div class="status-card">
+                  <strong><span class="status-dot"></span>Catalog status</strong>
+                  <span>Ready · Amazon demo pool loaded</span>
+                </div>
+                <div class="status-card">
+                  <strong><span class="status-dot"></span>Vector index</strong>
+                  <span>Ready · 42 candidates retrieved</span>
+                </div>
+                <div class="status-card">
+                  <strong><span class="status-dot"></span>Session</strong>
+                  <span>SX-1048 · turn 3 active</span>
+                </div>
+              </div>
+              <div class="state-grid">
+                <div class="state-field">
+                  <label>task_type</label>
+                  <div>single_item_recommendation</div>
+                </div>
+                <div class="state-field">
+                  <label>price_sensitivity</label>
+                  <div>medium_high</div>
+                </div>
+                <div class="state-field full">
+                  <label>hard_constraints</label>
+                  <div>wireless, price <= 100</div>
+                </div>
+                <div class="state-field full">
+                  <label>uncertainty_fields</label>
+                  <div>ANC requirement, preferred form factor, exact battery threshold</div>
+                </div>
+              </div>
+              <pre>{
+  "turn_id": "turn_003",
+  "task_type": "single_item_recommendation",
+  "retrieved_count": 42,
+  "filtered_count": 11,
+  "final_count": 3,
+  "rerank_policy": "top_10_after_rule_rank",
+  "final_validation": "passed"
+}</pre>
+            </div>
+            <aside class="panel flow-stack" style="padding: 16px">
+              <h3 class="panel-title">Agent workflow</h3>
+              <ol class="stage-list">
+                <li class="stage">
+                  <div class="stage-index">1</div>
+                  <div><h4 class="stage-title">Task Router</h4><p class="stage-detail">single_item_recommendation</p></div>
+                  <div class="stage-metric">0.94</div>
+                </li>
+                <li class="stage">
+                  <div class="stage-index">2</div>
+                  <div><h4 class="stage-title">Intent Parser</h4><p class="stage-detail">Budget, category, scenario extracted.</p></div>
+                  <div class="stage-metric">6 slots</div>
+                </li>
+                <li class="stage warn">
+                  <div class="stage-index">3</div>
+                  <div><h4 class="stage-title">Clarification Policy</h4><p class="stage-detail">Recommend with uncertainty labels.</p></div>
+                  <div class="stage-metric">skip</div>
+                </li>
+                <li class="stage">
+                  <div class="stage-index">4</div>
+                  <div><h4 class="stage-title">Retriever</h4><p class="stage-detail">Vector search over product text and review summary.</p></div>
+                  <div class="stage-metric">42</div>
+                </li>
+                <li class="stage">
+                  <div class="stage-index">5</div>
+                  <div><h4 class="stage-title">Constraint Verifier</h4><p class="stage-detail">Budget and wireless constraints passed.</p></div>
+                  <div class="stage-metric">11 kept</div>
+                </li>
+                <li class="stage">
+                  <div class="stage-index">6</div>
+                  <div><h4 class="stage-title">LLM Reranker</h4><p class="stage-detail">Reranked safe candidates only.</p></div>
+                  <div class="stage-metric">3 final</div>
+                </li>
+              </ol>
+              <div class="evidence-block">
+                <h4>Workflow stage states</h4>
+                <div class="tag-row">
+                  <span class="tag">completed</span>
+                  <span class="tag blue">running</span>
+                  <span class="tag amber">warning</span>
+                  <span class="tag rose">failed</span>
+                  <span class="tag">skipped</span>
+                  <span class="tag amber">guardrail applied</span>
+                  <span class="tag">pending</span>
+                </div>
+              </div>
+            </aside>
+          </section>
+        </main>
+
+        <main class="page-tab product-frame internal-frame" id="page-eval" hidden>
+          <header class="product-header">
+            <div class="product-brand">
+              <div class="mark">IR</div>
+              <div>
+                <h2>Evaluation Console</h2>
+                <p>Internal validation dashboard</p>
+              </div>
+            </div>
+          </header>
+          <section class="screen-title">
+            <h2>Evaluation dashboard</h2>
+            <p>Internal metrics validate that the agent routes, verifies, explains, and recovers correctly.</p>
+          </section>
+          <section class="panel flow-stack" style="padding: 16px">
+            <div class="metric-grid">
+              <div class="metric-card"><strong>94%</strong><span>Task Type Accuracy</span></div>
+              <div class="metric-card"><strong>0.88</strong><span>Intent Slot F1</span></div>
+              <div class="metric-card"><strong>100%</strong><span>Constraint Satisfaction</span></div>
+              <div class="metric-card"><strong>83%</strong><span>Evidence Coverage</span></div>
+              <div class="metric-card"><strong>78%</strong><span>Feedback Recovery</span></div>
+            </div>
+            <table class="comparison-table">
+              <thead>
+                <tr>
+                  <th>Golden case</th>
+                  <th>Expected behavior</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>simple_headphones_001</td>
+                  <td>Recommend under-budget wireless products with evidence.</td>
+                  <td><span class="tag">Pass</span></td>
+                </tr>
+                <tr>
+                  <td>clarify_travel_002</td>
+                  <td>Ask one high-value clarification question.</td>
+                  <td><span class="tag">Pass</span></td>
+                </tr>
+                <tr>
+                  <td>feedback_cheaper_003</td>
+                  <td>Lower target price and preserve similarity anchor.</td>
+                  <td><span class="tag amber">Review</span></td>
+                </tr>
+                <tr>
+                  <td>unsupported_checkout_004</td>
+                  <td>Decline checkout while offering catalog fallback.</td>
+                  <td><span class="tag">Pass</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <script>
+      const pageButtons = document.querySelectorAll("[data-page]");
+      const pagePanels = document.querySelectorAll(".page-tab");
+
+      function activatePage(pageName) {
+        pageButtons.forEach((item) => item.classList.toggle("active", item.dataset.page === pageName));
+        pagePanels.forEach((panel) => {
+          const isActive = panel.id === `page-${pageName}`;
+          panel.hidden = !isActive;
+          panel.classList.toggle("active", isActive);
+        });
+      }
+
+      pageButtons.forEach((button) => {
+        button.addEventListener("click", () => activatePage(button.dataset.page));
+      });
+
+      document.querySelectorAll("[data-page-shortcut]").forEach((button) => {
+        button.addEventListener("click", () => activatePage(button.dataset.pageShortcut));
+      });
+
+      const feedbackMessages = {
+        price: "Thanks. I will look for similar options with a lower price.",
+        brand: "Understood. I will avoid that brand in the next list.",
+        portable: "Got it. I will prioritize smaller and easier-to-carry options."
+      };
+
+      document.querySelectorAll("[data-feedback]").forEach((button) => {
+        button.addEventListener("click", () => {
+          button.textContent = feedbackMessages[button.dataset.feedback] || button.textContent;
+          button.classList.add("active");
+        });
+      });
+    </script>
+  </body>
+</html>
