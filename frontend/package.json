@@ -1,0 +1,33 @@
+{
+  "name": "interecagent-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "vitest run src/App.test.tsx",
+    "test:integration": "VITE_API_BASE_URL=http://127.0.0.1:8000 VITE_RUN_LIVE_INTEGRATION=true vitest run src/api/live-client.integration.test.ts",
+    "test:a11y": "vitest run src/App.test.tsx"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.2",
+    "vite": "^7.3.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.1",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "jsdom": "^27.3.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0"
+  }
+}
