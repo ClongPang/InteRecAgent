@@ -37,6 +37,44 @@ function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
       metrics: {},
       case_failures: []
     }),
+    getCatalogReadiness: async () => ({
+      ready: false,
+      catalog_path: "data/catalog/normalized_catalog.jsonl",
+      demo_pool_path: "data/catalog/curated_demo_pool.jsonl",
+      quality_report_path: "data/catalog/quality_report.json",
+      product_count: 0,
+      demo_pool_count: 0,
+      scale_status: "missing",
+      errors: ["normalized catalog is missing: data/catalog/normalized_catalog.jsonl"],
+      warnings: [],
+      quality_report: {}
+    }),
+    getEvaluationDatasetReadiness: async () => ({
+      ready: false,
+      path: "data/eval/task_cases.jsonl",
+      case_count: 0,
+      labels: [],
+      errors: ["task case file is missing: data/eval/task_cases.jsonl"],
+      warnings: []
+    }),
+    getProfileReadiness: async () => ({
+      ready: false,
+      profiles_path: "data/profiles/user_profiles.jsonl",
+      summary_path: "data/profiles/profile_summary.json",
+      profile_count: 0,
+      errors: ["user profiles are missing: data/profiles/user_profiles.jsonl"],
+      warnings: [],
+      summary: {}
+    }),
+    getVectorIndexReadiness: async () => ({
+      ready: false,
+      index_path: "data/indexes/product_index.jsonl",
+      manifest_path: "data/indexes/index_manifest.json",
+      product_count: 0,
+      errors: ["vector index is missing: data/indexes/product_index.jsonl"],
+      warnings: [],
+      manifest: {}
+    }),
     getInternalTrace: async () => ({
       turn_id: "turn_001",
       session_id: "sess_demo",
@@ -538,9 +576,44 @@ test("evaluation route renders five metric dashboard", async () => {
 
   expect(screen.getByRole("heading", { name: "Evaluation dashboard" })).toBeInTheDocument();
   expect(await screen.findByText("Run: eval_demo")).toBeInTheDocument();
-  expect(await screen.findByText("task_type_accuracy")).toBeInTheDocument();
+  expect(screen.getByLabelText("Evaluation metrics")).toHaveTextContent("task_type_accuracy");
+  expect(screen.getByLabelText("MVP readiness")).toHaveTextContent("Not passed");
+  expect(screen.getByLabelText("MVP readiness")).toHaveTextContent("evidence_coverage");
   expect(screen.getByLabelText("Evaluation metrics")).toHaveTextContent("feedback_recovery");
   expect(screen.getByLabelText("Evaluation failures")).toHaveTextContent("No case failures");
+});
+
+test("evaluation route renders passing MVP readiness gates", async () => {
+  render(
+    <App
+      client={makeClient({
+        runEvaluation: async () => ({
+          run_id: "eval_ready",
+          timestamp: "2026-07-07T00:00:00Z",
+          metrics: {
+            task_type_accuracy: 1,
+            intent_slot_f1: 1,
+            constraint_satisfaction: 1,
+            evidence_coverage: 1,
+            feedback_recovery: 1
+          },
+          readiness: {
+            passed: true,
+            gates: {
+              task_type_accuracy: { actual: 1, operator: ">=", threshold: 0.95, passed: true },
+              final_validation_violation_rate: { actual: 0, operator: "<=", threshold: 0, passed: true }
+            }
+          },
+          case_failures: []
+        })
+      })}
+      path="/internal/eval"
+    />
+  );
+
+  const readiness = await screen.findByLabelText("MVP readiness");
+  expect(readiness).toHaveTextContent("Passed");
+  expect(readiness).toHaveTextContent("final_validation_violation_rate");
 });
 
 test("evaluation route loads selected run id", async () => {
@@ -615,4 +688,102 @@ test("evaluation route renders failure drilldown rows", async () => {
   expect(await screen.findByText("task_001")).toBeInTheDocument();
   expect(screen.getByLabelText("Evaluation failures")).toHaveTextContent("unsupported");
   expect(screen.getByLabelText("Evaluation failures")).toHaveTextContent("single_item_recommendation");
+});
+
+test("evaluation route renders catalog readiness status", async () => {
+  render(
+    <App
+      client={makeClient({
+        getCatalogReadiness: async () => ({
+          ready: true,
+          catalog_path: "data/catalog/normalized_catalog.jsonl",
+          demo_pool_path: "data/catalog/curated_demo_pool.jsonl",
+          quality_report_path: "data/catalog/quality_report.json",
+          product_count: 20000,
+          demo_pool_count: 50,
+          scale_status: "target_met",
+          errors: [],
+          warnings: [],
+          quality_report: { product_count: 20000 }
+        })
+      })}
+      path="/internal/eval"
+    />
+  );
+
+  const readiness = await screen.findByLabelText("Catalog readiness");
+  expect(readiness).toHaveTextContent("Ready");
+  expect(readiness).toHaveTextContent("20000");
+  expect(readiness).toHaveTextContent("target_met");
+});
+
+test("evaluation route renders task case readiness status", async () => {
+  render(
+    <App
+      client={makeClient({
+        getEvaluationDatasetReadiness: async () => ({
+          ready: true,
+          path: "data/eval/task_cases.jsonl",
+          case_count: 140,
+          labels: ["single_item_recommendation", "unsupported"],
+          errors: [],
+          warnings: []
+        })
+      })}
+      path="/internal/eval"
+    />
+  );
+
+  const readiness = await screen.findByLabelText("Task case readiness");
+  expect(readiness).toHaveTextContent("Ready");
+  expect(readiness).toHaveTextContent("140");
+  expect(readiness).toHaveTextContent("single_item_recommendation");
+});
+
+test("evaluation route renders profile readiness status", async () => {
+  render(
+    <App
+      client={makeClient({
+        getProfileReadiness: async () => ({
+          ready: true,
+          profiles_path: "data/profiles/user_profiles.jsonl",
+          summary_path: "data/profiles/profile_summary.json",
+          profile_count: 125,
+          errors: [],
+          warnings: [],
+          summary: { profile_count: 125 }
+        })
+      })}
+      path="/internal/eval"
+    />
+  );
+
+  const readiness = await screen.findByLabelText("Profile readiness");
+  expect(readiness).toHaveTextContent("Ready");
+  expect(readiness).toHaveTextContent("125");
+  expect(readiness).toHaveTextContent("user_profiles.jsonl");
+});
+
+test("evaluation route renders vector index readiness status", async () => {
+  render(
+    <App
+      client={makeClient({
+        getVectorIndexReadiness: async () => ({
+          ready: true,
+          index_path: "data/indexes/product_index.jsonl",
+          manifest_path: "data/indexes/index_manifest.json",
+          product_count: 20000,
+          errors: [],
+          warnings: [],
+          manifest: { index_type: "deterministic_token_jaccard" }
+        })
+      })}
+      path="/internal/eval"
+    />
+  );
+
+  const readiness = await screen.findByLabelText("Vector index readiness");
+  expect(readiness).toHaveTextContent("Ready");
+  expect(readiness).toHaveTextContent("20000");
+  expect(readiness).toHaveTextContent("product_index.jsonl");
 });

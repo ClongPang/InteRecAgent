@@ -13,3 +13,11 @@ def test_task_router_classifies_feedback_and_alternatives():
 
     assert router.route("Too expensive").task_type == "negative_feedback"
     assert router.route("Show me a cheaper alternative").task_type == "alternative_recommendation"
+
+
+def test_task_router_classifies_partial_support_labels():
+    router = TaskRouter()
+
+    assert router.route("Compare these headphones").task_type == "comparison"
+    assert router.route("Recommend a gift for a student").task_type == "gift_recommendation"
+    assert router.route("Recommend a starter kit bundle").task_type == "bundle_recommendation"

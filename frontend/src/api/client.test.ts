@@ -73,6 +73,38 @@ test("mockApiClient reads evaluation run by id", async () => {
   expect(evaluation.metrics.feedback_recovery).toBeGreaterThan(0);
 });
 
+test("mockApiClient reads catalog readiness contract", async () => {
+  const readiness = await mockApiClient.getCatalogReadiness();
+
+  expect(readiness.ready).toBe(false);
+  expect(readiness.scale_status).toBe("missing");
+  expect(readiness.catalog_path).toContain("normalized_catalog.jsonl");
+});
+
+test("mockApiClient reads evaluation dataset readiness contract", async () => {
+  const readiness = await mockApiClient.getEvaluationDatasetReadiness();
+
+  expect(readiness.ready).toBe(false);
+  expect(readiness.path).toContain("task_cases.jsonl");
+  expect(readiness.errors[0]).toContain("task case file is missing");
+});
+
+test("mockApiClient reads profile readiness contract", async () => {
+  const readiness = await mockApiClient.getProfileReadiness();
+
+  expect(readiness.ready).toBe(false);
+  expect(readiness.profiles_path).toContain("user_profiles.jsonl");
+  expect(readiness.errors[0]).toContain("user profiles are missing");
+});
+
+test("mockApiClient reads vector index readiness contract", async () => {
+  const readiness = await mockApiClient.getVectorIndexReadiness();
+
+  expect(readiness.ready).toBe(false);
+  expect(readiness.index_path).toContain("product_index.jsonl");
+  expect(readiness.errors[0]).toContain("vector index is missing");
+});
+
 test("mockApiClient exposes stable error details for missing products", async () => {
   await expect(mockApiClient.getProduct("missing")).rejects.toMatchObject({
     name: "ApiClientError",

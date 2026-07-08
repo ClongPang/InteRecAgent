@@ -210,6 +210,19 @@ Each evaluation run should produce:
     "evidence_coverage": 0.0,
     "feedback_recovery": 0.0
   },
+  "readiness": {
+    "passed": false,
+    "gates": {
+      "task_type_accuracy": {"actual": 0.0, "operator": ">=", "threshold": 0.95, "passed": false},
+      "intent_slot_f1": {"actual": 0.0, "operator": ">=", "threshold": 0.9, "passed": false},
+      "constraint_satisfaction": {"actual": 0.0, "operator": ">=", "threshold": 1.0, "passed": false},
+      "evidence_coverage": {"actual": 0.0, "operator": ">=", "threshold": 0.8, "passed": false},
+      "feedback_recovery": {"actual": 0.0, "operator": ">=", "threshold": 0.9, "passed": false},
+      "unsupported_claim_rate": {"actual": 0.0, "operator": "<=", "threshold": 0.2, "passed": true},
+      "final_validation_violation_rate": {"actual": 0.0, "operator": "<=", "threshold": 0.0, "passed": true},
+      "golden_case_coverage": {"actual": "complete", "operator": "complete", "threshold": [], "passed": true}
+    }
+  },
   "case_failures": []
 }
 ```

@@ -236,5 +236,13 @@ export const evaluationFixture: EvaluationRunSummary = {
     evidence_coverage: 0.75,
     feedback_recovery: 0.9
   },
+  readiness: {
+    passed: false,
+    gates: {
+      task_type_accuracy: { actual: 1, operator: ">=", threshold: 0.95, passed: true },
+      evidence_coverage: { actual: 0.75, operator: ">=", threshold: 0.8, passed: false },
+      unsupported_claim_rate: { actual: 0.25, operator: "<=", threshold: 0.2, passed: false }
+    }
+  },
   case_failures: []
 };

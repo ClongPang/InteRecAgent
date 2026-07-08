@@ -16,6 +16,8 @@ class GoldenCase:
     case_id: str
     message: str
     expected_task_type: str
+    scenario: str | None = None
+    expected_status: str | None = None
     expected_intent: dict[str, Any] = field(default_factory=dict)
     hard_constraints: list[dict[str, Any]] = field(default_factory=list)
     expected_feedback: dict[str, Any] = field(default_factory=dict)
@@ -24,6 +26,25 @@ class GoldenCase:
 
 
 DEFAULT_GOLDEN_CASES_PATH = Path("data/eval/golden_cases.jsonl")
+
+REQUIRED_GOLDEN_SCENARIOS = {
+    "simple_recommendation",
+    "clarification",
+    "budget_constraint",
+    "brand_rejection",
+    "cheaper_alternative",
+    "unsupported_checkout",
+}
+
+MVP_READINESS_THRESHOLDS = {
+    "task_type_accuracy": {"operator": ">=", "threshold": 0.95},
+    "intent_slot_f1": {"operator": ">=", "threshold": 0.9},
+    "constraint_satisfaction": {"operator": ">=", "threshold": 1.0},
+    "evidence_coverage": {"operator": ">=", "threshold": 0.8},
+    "feedback_recovery": {"operator": ">=", "threshold": 0.9},
+    "unsupported_claim_rate": {"operator": "<=", "threshold": 0.2},
+    "final_validation_violation_rate": {"operator": "<=", "threshold": 0.0},
+}
 
 
 GOLDEN_CASES = [
@@ -67,6 +88,14 @@ def load_golden_cases(path: Path | str = DEFAULT_GOLDEN_CASES_PATH) -> list[Gold
     return cases
 
 
+def validate_golden_case_coverage(
+    cases: list[GoldenCase],
+    required_scenarios: set[str] = REQUIRED_GOLDEN_SCENARIOS,
+) -> list[str]:
+    present = {case.scenario for case in cases if case.scenario}
+    return sorted(required_scenarios - present)
+
+
 class EvaluationService:
     def __init__(
         self,
@@ -90,15 +119,19 @@ class EvaluationService:
         constraint_satisfaction = self._constraint_satisfaction(responses, failures)
         evidence_coverage = self._evidence_coverage(responses, failures)
         feedback_recovery = self._feedback_recovery(responses, failures)
+        self._status_expectations(responses, failures)
+        self._golden_case_coverage(failures)
+        metrics = {
+            "task_type_accuracy": task_accuracy,
+            "intent_slot_f1": intent_f1,
+            "constraint_satisfaction": constraint_satisfaction,
+            "evidence_coverage": evidence_coverage,
+            "feedback_recovery": feedback_recovery,
+        }
         return EvaluationRunSummary(
             run_id=run_id,
-            metrics={
-                "task_type_accuracy": task_accuracy,
-                "intent_slot_f1": intent_f1,
-                "constraint_satisfaction": constraint_satisfaction,
-                "evidence_coverage": evidence_coverage,
-                "feedback_recovery": feedback_recovery,
-            },
+            metrics=metrics,
+            readiness=self._readiness_report(metrics, failures),
             case_failures=failures,
         )
 
@@ -129,6 +162,37 @@ class EvaluationService:
                     }
                 )
         return correct / len(self._golden_cases) if self._golden_cases else 0.0
+
+    def _status_expectations(
+        self,
+        responses: list[tuple[GoldenCase, ChatTurnResponse]],
+        failures: list[dict[str, Any]],
+    ) -> None:
+        for case, response in responses:
+            if case.expected_status and response.status != case.expected_status:
+                failures.append(
+                    {
+                        "metric": "status",
+                        "case_id": case.case_id,
+                        "message": case.message,
+                        "expected": case.expected_status,
+                        "actual": response.status,
+                    }
+                )
+
+    def _golden_case_coverage(self, failures: list[dict[str, Any]]) -> None:
+        missing = validate_golden_case_coverage(self._golden_cases)
+        if missing:
+            failures.append(
+                {
+                    "metric": "golden_case_coverage",
+                    "expected": sorted(REQUIRED_GOLDEN_SCENARIOS),
+                    "actual": sorted(
+                        case.scenario for case in self._golden_cases if case.scenario
+                    ),
+                    "missing": missing,
+                }
+            )
 
     def _intent_slot_f1(
         self,
@@ -258,3 +322,40 @@ class EvaluationService:
             else:
                 return None
         return current
+
+    def _readiness_report(
+        self,
+        metrics: dict[str, float],
+        failures: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        actuals = {
+            **metrics,
+            "unsupported_claim_rate": round(1.0 - metrics["evidence_coverage"], 4),
+            "final_validation_violation_rate": round(1.0 - metrics["constraint_satisfaction"], 4),
+        }
+        gates: dict[str, dict[str, Any]] = {}
+        for name, rule in MVP_READINESS_THRESHOLDS.items():
+            actual = actuals[name]
+            threshold = float(rule["threshold"])
+            operator = str(rule["operator"])
+            passed = actual >= threshold if operator == ">=" else actual <= threshold
+            gates[name] = {
+                "actual": actual,
+                "operator": operator,
+                "threshold": threshold,
+                "passed": passed,
+            }
+
+        coverage_failures = [
+            failure for failure in failures if failure.get("metric") == "golden_case_coverage"
+        ]
+        gates["golden_case_coverage"] = {
+            "actual": "complete" if not coverage_failures else "missing",
+            "operator": "complete",
+            "threshold": sorted(REQUIRED_GOLDEN_SCENARIOS),
+            "passed": not coverage_failures,
+        }
+        return {
+            "passed": all(gate["passed"] for gate in gates.values()),
+            "gates": gates,
+        }

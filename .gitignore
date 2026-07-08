@@ -24,4 +24,9 @@ frontend/dist/
 .pytest_cache/
 frontend/.vite/
 frontend/coverage/
+frontend/test-results/
 frontend/tsconfig.tsbuildinfo
+
+# Local/generated data
+data/raw/
+data/catalog/

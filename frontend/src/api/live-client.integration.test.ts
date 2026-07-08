@@ -23,6 +23,10 @@ liveTest("liveApiClient reads internal trace and evaluation contracts", async ()
   const replay = await liveApiClient.replayTurn("turn_001");
   const product = await liveApiClient.getProduct("prod_headphones_001");
   const session = await liveApiClient.getSession("sess_live_contract");
+  const readiness = await liveApiClient.getCatalogReadiness();
+  const datasetReadiness = await liveApiClient.getEvaluationDatasetReadiness();
+  const profileReadiness = await liveApiClient.getProfileReadiness();
+  const indexReadiness = await liveApiClient.getVectorIndexReadiness();
 
   expect(trace.turn_id).toBe("turn_001");
   expect(trace.task_route.task_type).toBe("single_item_recommendation");
@@ -36,4 +40,12 @@ liveTest("liveApiClient reads internal trace and evaluation contracts", async ()
   expect(replay.stages).toContain("respond");
   expect(product.product_id).toBe("prod_headphones_001");
   expect(session.session_id).toBe("sess_live_contract");
+  expect(readiness.ready).toBe(false);
+  expect(readiness.errors.some((error) => error.includes("normalized catalog"))).toBe(true);
+  expect(datasetReadiness.ready).toBe(false);
+  expect(datasetReadiness.path).toContain("task_cases.jsonl");
+  expect(profileReadiness.ready).toBe(false);
+  expect(profileReadiness.profiles_path).toContain("user_profiles.jsonl");
+  expect(indexReadiness.ready).toBe(false);
+  expect(indexReadiness.index_path).toContain("product_index.jsonl");
 });

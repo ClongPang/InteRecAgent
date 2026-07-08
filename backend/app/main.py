@@ -6,16 +6,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.app.schemas import (
+    CatalogReadinessResponse,
     ChatRequest,
     ChatTurnResponse,
     ErrorResponse,
+    EvaluationDatasetReadinessResponse,
     HealthResponse,
     ProductRecommendation,
+    ProfileReadinessResponse,
     ReplayResult,
     SessionState,
+    VectorIndexReadinessResponse,
 )
+from backend.app.data_pipeline.catalog_readiness import check_catalog_readiness
+from backend.app.data_pipeline.profile_readiness import check_profile_readiness
+from backend.app.data_pipeline.vector_index_readiness import check_vector_index_readiness
 from backend.app.services.chat_orchestrator import ChatOrchestrator
 from backend.app.services.evaluation_service import EvaluationService
+from backend.app.services.evaluation_dataset_readiness import check_task_case_readiness
 from backend.app.services.product_store import ProductStore
 from backend.app.services.replay_runner import ReplayRunner
 from backend.app.services.session_state import SessionStateManager
@@ -140,6 +148,29 @@ def run_evaluation():
 @app.get("/api/evaluation/runs/{run_id}")
 def get_evaluation_run(run_id: str):
     return evaluation_service.run(run_id=run_id)
+
+
+@app.get("/api/internal/catalog/readiness", response_model=CatalogReadinessResponse)
+def get_catalog_readiness() -> CatalogReadinessResponse:
+    return CatalogReadinessResponse.model_validate(check_catalog_readiness().to_dict())
+
+
+@app.get(
+    "/api/internal/evaluation/dataset/readiness",
+    response_model=EvaluationDatasetReadinessResponse,
+)
+def get_evaluation_dataset_readiness() -> EvaluationDatasetReadinessResponse:
+    return EvaluationDatasetReadinessResponse.model_validate(check_task_case_readiness().to_dict())
+
+
+@app.get("/api/internal/profiles/readiness", response_model=ProfileReadinessResponse)
+def get_profile_readiness() -> ProfileReadinessResponse:
+    return ProfileReadinessResponse.model_validate(check_profile_readiness().to_dict())
+
+
+@app.get("/api/internal/index/readiness", response_model=VectorIndexReadinessResponse)
+def get_vector_index_readiness() -> VectorIndexReadinessResponse:
+    return VectorIndexReadinessResponse.model_validate(check_vector_index_readiness().to_dict())
 
 
 @app.post("/api/internal/replay", response_model=ReplayResult)

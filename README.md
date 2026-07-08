@@ -22,11 +22,106 @@ uv run pytest
 
 The backend test suite covers API contracts, service behavior, session state, data pipeline normalization, evaluation metrics, and replay behavior.
 
+Run the combined MVP validation gate from the repository root:
+
+```bash
+python3 scripts/validate_mvp.py
+```
+
+Use `--skip-e2e` or `--skip-live-integration` when local port binding is unavailable. Add `--include-artifact-gate` after `data/catalog` has been built and readiness passes.
+Add `--generate-eval-cases` to create and validate the 100-300 labeled task evaluation set before running the normal gates.
+To build from local Amazon-style data and then run readiness plus the artifact gate in one pass:
+
+```bash
+python3 scripts/validate_mvp.py \
+  --metadata /path/to/meta.jsonl.gz \
+  --reviews /path/to/reviews.jsonl.gz \
+  --artifact-dir data/catalog \
+  --build-index \
+  --build-profiles
+```
+
 Run the API locally:
 
 ```bash
 uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
+
+Build local catalog artifacts from Amazon-style JSONL metadata and reviews:
+
+```bash
+uv run python -m backend.app.data_pipeline.catalog_builder \
+  --metadata /path/to/meta.jsonl.gz \
+  --reviews /path/to/reviews.jsonl.gz \
+  --output data/catalog \
+  --target-min 20000 \
+  --target-max 50000
+```
+
+The builder accepts plain `.jsonl` and gzipped `.jsonl.gz` files. It streams metadata rows, keeps only the capped target catalog in memory, and writes `normalized_catalog.jsonl`, `curated_demo_pool.jsonl`, and `quality_report.json`.
+When `data/catalog/normalized_catalog.jsonl` exists, the API loads it at startup; set `INTEREC_CATALOG_PATH=/path/to/normalized_catalog.jsonl` to test another artifact.
+
+Validate catalog readiness after building artifacts:
+
+```bash
+uv run python -m backend.app.data_pipeline.catalog_readiness \
+  --artifact-dir data/catalog \
+  --target-min 20000 \
+  --target-max 50000
+```
+
+The readiness check fails if required files are missing, product counts fall outside the target range, the demo pool is incomplete, or `quality_report.json` disagrees with the normalized catalog.
+
+Build and validate deterministic vector index artifacts:
+
+```bash
+uv run python -m backend.app.data_pipeline.vector_index_builder \
+  --catalog data/catalog/normalized_catalog.jsonl \
+  --output data/indexes
+
+uv run python -m backend.app.data_pipeline.vector_index_readiness \
+  --artifact-dir data/indexes
+```
+
+When `data/indexes/product_index.jsonl` exists, retrieval loads it at startup; set `INTEREC_INDEX_PATH=/path/to/product_index.jsonl` to test another index artifact.
+
+After readiness passes, verify the backend runtime against the generated artifact:
+
+```bash
+uv run pytest tests/integration/ -m "artifact"
+```
+
+Generate the larger labeled task evaluation set described in `docs/evaluation_plan.md`:
+
+```bash
+uv run python -m backend.app.services.evaluation_case_generator \
+  --output data/eval/task_cases.jsonl \
+  --count 140
+```
+
+Or include it in the combined validation gate:
+
+```bash
+python3 scripts/validate_mvp.py --generate-eval-cases
+```
+
+Build internal user profile artifacts from review behavior:
+
+```bash
+uv run python -m backend.app.data_pipeline.profile_builder \
+  --reviews /path/to/reviews.jsonl.gz \
+  --catalog data/catalog/normalized_catalog.jsonl \
+  --output data/profiles
+```
+
+Validate profile readiness:
+
+```bash
+uv run python -m backend.app.data_pipeline.profile_readiness \
+  --artifact-dir data/profiles
+```
+
+When `data/profiles/user_profiles.jsonl` exists, the API can use it as an internal weak ranking signal. Set `INTEREC_PROFILE_PATH=/path/to/user_profiles.jsonl` to test another artifact, then include `user_id` in `/api/chat` requests. Profile affinity is applied only after hard constraint filtering and appears in `score_breakdown.profile_affinity` plus `trace_summary.ranking_summary.profile_applied`.
 
 Optional live LLM settings can be placed in the ignored root `.env` file. Use an http(s) endpoint for `DeepSeek_BASE_URL`, keep the secret token in `DeepSeek_API_KEY`, and set `DeepSeek_MODEL` when overriding the default model.
 

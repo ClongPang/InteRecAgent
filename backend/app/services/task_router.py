@@ -15,6 +15,7 @@ class TaskRoute:
 UNSUPPORTED_TERMS = ("buy", "checkout", "shipping", "in stock", "stock today", "payment")
 NEGATIVE_TERMS = ("too expensive", "avoid", "don't want", "do not want", "not this brand")
 ALTERNATIVE_TERMS = ("alternative", "similar", "cheaper", "another one")
+BUNDLE_TERMS = ("bundle", "starter kit", "set of")
 
 
 class TaskRouter:
@@ -30,4 +31,6 @@ class TaskRouter:
             return TaskRoute("comparison", 0.78, "message asks to compare candidates")
         if "gift" in lower_message:
             return TaskRoute("gift_recommendation", 0.72, "message asks for gift recommendation")
+        if any(term in lower_message for term in BUNDLE_TERMS):
+            return TaskRoute("bundle_recommendation", 0.72, "message asks for a bundle")
         return TaskRoute("single_item_recommendation", 0.86, "default catalog recommendation task")

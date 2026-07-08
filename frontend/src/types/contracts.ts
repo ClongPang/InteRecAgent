@@ -151,6 +151,7 @@ export interface ChatTurnResponse {
 
 export interface ChatRequest {
   session_id?: string | null;
+  user_id?: string | null;
   message: string;
   turn_id?: string | null;
   feedback_text?: string | null;
@@ -174,7 +175,53 @@ export interface EvaluationRunSummary {
   run_id: string;
   timestamp: string;
   metrics: Record<string, number>;
+  readiness?: {
+    passed: boolean;
+    gates: Record<string, Record<string, unknown>>;
+  };
   case_failures: Array<Record<string, unknown>>;
+}
+
+export interface CatalogReadinessResponse {
+  ready: boolean;
+  catalog_path: string;
+  demo_pool_path: string;
+  quality_report_path: string;
+  product_count: number;
+  demo_pool_count: number;
+  scale_status: string;
+  errors: string[];
+  warnings: string[];
+  quality_report: Record<string, unknown>;
+}
+
+export interface EvaluationDatasetReadinessResponse {
+  ready: boolean;
+  path: string;
+  case_count: number;
+  labels: string[];
+  errors: string[];
+  warnings: string[];
+}
+
+export interface ProfileReadinessResponse {
+  ready: boolean;
+  profiles_path: string;
+  summary_path: string;
+  profile_count: number;
+  errors: string[];
+  warnings: string[];
+  summary: Record<string, unknown>;
+}
+
+export interface VectorIndexReadinessResponse {
+  ready: boolean;
+  index_path: string;
+  manifest_path: string;
+  product_count: number;
+  errors: string[];
+  warnings: string[];
+  manifest: Record<string, unknown>;
 }
 
 export interface InternalTrace {

@@ -153,6 +153,7 @@ class TraceSummary(BaseModel):
 
 class ChatRequest(BaseModel):
     session_id: str | None = None
+    user_id: str | None = None
     message: str
     turn_id: str | None = None
     feedback_text: str | None = None
@@ -206,7 +207,50 @@ class EvaluationRunSummary(BaseModel):
     run_id: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metrics: dict[str, float]
+    readiness: dict[str, Any] = Field(default_factory=dict)
     case_failures: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class CatalogReadinessResponse(BaseModel):
+    ready: bool
+    catalog_path: str
+    demo_pool_path: str
+    quality_report_path: str
+    product_count: int = 0
+    demo_pool_count: int = 0
+    scale_status: str = "missing"
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    quality_report: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvaluationDatasetReadinessResponse(BaseModel):
+    ready: bool
+    path: str
+    case_count: int = 0
+    labels: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ProfileReadinessResponse(BaseModel):
+    ready: bool
+    profiles_path: str
+    summary_path: str
+    profile_count: int = 0
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class VectorIndexReadinessResponse(BaseModel):
+    ready: bool
+    index_path: str
+    manifest_path: str
+    product_count: int = 0
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    manifest: dict[str, Any] = Field(default_factory=dict)
 
 
 class ReplayResult(BaseModel):

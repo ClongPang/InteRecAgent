@@ -34,6 +34,44 @@ function makeSlowClient(): ApiClient {
       metrics: {},
       case_failures: []
     }),
+    getCatalogReadiness: async () => ({
+      ready: false,
+      catalog_path: "data/catalog/normalized_catalog.jsonl",
+      demo_pool_path: "data/catalog/curated_demo_pool.jsonl",
+      quality_report_path: "data/catalog/quality_report.json",
+      product_count: 0,
+      demo_pool_count: 0,
+      scale_status: "missing",
+      errors: [],
+      warnings: [],
+      quality_report: {}
+    }),
+    getEvaluationDatasetReadiness: async () => ({
+      ready: false,
+      path: "data/eval/task_cases.jsonl",
+      case_count: 0,
+      labels: [],
+      errors: [],
+      warnings: []
+    }),
+    getProfileReadiness: async () => ({
+      ready: false,
+      profiles_path: "data/profiles/user_profiles.jsonl",
+      summary_path: "data/profiles/profile_summary.json",
+      profile_count: 0,
+      errors: [],
+      warnings: [],
+      summary: {}
+    }),
+    getVectorIndexReadiness: async () => ({
+      ready: false,
+      index_path: "data/indexes/product_index.jsonl",
+      manifest_path: "data/indexes/index_manifest.json",
+      product_count: 0,
+      errors: [],
+      warnings: [],
+      manifest: {}
+    }),
     getInternalTrace: async () => ({
       turn_id: "turn_001",
       session_id: "sess_demo",

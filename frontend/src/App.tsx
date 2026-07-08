@@ -6,11 +6,15 @@ import {
   recommendationFixture
 } from "./test/fixtures/chat";
 import type {
+  CatalogReadinessResponse,
   ChatRequest,
   ChatTurnResponse,
+  EvaluationDatasetReadinessResponse,
   ProductRecommendation,
+  ProfileReadinessResponse,
   ReplayResult,
-  SessionState
+  SessionState,
+  VectorIndexReadinessResponse
 } from "./types/contracts";
 import "./App.css";
 
@@ -695,6 +699,10 @@ function InternalTrace({ client }: { client: ApiClient }) {
 
 function EvaluationDashboard({ client }: { client: ApiClient }) {
   const [metricsData, setMetricsData] = useState(evaluationFixture);
+  const [catalogReadiness, setCatalogReadiness] = useState<CatalogReadinessResponse | null>(null);
+  const [taskCaseReadiness, setTaskCaseReadiness] = useState<EvaluationDatasetReadinessResponse | null>(null);
+  const [profileReadiness, setProfileReadiness] = useState<ProfileReadinessResponse | null>(null);
+  const [indexReadiness, setIndexReadiness] = useState<VectorIndexReadinessResponse | null>(null);
   const [runInput, setRunInput] = useState(evaluationFixture.run_id);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -705,6 +713,64 @@ function EvaluationDashboard({ client }: { client: ApiClient }) {
         setRunInput(run.run_id);
       })
       .catch(() => setMetricsData(evaluationFixture));
+    client
+      .getCatalogReadiness()
+      .then(setCatalogReadiness)
+      .catch(() => {
+        setCatalogReadiness({
+          ready: false,
+          catalog_path: "unknown",
+          demo_pool_path: "unknown",
+          quality_report_path: "unknown",
+          product_count: 0,
+          demo_pool_count: 0,
+          scale_status: "unavailable",
+          errors: ["Catalog readiness could not be loaded."],
+          warnings: [],
+          quality_report: {}
+        });
+      });
+    client
+      .getEvaluationDatasetReadiness()
+      .then(setTaskCaseReadiness)
+      .catch(() => {
+        setTaskCaseReadiness({
+          ready: false,
+          path: "unknown",
+          case_count: 0,
+          labels: [],
+          errors: ["Task case readiness could not be loaded."],
+          warnings: []
+        });
+      });
+    client
+      .getProfileReadiness()
+      .then(setProfileReadiness)
+      .catch(() => {
+        setProfileReadiness({
+          ready: false,
+          profiles_path: "unknown",
+          summary_path: "unknown",
+          profile_count: 0,
+          errors: ["Profile readiness could not be loaded."],
+          warnings: [],
+          summary: {}
+        });
+      });
+    client
+      .getVectorIndexReadiness()
+      .then(setIndexReadiness)
+      .catch(() => {
+        setIndexReadiness({
+          ready: false,
+          index_path: "unknown",
+          manifest_path: "unknown",
+          product_count: 0,
+          errors: ["Vector index readiness could not be loaded."],
+          warnings: [],
+          manifest: {}
+        });
+      });
   }, [client]);
   const metrics = useMemo(() => Object.entries(metricsData.metrics), [metricsData]);
 
@@ -726,6 +792,104 @@ function EvaluationDashboard({ client }: { client: ApiClient }) {
     <main className="internal-page">
       <h1>Evaluation dashboard</h1>
       {error && <p role="alert">{error}</p>}
+      <section aria-label="Catalog readiness" className="notice">
+        <h2>Catalog readiness</h2>
+        {catalogReadiness ? (
+          <>
+            <p>{catalogReadiness.ready ? "Ready" : "Not ready"}</p>
+            <dl>
+              <dt>Products</dt>
+              <dd>{catalogReadiness.product_count}</dd>
+              <dt>Demo pool</dt>
+              <dd>{catalogReadiness.demo_pool_count}</dd>
+              <dt>Scale</dt>
+              <dd>{catalogReadiness.scale_status}</dd>
+              <dt>Catalog</dt>
+              <dd>{catalogReadiness.catalog_path}</dd>
+            </dl>
+            {catalogReadiness.errors.length > 0 && (
+              <ul>
+                {catalogReadiness.errors.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
+          </>
+        ) : (
+          <p>Loading catalog readiness</p>
+        )}
+      </section>
+      <section aria-label="Task case readiness" className="notice">
+        <h2>Task case readiness</h2>
+        {taskCaseReadiness ? (
+          <>
+            <p>{taskCaseReadiness.ready ? "Ready" : "Not ready"}</p>
+            <dl>
+              <dt>Cases</dt>
+              <dd>{taskCaseReadiness.case_count}</dd>
+              <dt>Labels</dt>
+              <dd>{taskCaseReadiness.labels.join(", ") || "none"}</dd>
+              <dt>Path</dt>
+              <dd>{taskCaseReadiness.path}</dd>
+            </dl>
+            {taskCaseReadiness.errors.length > 0 && (
+              <ul>
+                {taskCaseReadiness.errors.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
+          </>
+        ) : (
+          <p>Loading task case readiness</p>
+        )}
+      </section>
+      <section aria-label="Profile readiness" className="notice">
+        <h2>Profile readiness</h2>
+        {profileReadiness ? (
+          <>
+            <p>{profileReadiness.ready ? "Ready" : "Not ready"}</p>
+            <dl>
+              <dt>Profiles</dt>
+              <dd>{profileReadiness.profile_count}</dd>
+              <dt>Path</dt>
+              <dd>{profileReadiness.profiles_path}</dd>
+            </dl>
+            {profileReadiness.errors.length > 0 && (
+              <ul>
+                {profileReadiness.errors.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
+          </>
+        ) : (
+          <p>Loading profile readiness</p>
+        )}
+      </section>
+      <section aria-label="Vector index readiness" className="notice">
+        <h2>Vector index readiness</h2>
+        {indexReadiness ? (
+          <>
+            <p>{indexReadiness.ready ? "Ready" : "Not ready"}</p>
+            <dl>
+              <dt>Indexed products</dt>
+              <dd>{indexReadiness.product_count}</dd>
+              <dt>Path</dt>
+              <dd>{indexReadiness.index_path}</dd>
+            </dl>
+            {indexReadiness.errors.length > 0 && (
+              <ul>
+                {indexReadiness.errors.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
+          </>
+        ) : (
+          <p>Loading vector index readiness</p>
+        )}
+      </section>
       <form className="trace-selector" aria-label="Evaluation run selector" onSubmit={submitRunLookup}>
         <label htmlFor="evaluation-run-id">Run ID</label>
         <input
@@ -739,6 +903,32 @@ function EvaluationDashboard({ client }: { client: ApiClient }) {
         </button>
       </form>
       <p>Run: {metricsData.run_id}</p>
+      <section aria-label="MVP readiness">
+        <h2>MVP readiness</h2>
+        <p>{metricsData.readiness?.passed ? "Passed" : "Not passed"}</p>
+        {metricsData.readiness?.gates && (
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Gate</th>
+                <th scope="col">Actual</th>
+                <th scope="col">Threshold</th>
+                <th scope="col">Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(metricsData.readiness.gates).map(([name, gate]) => (
+                <tr key={name}>
+                  <th scope="row">{name}</th>
+                  <td>{String(gate.actual ?? "")}</td>
+                  <td>{`${String(gate.operator ?? "")} ${String(gate.threshold ?? "")}`}</td>
+                  <td>{gate.passed ? "Pass" : "Fail"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
       <section aria-label="Evaluation metrics">
         {metrics.map(([name, value]) => (
           <div className="metric" key={name}>

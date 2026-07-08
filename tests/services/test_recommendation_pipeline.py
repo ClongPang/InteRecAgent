@@ -4,12 +4,14 @@ from backend.app.services.constraint_verifier import ConstraintVerifier
 from backend.app.services.feedback_updater import FeedbackUpdater
 from backend.app.services.intent_parser import IntentParser
 from backend.app.services.product_store import ProductStore
+from backend.app.services.profile_store import ProfileStore
+from backend.app.services.ranker import RuleRanker
 from backend.app.services.retriever import Retriever
 from backend.app.services.task_router import TaskRouter
 
 
 def test_constraint_verifier_excludes_budget_violations_and_marks_unknown_price():
-    store = ProductStore()
+    store = ProductStore(load_default_artifact=False)
     route = TaskRouter().route("Recommend wireless headphones under 100 dollars")
     intent = IntentParser().parse("Recommend wireless headphones under 100 dollars", route)
     candidates = Retriever(store).retrieve(intent)
@@ -22,7 +24,7 @@ def test_constraint_verifier_excludes_budget_violations_and_marks_unknown_price(
 
 
 def test_feedback_updater_adds_anchor_brand_to_negative_preferences():
-    store = ProductStore()
+    store = ProductStore(load_default_artifact=False)
     anchor = store.get("prod_headphones_001")
     intent = IntentParser().parse(
         "Recommend wireless headphones",
@@ -36,7 +38,7 @@ def test_feedback_updater_adds_anchor_brand_to_negative_preferences():
 
 
 def test_feedback_updater_lowers_budget_to_anchor_price_for_cheaper_feedback():
-    store = ProductStore()
+    store = ProductStore(load_default_artifact=False)
     anchor = store.get("prod_headphones_001")
     intent = IntentParser().parse(
         "Recommend wireless headphones under 100 dollars",
@@ -96,3 +98,51 @@ def test_chat_orchestrator_can_skip_clarification_when_limit_is_reached():
     assert response.trace_summary.clarification_decision["reason"] == (
         "clarification limit reached; recommending from available catalog evidence"
     )
+
+
+def test_rule_ranker_applies_profile_affinity_without_restoring_violations():
+    store = ProductStore(load_default_artifact=False)
+    route = TaskRouter().route("Recommend wireless headphones under 100 dollars")
+    intent = IntentParser().parse("Recommend wireless headphones under 100 dollars", route)
+    intent.long_term_profile = {
+        "user_id": "U_PROFILE",
+        "preferred_categories": [{"category": "Wireless Headphones", "count": 3}],
+        "positive_product_ids": ["prod_headphones_002"],
+        "negative_product_ids": [],
+    }
+    candidates = Retriever(store).retrieve(intent)
+    verified = ConstraintVerifier().verify(candidates, intent)
+    safe = ConstraintVerifier().final_validate(verified)
+
+    ranked = RuleRanker().rank(safe, intent)
+
+    assert "prod_headphones_003" not in [product.product_id for product in ranked]
+    boosted = next(product for product in ranked if product.product_id == "prod_headphones_002")
+    assert boosted.score_breakdown["profile_affinity"] > 0
+
+
+def test_chat_orchestrator_uses_user_profile_for_ranking_trace():
+    orchestrator = ChatOrchestrator(
+        product_store=ProductStore(load_default_artifact=False),
+        profile_store=ProfileStore(
+            profiles={
+                "U_PROFILE": {
+                    "user_id": "U_PROFILE",
+                    "preferred_categories": [{"category": "Wireless Headphones", "count": 3}],
+                    "positive_product_ids": ["prod_headphones_002"],
+                    "negative_product_ids": [],
+                }
+            }
+        ),
+    )
+
+    response = orchestrator.run(
+        ChatRequest(
+            user_id="U_PROFILE",
+            message="Recommend compact portable wireless headphones",
+        )
+    )
+
+    assert response.intent_state.long_term_profile["user_id"] == "U_PROFILE"
+    assert response.trace_summary.ranking_summary["profile_applied"] is True
+    assert any(product.score_breakdown["profile_affinity"] > 0 for product in response.products)

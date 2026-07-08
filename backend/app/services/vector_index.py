@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import json
+import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from backend.app.schemas import IntentState, ProductRecommendation
 
 
 TOKEN_RE = re.compile(r"[a-z0-9]+")
+DEFAULT_VECTOR_INDEX_ARTIFACT_PATH = Path("data/indexes/product_index.jsonl")
 
 
 def product_embedding_text(product: ProductRecommendation) -> str:
@@ -38,18 +42,61 @@ def tokenize(text: str) -> set[str]:
     return set(TOKEN_RE.findall(text.lower()))
 
 
+def default_vector_index_artifact_path() -> Path:
+    configured_path = os.getenv("INTEREC_INDEX_PATH")
+    return Path(configured_path) if configured_path else DEFAULT_VECTOR_INDEX_ARTIFACT_PATH
+
+
 @dataclass(frozen=True)
 class VectorIndexHit:
     product_id: str
     score: float
 
 
+def product_index_row(product: ProductRecommendation) -> dict[str, object]:
+    return {
+        "product_id": product.product_id,
+        "tokens": sorted(tokenize(product_embedding_text(product))),
+    }
+
+
+def load_vector_index_artifact(path: Path | str) -> dict[str, set[str]]:
+    index_path = Path(path)
+    vectors: dict[str, set[str]] = {}
+    with index_path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+                product_id = str(row["product_id"])
+                tokens = row["tokens"]
+                if not isinstance(tokens, list):
+                    raise ValueError("tokens must be a list")
+                vectors[product_id] = {str(token) for token in tokens}
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise ValueError(f"Invalid vector index artifact at {index_path}:{line_number}") from exc
+    return vectors
+
+
 class DeterministicVectorIndex:
-    def __init__(self, products: list[ProductRecommendation]) -> None:
-        self._vectors = {
-            product.product_id: tokenize(product_embedding_text(product))
-            for product in products
-        }
+    def __init__(
+        self,
+        products: list[ProductRecommendation] | None = None,
+        vectors: dict[str, set[str]] | None = None,
+    ) -> None:
+        if vectors is not None:
+            self._vectors = vectors
+        else:
+            self._vectors = {
+                product.product_id: tokenize(product_embedding_text(product))
+                for product in products or []
+            }
+        self.product_count = len(self._vectors)
+
+    @classmethod
+    def from_artifact(cls, path: Path | str) -> "DeterministicVectorIndex":
+        return cls(vectors=load_vector_index_artifact(path))
 
     def search(self, query: str, top_k: int = 10) -> list[VectorIndexHit]:
         query_tokens = tokenize(query)

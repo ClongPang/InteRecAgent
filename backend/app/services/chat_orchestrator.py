@@ -13,6 +13,7 @@ from backend.app.services.feedback_updater import FeedbackUpdater
 from backend.app.services.intent_parser import IntentParser
 from backend.app.services.llm_reranker import LLMReranker
 from backend.app.services.product_store import ProductStore
+from backend.app.services.profile_store import ProfileStore
 from backend.app.services.ranker import RuleRanker
 from backend.app.services.response_generator import GroundedResponseGenerator
 from backend.app.services.retriever import Retriever
@@ -20,8 +21,13 @@ from backend.app.services.task_router import TaskRouter
 
 
 class ChatOrchestrator:
-    def __init__(self, product_store: ProductStore | None = None) -> None:
+    def __init__(
+        self,
+        product_store: ProductStore | None = None,
+        profile_store: ProfileStore | None = None,
+    ) -> None:
         self.product_store = product_store or ProductStore()
+        self.profile_store = profile_store or ProfileStore()
         self.task_router = TaskRouter()
         self.intent_parser = IntentParser()
         self.feedback_updater = FeedbackUpdater()
@@ -38,6 +44,9 @@ class ChatOrchestrator:
         message = request.feedback_text or request.message
         route = self.task_router.route(message, request.feedback_type)
         intent = self.intent_parser.parse(message, route)
+        profile = self.profile_store.get(request.user_id)
+        if profile:
+            intent.long_term_profile = profile
         feedback_update: dict[str, object] | None = None
         if request.feedback_text or request.feedback_type:
             anchor = (
@@ -113,6 +122,8 @@ class ChatOrchestrator:
             ranking_summary={
                 "top_score": ranked[0].score_breakdown["total"] if ranked else 0,
                 "ranker": "rule_ranker",
+                "profile_applied": bool(profile),
+                "profile_source": self.profile_store.source if profile else None,
             },
             rerank_summary=rerank_summary,
             evidence_sources=sorted(

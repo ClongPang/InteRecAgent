@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from backend.app.schemas import EvidenceItem, ProductRecommendation
 
 
@@ -89,9 +92,48 @@ CATALOG_PRODUCTS = [
 ]
 
 
+DEFAULT_CATALOG_ARTIFACT_PATH = Path("data/catalog/normalized_catalog.jsonl")
+
+
+def default_catalog_artifact_path() -> Path:
+    configured_path = os.getenv("INTEREC_CATALOG_PATH")
+    return Path(configured_path) if configured_path else DEFAULT_CATALOG_ARTIFACT_PATH
+
+
+def load_catalog_artifact(path: Path | str) -> list[ProductRecommendation]:
+    catalog_path = Path(path)
+    products: list[ProductRecommendation] = []
+    with catalog_path.open("r", encoding="utf-8") as catalog_file:
+        for line_number, line in enumerate(catalog_file, start=1):
+            if not line.strip():
+                continue
+            try:
+                products.append(ProductRecommendation.model_validate_json(line))
+            except ValueError as exc:
+                raise ValueError(f"Invalid catalog artifact at {catalog_path}:{line_number}") from exc
+    return products
+
+
 class ProductStore:
-    def __init__(self, products: list[ProductRecommendation] | None = None) -> None:
-        self._products = products or CATALOG_PRODUCTS
+    def __init__(
+        self,
+        products: list[ProductRecommendation] | None = None,
+        catalog_path: Path | str | None = None,
+        load_default_artifact: bool = True,
+    ) -> None:
+        if products is not None:
+            self._products = products
+            self.source = "injected"
+            return
+
+        artifact_path = Path(catalog_path) if catalog_path else default_catalog_artifact_path()
+        if load_default_artifact and artifact_path.exists():
+            self._products = load_catalog_artifact(artifact_path)
+            self.source = str(artifact_path)
+            return
+
+        self._products = CATALOG_PRODUCTS
+        self.source = "demo_fixture"
 
     def get(self, product_id: str) -> ProductRecommendation | None:
         for product in self._products:

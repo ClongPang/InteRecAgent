@@ -2,6 +2,10 @@ from fastapi.testclient import TestClient
 
 from backend.app import main
 from backend.app.main import app
+from backend.app.schemas import ChatRequest
+from backend.app.services.chat_orchestrator import ChatOrchestrator
+from backend.app.services.product_store import ProductStore
+from backend.app.services.profile_store import ProfileStore
 
 
 client = TestClient(app)
@@ -123,6 +127,72 @@ def test_product_lookup_and_not_found_error_shape():
     }
 
 
+def test_api_can_use_catalog_artifact_for_product_lookup_and_chat(monkeypatch, tmp_path):
+    catalog_path = tmp_path / "normalized_catalog.jsonl"
+    catalog_path.write_text(
+        "\n".join(
+            [
+                '{"product_id":"artifact_mouse_001","title":"Artifact Quiet Office Mouse","brand":"DeskLab","price":29.99,"category_path":["Electronics","Mouse"],"leaf_category":"Wireless Mouse","matched_tags":["quiet","office"],"evidence":[{"source":"review","product_id":"artifact_mouse_001","text":"Reviewers mention quiet office use."}],"rank":0}',
+                '{"product_id":"artifact_headphones_001","title":"Artifact Wireless Headphones","brand":"SoundLab","price":79.99,"category_path":["Electronics","Headphones"],"leaf_category":"Wireless Headphones","matched_tags":["wireless"],"evidence":[{"source":"review","product_id":"artifact_headphones_001","text":"Reviewers mention wireless commute use."}],"rank":0}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    artifact_store = ProductStore(catalog_path=catalog_path)
+    monkeypatch.setattr(main, "product_store", artifact_store)
+    monkeypatch.setattr(main, "chat_orchestrator", ChatOrchestrator(product_store=artifact_store))
+
+    local_client = TestClient(app)
+    found = local_client.get("/api/products/artifact_mouse_001")
+    chat_response = local_client.post(
+        "/api/chat",
+        json=ChatRequest(
+            session_id="sess_artifact_catalog",
+            message="Recommend a quiet office mouse",
+        ).model_dump(),
+    )
+
+    assert found.status_code == 200
+    assert found.json()["title"] == "Artifact Quiet Office Mouse"
+    assert chat_response.status_code == 200
+    assert chat_response.json()["products"][0]["product_id"] == "artifact_mouse_001"
+
+
+def test_api_uses_user_profile_when_user_id_is_provided(monkeypatch):
+    artifact_store = ProductStore(load_default_artifact=False)
+    profile_store = ProfileStore(
+        profiles={
+            "U_PROFILE": {
+                "user_id": "U_PROFILE",
+                "preferred_categories": [{"category": "Wireless Headphones", "count": 2}],
+                "positive_product_ids": ["prod_headphones_002"],
+                "negative_product_ids": [],
+            }
+        }
+    )
+    monkeypatch.setattr(main, "product_store", artifact_store)
+    monkeypatch.setattr(
+        main,
+        "chat_orchestrator",
+        ChatOrchestrator(product_store=artifact_store, profile_store=profile_store),
+    )
+
+    local_client = TestClient(app)
+    response = local_client.post(
+        "/api/chat",
+        json={
+            "user_id": "U_PROFILE",
+            "message": "Recommend compact portable wireless headphones",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["intent_state"]["long_term_profile"]["user_id"] == "U_PROFILE"
+    assert body["trace_summary"]["ranking_summary"]["profile_applied"] is True
+
+
 def test_validation_error_uses_stable_error_shape():
     response = client.post("/api/chat", json={"session_id": "sess_missing_message"})
 
@@ -178,7 +248,8 @@ def test_evaluation_runner_returns_five_metrics():
     response = client.post("/api/evaluation/run")
 
     assert response.status_code == 200
-    metrics = response.json()["metrics"]
+    body = response.json()
+    metrics = body["metrics"]
     assert set(metrics) == {
         "task_type_accuracy",
         "intent_slot_f1",
@@ -186,6 +257,8 @@ def test_evaluation_runner_returns_five_metrics():
         "evidence_coverage",
         "feedback_recovery",
     }
+    assert body["readiness"]["gates"]["task_type_accuracy"]["threshold"] == 0.95
+    assert "unsupported_claim_rate" in body["readiness"]["gates"]
 
 
 def test_evaluation_run_lookup_returns_requested_run_id():
@@ -195,3 +268,47 @@ def test_evaluation_run_lookup_returns_requested_run_id():
     body = response.json()
     assert body["run_id"] == "eval_lookup"
     assert body["metrics"]["task_type_accuracy"] > 0
+
+
+def test_catalog_readiness_endpoint_reports_current_artifact_status():
+    response = client.get("/api/internal/catalog/readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is False
+    assert body["scale_status"] == "missing"
+    assert body["product_count"] == 0
+    assert any("normalized catalog is missing" in error for error in body["errors"])
+
+
+def test_evaluation_dataset_readiness_endpoint_reports_current_case_status():
+    response = client.get("/api/internal/evaluation/dataset/readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is False
+    assert body["path"] == "data/eval/task_cases.jsonl"
+    assert body["case_count"] == 0
+    assert any("task case file is missing" in error for error in body["errors"])
+
+
+def test_profile_readiness_endpoint_reports_current_artifact_status():
+    response = client.get("/api/internal/profiles/readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is False
+    assert body["profile_count"] == 0
+    assert body["profiles_path"] == "data/profiles/user_profiles.jsonl"
+    assert any("user profiles are missing" in error for error in body["errors"])
+
+
+def test_vector_index_readiness_endpoint_reports_current_artifact_status():
+    response = client.get("/api/internal/index/readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is False
+    assert body["product_count"] == 0
+    assert body["index_path"] == "data/indexes/product_index.jsonl"
+    assert any("vector index is missing" in error for error in body["errors"])

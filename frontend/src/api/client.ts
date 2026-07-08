@@ -1,13 +1,17 @@
 import type {
   ChatRequest,
   ChatTurnResponse,
+  CatalogReadinessResponse,
   ErrorResponse,
+  EvaluationDatasetReadinessResponse,
   EvaluationRunSummary,
   HealthResponse,
   InternalTrace,
   ProductRecommendation,
+  ProfileReadinessResponse,
   ReplayResult,
-  SessionState
+  SessionState,
+  VectorIndexReadinessResponse
 } from "../types/contracts";
 import {
   clarificationFixture,
@@ -29,6 +33,10 @@ export interface ApiClient {
   getSession(sessionId: string): Promise<SessionState>;
   runEvaluation(): Promise<EvaluationRunSummary>;
   getEvaluationRun(runId: string): Promise<EvaluationRunSummary>;
+  getCatalogReadiness(): Promise<CatalogReadinessResponse>;
+  getEvaluationDatasetReadiness(): Promise<EvaluationDatasetReadinessResponse>;
+  getProfileReadiness(): Promise<ProfileReadinessResponse>;
+  getVectorIndexReadiness(): Promise<VectorIndexReadinessResponse>;
   getInternalTrace(turnId: string): Promise<InternalTrace>;
   replayTurn(turnId: string): Promise<ReplayResult>;
 }
@@ -107,6 +115,18 @@ export const liveApiClient: ApiClient = {
   getEvaluationRun(runId) {
     return getJson<EvaluationRunSummary>(`/api/evaluation/runs/${encodeURIComponent(runId)}`);
   },
+  getCatalogReadiness() {
+    return getJson<CatalogReadinessResponse>("/api/internal/catalog/readiness");
+  },
+  getEvaluationDatasetReadiness() {
+    return getJson<EvaluationDatasetReadinessResponse>("/api/internal/evaluation/dataset/readiness");
+  },
+  getProfileReadiness() {
+    return getJson<ProfileReadinessResponse>("/api/internal/profiles/readiness");
+  },
+  getVectorIndexReadiness() {
+    return getJson<VectorIndexReadinessResponse>("/api/internal/index/readiness");
+  },
   getInternalTrace(turnId) {
     return getJson<InternalTrace>(`/api/internal/traces/${encodeURIComponent(turnId)}`);
   },
@@ -170,6 +190,52 @@ export const mockApiClient: ApiClient = {
     return {
       ...evaluationFixture,
       run_id: runId
+    };
+  },
+  async getCatalogReadiness() {
+    return {
+      ready: false,
+      catalog_path: "data/catalog/normalized_catalog.jsonl",
+      demo_pool_path: "data/catalog/curated_demo_pool.jsonl",
+      quality_report_path: "data/catalog/quality_report.json",
+      product_count: 0,
+      demo_pool_count: 0,
+      scale_status: "missing",
+      errors: ["normalized catalog is missing: data/catalog/normalized_catalog.jsonl"],
+      warnings: [],
+      quality_report: {}
+    };
+  },
+  async getEvaluationDatasetReadiness() {
+    return {
+      ready: false,
+      path: "data/eval/task_cases.jsonl",
+      case_count: 0,
+      labels: [],
+      errors: ["task case file is missing: data/eval/task_cases.jsonl"],
+      warnings: []
+    };
+  },
+  async getProfileReadiness() {
+    return {
+      ready: false,
+      profiles_path: "data/profiles/user_profiles.jsonl",
+      summary_path: "data/profiles/profile_summary.json",
+      profile_count: 0,
+      errors: ["user profiles are missing: data/profiles/user_profiles.jsonl"],
+      warnings: [],
+      summary: {}
+    };
+  },
+  async getVectorIndexReadiness() {
+    return {
+      ready: false,
+      index_path: "data/indexes/product_index.jsonl",
+      manifest_path: "data/indexes/index_manifest.json",
+      product_count: 0,
+      errors: ["vector index is missing: data/indexes/product_index.jsonl"],
+      warnings: [],
+      manifest: {}
     };
   },
   async getInternalTrace(turnId) {

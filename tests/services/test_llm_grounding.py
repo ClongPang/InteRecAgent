@@ -135,7 +135,7 @@ class OrderedAdapter:
 
 
 def test_llm_reranker_does_not_restore_hard_constraint_violations():
-    store = ProductStore()
+    store = ProductStore(load_default_artifact=False)
     route = TaskRouter().route("Recommend wireless headphones under 100 dollars")
     intent = IntentParser().parse("Recommend wireless headphones under 100 dollars", route)
     retrieved = Retriever(store).retrieve(intent)
@@ -149,7 +149,7 @@ def test_llm_reranker_does_not_restore_hard_constraint_violations():
 
 
 def test_grounded_response_generator_attaches_supported_and_unknown_claims():
-    store = ProductStore()
+    store = ProductStore(load_default_artifact=False)
     products = [store.get("prod_headphones_001"), store.get("prod_headphones_002")]
     assert products[0] is not None
     assert products[1] is not None

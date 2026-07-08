@@ -19,3 +19,7 @@ dev = [
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+markers = [
+  "artifact: requires generated catalog artifacts under data/catalog",
+  "integration: cross-module integration checks",
+]
