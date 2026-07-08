@@ -10,9 +10,9 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "vitest run src/App.test.tsx",
+    "test:e2e": "vitest run src/App.responsive.test.tsx",
     "test:integration": "VITE_API_BASE_URL=http://127.0.0.1:8000 VITE_RUN_LIVE_INTEGRATION=true vitest run src/api/live-client.integration.test.ts",
-    "test:a11y": "vitest run src/App.test.tsx"
+    "test:a11y": "vitest run src/App.a11y.test.tsx"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.2",

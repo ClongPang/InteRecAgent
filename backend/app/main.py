@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from backend.app.schemas import (
     ChatRequest,
     ChatTurnResponse,
+    ErrorResponse,
     HealthResponse,
     ProductRecommendation,
     ReplayResult,
@@ -14,6 +17,7 @@ from backend.app.schemas import (
 from backend.app.services.chat_orchestrator import ChatOrchestrator
 from backend.app.services.evaluation_service import EvaluationService
 from backend.app.services.product_store import ProductStore
+from backend.app.services.replay_runner import ReplayRunner
 from backend.app.services.session_state import SessionStateManager
 from backend.app.services.trace_logger import trace_store
 
@@ -23,6 +27,7 @@ product_store = ProductStore()
 chat_orchestrator = ChatOrchestrator(product_store=product_store)
 evaluation_service = EvaluationService()
 session_state = SessionStateManager()
+replay_runner = ReplayRunner()
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,6 +38,29 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(HTTPException)
+def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
+    if isinstance(exc.detail, dict) and {"code", "message", "details"}.issubset(exc.detail):
+        error = ErrorResponse.model_validate(exc.detail)
+    else:
+        error = ErrorResponse(
+            code="http_error",
+            message=str(exc.detail),
+            details={"status_code": exc.status_code},
+        )
+    return JSONResponse(status_code=exc.status_code, content=error.model_dump())
+
+
+@app.exception_handler(RequestValidationError)
+def validation_exception_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
+    error = ErrorResponse(
+        code="request_validation_error",
+        message="Request failed validation.",
+        details={"errors": exc.errors()},
+    )
+    return JSONResponse(status_code=422, content=error.model_dump())
+
+
 @app.get("/api/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse()
@@ -40,7 +68,9 @@ def health() -> HealthResponse:
 
 @app.post("/api/chat", response_model=ChatTurnResponse)
 def chat(request: ChatRequest) -> ChatTurnResponse:
-    response = chat_orchestrator.run(request)
+    session_id = request.session_id or "sess_demo"
+    allow_clarification = len(session_state.clarification_turns(session_id)) < 3
+    response = chat_orchestrator.run(request, allow_clarification=allow_clarification)
     trace_store.write_from_response(request.message, response)
     session_state.record_turn(request, response)
     return response
@@ -93,8 +123,4 @@ def get_evaluation_run(run_id: str):
 
 @app.post("/api/internal/replay", response_model=ReplayResult)
 def replay_turn(turn_id: str = "turn_001") -> ReplayResult:
-    return ReplayResult(
-        turn_id=turn_id,
-        replayed=True,
-        stages=["route", "intent", "retrieve", "verify", "rank", "respond"],
-    )
+    return replay_runner.replay(trace_store.read(turn_id), turn_id)

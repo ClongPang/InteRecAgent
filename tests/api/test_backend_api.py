@@ -30,7 +30,15 @@ def test_chat_returns_recommendations_and_writes_trace():
 
     trace_response = client.get(f"/api/internal/traces/{body['turn_id']}")
     assert trace_response.status_code == 200
-    assert trace_response.json()["task_route"]["task_type"] == "single_item_recommendation"
+    trace = trace_response.json()
+    assert trace["task_route"]["task_type"] == "single_item_recommendation"
+    assert trace["filtering"]["input_count"] == body["trace_summary"]["retrieved_count"]
+    assert trace["filtering"]["output_count"] == body["trace_summary"]["filtered_count"]
+    assert trace["filtering"]["unknown_constraints"][0]["product_id"] == "prod_headphones_002"
+
+    replay_response = client.post(f"/api/internal/replay?turn_id={body['turn_id']}")
+    assert replay_response.status_code == 200
+    assert "filter" in replay_response.json()["stages"]
 
     session_response = client.get("/api/sessions/sess_api_recommend")
     assert session_response.status_code == 200
@@ -46,6 +54,27 @@ def test_chat_returns_clarification_for_ambiguous_work_request():
     body = response.json()
     assert body["status"] == "clarification_required"
     assert body["clarification"]["allow_recommend_anyway"] is True
+
+
+def test_chat_stops_clarifying_after_three_turns_for_same_session():
+    session_id = "sess_api_clarification_limit"
+    responses = [
+        client.post(
+            "/api/chat",
+            json={"session_id": session_id, "message": "I need something for work"},
+        ).json()
+        for _ in range(4)
+    ]
+
+    assert [response["status"] for response in responses[:3]] == [
+        "clarification_required",
+        "clarification_required",
+        "clarification_required",
+    ]
+    assert responses[3]["status"] == "recommendations_ready"
+    assert responses[3]["trace_summary"]["clarification_decision"]["reason"] == (
+        "clarification limit reached; recommending from available catalog evidence"
+    )
 
 
 def test_chat_returns_unsupported_for_live_commerce_request():
@@ -86,7 +115,21 @@ def test_product_lookup_and_not_found_error_shape():
 
     missing = client.get("/api/products/missing")
     assert missing.status_code == 404
-    assert missing.json()["detail"]["code"] == "product_not_found"
+    assert missing.json() == {
+        "code": "product_not_found",
+        "message": "Product was not found in the demo catalog.",
+        "details": {"product_id": "missing"},
+    }
+
+
+def test_validation_error_uses_stable_error_shape():
+    response = client.post("/api/chat", json={"session_id": "sess_missing_message"})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "request_validation_error"
+    assert body["message"] == "Request failed validation."
+    assert body["details"]["errors"][0]["loc"] == ["body", "message"]
 
 
 def test_evaluation_runner_returns_five_metrics():
@@ -101,3 +144,12 @@ def test_evaluation_runner_returns_five_metrics():
         "evidence_coverage",
         "feedback_recovery",
     }
+
+
+def test_evaluation_run_lookup_returns_requested_run_id():
+    response = client.get("/api/evaluation/runs/eval_lookup")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["run_id"] == "eval_lookup"
+    assert body["metrics"]["task_type_accuracy"] > 0

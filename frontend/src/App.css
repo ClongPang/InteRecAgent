@@ -67,6 +67,20 @@ button:disabled {
   margin: 0 0 4px;
 }
 
+.system-status {
+  color: #526173;
+  font-size: 0.86rem;
+  margin-bottom: 0;
+}
+
+.system-status.ok {
+  color: #11643a;
+}
+
+.system-status.error {
+  color: #9d1c1c;
+}
+
 h1,
 h2,
 h3,
@@ -115,6 +129,13 @@ p {
 .product-list {
   display: grid;
   gap: 12px;
+}
+
+.empty-state {
+  border: 1px dashed #b8c2cf;
+  border-radius: 8px;
+  color: #526173;
+  padding: 14px;
 }
 
 .product-card {
@@ -185,6 +206,27 @@ p {
   padding: 12px;
 }
 
+.clarification-answer {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: 12px;
+}
+
+.clarification-answer label {
+  grid-column: 1 / -1;
+  font-weight: 600;
+}
+
+.clarification-answer input {
+  border: 1px solid #b8c2cf;
+  border-radius: 6px;
+  min-height: 40px;
+  padding: 0 10px;
+  width: 100%;
+}
+
 .drawer {
   border: 1px solid #b8c2cf;
   border-radius: 8px;
@@ -209,6 +251,57 @@ p {
   margin: 0;
 }
 
+.comparison {
+  border: 1px solid #d8dee7;
+  border-radius: 8px;
+  margin-top: 12px;
+  overflow-x: auto;
+  padding: 14px;
+}
+
+table {
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  min-width: 640px;
+  width: 100%;
+}
+
+th,
+td {
+  border-bottom: 1px solid #d8dee7;
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  color: #1c2430;
+  font-weight: 700;
+}
+
+.stage-list {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin: 14px 0;
+}
+
+.stage-item {
+  border: 1px solid #d8dee7;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.stage-item h2 {
+  font-size: 1rem;
+}
+
+.stage-item code {
+  color: #526173;
+  display: block;
+  overflow-wrap: anywhere;
+}
+
 .composer {
   align-items: end;
   display: grid;
@@ -217,17 +310,27 @@ p {
   margin-top: 14px;
 }
 
-.composer label {
+.composer label,
+.trace-selector label {
   grid-column: 1 / -1;
   font-weight: 600;
 }
 
-.composer input {
+.composer input,
+.trace-selector input {
   border: 1px solid #b8c2cf;
   border-radius: 6px;
   min-height: 40px;
   padding: 0 10px;
   width: 100%;
+}
+
+.trace-selector {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin: 14px 0;
 }
 
 .workflow-panel dl {
@@ -279,7 +382,12 @@ pre {
     grid-template-columns: 72px minmax(0, 1fr);
   }
 
-  .composer {
+  .composer,
+  .trace-selector {
+    grid-template-columns: 1fr;
+  }
+
+  .clarification-answer {
     grid-template-columns: 1fr;
   }
 }

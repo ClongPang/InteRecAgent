@@ -16,6 +16,12 @@ export type ChatTurnStatus =
 
 export type ConstraintStatus = "satisfied" | "violated" | "unknown";
 
+export interface HealthResponse {
+  status: "ok";
+  service: string;
+  version: string;
+}
+
 export interface Budget {
   max: number | null;
   currency: string;
@@ -58,6 +64,14 @@ export interface EvidenceItem {
   product_id?: string | null;
 }
 
+export interface ClaimEvidenceRecord {
+  claim: string;
+  product_id?: string | null;
+  evidence_type: "metadata" | "review" | "rating" | "profile" | "unknown";
+  evidence_text?: string | null;
+  supported: boolean;
+}
+
 export interface ConstraintCheck {
   field: string;
   status: ConstraintStatus;
@@ -83,6 +97,7 @@ export interface ProductRecommendation {
   score_breakdown?: Record<string, number>;
   rank_reason?: string | null;
   rank: number;
+  claim_evidence?: ClaimEvidenceRecord[];
 }
 
 export interface ClarificationPayload {
@@ -143,6 +158,18 @@ export interface ChatRequest {
   anchor_product_id?: string | null;
 }
 
+export interface SessionState {
+  session_id: string;
+  messages: Array<Record<string, string>>;
+  current_intent: IntentState;
+}
+
+export interface ErrorResponse {
+  code: string;
+  message: string;
+  details: Record<string, unknown>;
+}
+
 export interface EvaluationRunSummary {
   run_id: string;
   timestamp: string;
@@ -161,6 +188,7 @@ export interface InternalTrace {
   feedback_update: Record<string, unknown>;
   clarification: Record<string, unknown>;
   retrieval: Record<string, unknown>;
+  filtering: Record<string, unknown>;
   constraint_checks: Array<Record<string, unknown>>;
   ranking: Record<string, unknown>;
   llm_rerank: Record<string, unknown>;
@@ -168,4 +196,10 @@ export interface InternalTrace {
   response: Record<string, unknown>;
   latency_ms: Record<string, number>;
   errors: Array<Record<string, unknown>>;
+}
+
+export interface ReplayResult {
+  turn_id: string;
+  replayed: boolean;
+  stages: string[];
 }

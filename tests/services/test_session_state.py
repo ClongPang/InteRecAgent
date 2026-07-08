@@ -20,6 +20,17 @@ def test_session_state_records_messages_intent_and_history():
     assert manager.recommendation_turns("sess_state") == [response.turn_id]
 
 
+def test_session_state_records_clarification_turns():
+    manager = SessionStateManager()
+    request = ChatRequest(session_id="sess_clarify", message="I need something for work")
+    response = ChatOrchestrator().run(request)
+
+    manager.record_turn(request, response)
+
+    assert response.status == "clarification_required"
+    assert manager.clarification_turns("sess_clarify") == [response.turn_id]
+
+
 def test_session_state_records_feedback_events():
     manager = SessionStateManager()
     request = ChatRequest(

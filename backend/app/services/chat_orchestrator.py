@@ -11,8 +11,10 @@ from backend.app.services.clarification_policy import ClarificationPolicy
 from backend.app.services.constraint_verifier import ConstraintVerifier
 from backend.app.services.feedback_updater import FeedbackUpdater
 from backend.app.services.intent_parser import IntentParser
+from backend.app.services.llm_reranker import LLMReranker
 from backend.app.services.product_store import ProductStore
 from backend.app.services.ranker import RuleRanker
+from backend.app.services.response_generator import GroundedResponseGenerator
 from backend.app.services.retriever import Retriever
 from backend.app.services.task_router import TaskRouter
 
@@ -27,8 +29,10 @@ class ChatOrchestrator:
         self.retriever = Retriever(self.product_store)
         self.constraint_verifier = ConstraintVerifier()
         self.ranker = RuleRanker()
+        self.llm_reranker = LLMReranker()
+        self.response_generator = GroundedResponseGenerator()
 
-    def run(self, request: ChatRequest) -> ChatTurnResponse:
+    def run(self, request: ChatRequest, allow_clarification: bool = True) -> ChatTurnResponse:
         session_id = request.session_id or "sess_demo"
         turn_id = request.turn_id or "turn_001"
         message = request.feedback_text or request.message
@@ -55,7 +59,7 @@ class ChatOrchestrator:
         should_clarify, clarification, clarification_reason = self.clarification_policy.decide(
             intent, message
         )
-        if should_clarify:
+        if should_clarify and allow_clarification:
             trace_summary = TraceSummary(
                 turn_id=turn_id,
                 task_type=route.task_type,
@@ -84,6 +88,10 @@ class ChatOrchestrator:
         verified = self.constraint_verifier.verify(retrieved, intent)
         safe_candidates = self.constraint_verifier.final_validate(verified)
         ranked = self.ranker.rank(safe_candidates, intent)
+        reranked, rerank_summary = self.llm_reranker.rerank(ranked, intent)
+        response_message, grounded_products, _claims = self.response_generator.generate(
+            intent, reranked, feedback_update
+        )
         trace_summary = TraceSummary(
             turn_id=turn_id,
             task_type=route.task_type,
@@ -92,30 +100,35 @@ class ChatOrchestrator:
                 "budget": intent.budget.model_dump() if intent.budget else None,
                 "negative_preferences": intent.negative_preferences,
             },
-            clarification_decision={"should_clarify": False},
+            clarification_decision={
+                "should_clarify": False,
+                "reason": (
+                    "clarification limit reached; recommending from available catalog evidence"
+                    if should_clarify and not allow_clarification
+                    else clarification_reason
+                ),
+            },
             retrieved_count=len(retrieved),
             filtered_count=len(retrieved) - len(safe_candidates),
             ranking_summary={
                 "top_score": ranked[0].score_breakdown["total"] if ranked else 0,
                 "ranker": "rule_ranker",
             },
-            rerank_summary={"mode": "mock", "changed_order": False},
-            evidence_sources=sorted({item.source for product in ranked for item in product.evidence}),
+            rerank_summary=rerank_summary,
+            evidence_sources=sorted(
+                {item.source for product in grounded_products for item in product.evidence}
+            ),
             feedback_update=feedback_update,
-            warnings=self._warnings(ranked),
+            warnings=self._warnings(grounded_products),
         )
         return ChatTurnResponse(
             session_id=session_id,
             turn_id=turn_id,
             status="recommendations_ready",
             task_type=route.task_type,
-            message=(
-                "I updated the recommendations based on your feedback."
-                if feedback_update
-                else "I found catalog-backed recommendations that match your request."
-            ),
+            message=response_message,
             intent_state=intent,
-            products=ranked,
+            products=grounded_products,
             trace_summary=trace_summary,
             suggested_actions=[
                 SuggestedAction(
@@ -123,7 +136,7 @@ class ChatOrchestrator:
                     action_type="feedback",
                     payload={
                         "feedback_type": "price",
-                        "anchor_product_id": ranked[0].product_id if ranked else None,
+                        "anchor_product_id": grounded_products[0].product_id if grounded_products else None,
                     },
                 ),
                 SuggestedAction(
@@ -131,7 +144,7 @@ class ChatOrchestrator:
                     action_type="feedback",
                     payload={
                         "feedback_type": "brand",
-                        "anchor_product_id": ranked[0].product_id if ranked else None,
+                        "anchor_product_id": grounded_products[0].product_id if grounded_products else None,
                     },
                 ),
             ],

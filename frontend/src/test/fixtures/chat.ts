@@ -50,7 +50,16 @@ export const recommendationFixture: ChatTurnResponse = {
       constraint_checks: [{ field: "price", status: "satisfied", reason: "79.99 <= 100" }],
       score_breakdown: { intent_match: 0.84, price_fit: 0.9, evidence: 0.72 },
       rank_reason: "Best balance of comfort evidence, commute fit, and budget.",
-      rank: 1
+      rank: 1,
+      claim_evidence: [
+        {
+          claim: "AeroLite Wireless Commuter Headphones has supporting review evidence.",
+          product_id: "prod_headphones_001",
+          evidence_type: "review",
+          evidence_text: "Reviewers repeatedly mention light weight and comfortable long-wear fit.",
+          supported: true
+        }
+      ]
     },
     {
       product_id: "prod_headphones_002",
@@ -76,7 +85,16 @@ export const recommendationFixture: ChatTurnResponse = {
       ],
       score_breakdown: { intent_match: 0.68, price_fit: 0, evidence: 0.2 },
       rank_reason: "Close match, but price and evidence are incomplete.",
-      rank: 2
+      rank: 2,
+      claim_evidence: [
+        {
+          claim: "MetroBeat Compact Wireless Headphones has unknown catalog price.",
+          product_id: "prod_headphones_002",
+          evidence_type: "unknown",
+          evidence_text: null,
+          supported: false
+        }
+      ]
     }
   ],
   trace_summary: {

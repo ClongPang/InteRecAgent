@@ -1,4 +1,4 @@
-import { createFeedbackRequest, mockApiClient } from "./client";
+import { ApiClientError, createFeedbackRequest, mockApiClient } from "./client";
 import { recommendationFixture } from "../test/fixtures/chat";
 
 test("createFeedbackRequest preserves turn and anchor context", () => {
@@ -19,9 +19,51 @@ test("createFeedbackRequest preserves turn and anchor context", () => {
   });
 });
 
+test("mockApiClient reads health contract", async () => {
+  const health = await mockApiClient.getHealth();
+
+  expect(health).toEqual({
+    status: "ok",
+    service: "InteRecAgent API",
+    version: "0.1.0"
+  });
+});
+
 test("mockApiClient returns unsupported fixture for live commerce requests", async () => {
   const response = await mockApiClient.chat({ message: "Can you buy it and check stock?" });
 
   expect(response.status).toBe("unsupported");
   expect(response.unsupported?.cannot_do).toContain("Checkout");
+});
+
+test("mockApiClient replays a turn with deterministic stages", async () => {
+  const result = await mockApiClient.replayTurn("turn_001");
+
+  expect(result.replayed).toBe(true);
+  expect(result.stages).toEqual(["route", "intent", "retrieve", "filter", "verify", "rank", "respond"]);
+});
+
+test("mockApiClient reads product and session contracts", async () => {
+  const product = await mockApiClient.getProduct("prod_headphones_001");
+  const session = await mockApiClient.getSession("sess_demo");
+
+  expect(product.title).toBe("AeroLite Wireless Commuter Headphones");
+  expect(session.session_id).toBe("sess_demo");
+  expect(session.current_intent.category).toBe("wireless headphones");
+});
+
+test("mockApiClient reads evaluation run by id", async () => {
+  const evaluation = await mockApiClient.getEvaluationRun("eval_selected");
+
+  expect(evaluation.run_id).toBe("eval_selected");
+  expect(evaluation.metrics.feedback_recovery).toBeGreaterThan(0);
+});
+
+test("mockApiClient exposes stable error details for missing products", async () => {
+  await expect(mockApiClient.getProduct("missing")).rejects.toMatchObject({
+    name: "ApiClientError",
+    status: 404,
+    code: "product_not_found",
+    details: { product_id: "missing" }
+  } satisfies Partial<ApiClientError>);
 });

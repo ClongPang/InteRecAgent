@@ -74,3 +74,17 @@ def test_chat_orchestrator_applies_brand_feedback_before_retrieval_results():
     assert "AeroLite" in response.intent_state.negative_preferences
     assert "prod_headphones_001" not in [product.product_id for product in response.products]
     assert response.trace_summary.feedback_update is not None
+
+
+def test_chat_orchestrator_can_skip_clarification_when_limit_is_reached():
+    response = ChatOrchestrator().run(
+        ChatRequest(message="I need something for work"),
+        allow_clarification=False,
+    )
+
+    assert response.status == "recommendations_ready"
+    assert response.clarification is None
+    assert response.products
+    assert response.trace_summary.clarification_decision["reason"] == (
+        "clarification limit reached; recommending from available catalog evidence"
+    )

@@ -33,6 +33,12 @@ class HealthResponse(BaseModel):
     version: str = "0.1.0"
 
 
+class ErrorResponse(BaseModel):
+    code: str
+    message: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
 class Budget(BaseModel):
     max: float | None = None
     currency: str = "USD"
@@ -75,6 +81,14 @@ class EvidenceItem(BaseModel):
     product_id: str | None = None
 
 
+class ClaimEvidenceRecord(BaseModel):
+    claim: str
+    product_id: str | None = None
+    evidence_type: Literal["metadata", "review", "rating", "profile", "unknown"]
+    evidence_text: str | None = None
+    supported: bool = False
+
+
 class ConstraintCheck(BaseModel):
     field: str
     status: ConstraintStatus
@@ -100,6 +114,7 @@ class ProductRecommendation(BaseModel):
     score_breakdown: dict[str, float] = Field(default_factory=dict)
     rank_reason: str | None = None
     rank: int
+    claim_evidence: list[ClaimEvidenceRecord] = Field(default_factory=list)
 
 
 class ClarificationPayload(BaseModel):
@@ -177,6 +192,7 @@ class InternalTrace(BaseModel):
     feedback_update: dict[str, Any] = Field(default_factory=dict)
     clarification: dict[str, Any] = Field(default_factory=dict)
     retrieval: dict[str, Any] = Field(default_factory=dict)
+    filtering: dict[str, Any] = Field(default_factory=dict)
     constraint_checks: list[dict[str, Any]] = Field(default_factory=list)
     ranking: dict[str, Any] = Field(default_factory=dict)
     llm_rerank: dict[str, Any] = Field(default_factory=dict)

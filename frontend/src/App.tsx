@@ -5,7 +5,7 @@ import {
   feedbackUpdatedFixture,
   recommendationFixture
 } from "./test/fixtures/chat";
-import type { ChatTurnResponse, ProductRecommendation } from "./types/contracts";
+import type { ChatRequest, ChatTurnResponse, ProductRecommendation, ReplayResult } from "./types/contracts";
 import "./App.css";
 
 interface AppProps {
@@ -85,9 +85,11 @@ function ProductCard({ product, onFeedback, onInspect }: {
   );
 }
 
-function ProductEvidenceDrawer({ product, onClose }: {
+function ProductEvidenceDrawer({ product, onClose, loading = false, error = "" }: {
   product: ProductRecommendation | null;
   onClose: () => void;
+  loading?: boolean;
+  error?: string;
 }) {
   if (!product) {
     return null;
@@ -98,6 +100,8 @@ function ProductEvidenceDrawer({ product, onClose }: {
         <h2>{product.title}</h2>
         <button type="button" onClick={onClose}>Close</button>
       </div>
+      {loading && <p className="warning" role="status">Loading full product facts...</p>}
+      {error && <p className="error" role="alert">{error}</p>}
       <dl>
         <dt>Brand</dt>
         <dd>{product.brand ?? "unknown"}</dd>
@@ -122,6 +126,18 @@ function ProductEvidenceDrawer({ product, onClose }: {
           <p>No unknown fields in the current payload.</p>
         )}
       </section>
+      {product.claim_evidence && product.claim_evidence.length > 0 && (
+        <section aria-label="Claim evidence">
+          <h3>Claim evidence</h3>
+          <ul>
+            {product.claim_evidence.map((claim) => (
+              <li key={claim.claim}>
+                {claim.supported ? "Supported" : "Unsupported"}: {claim.claim}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </aside>
   );
 }
@@ -158,8 +174,16 @@ function ClarificationBox({ turn, onAnswer }: {
   turn: ChatTurnResponse;
   onAnswer: (message: string) => void;
 }) {
+  const [freeAnswer, setFreeAnswer] = useState("");
   if (!turn.clarification) {
     return null;
+  }
+  function submitFreeAnswer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (freeAnswer.trim()) {
+      onAnswer(freeAnswer.trim());
+      setFreeAnswer("");
+    }
   }
   return (
     <section className="notice" aria-label="Clarification prompt">
@@ -173,7 +197,26 @@ function ClarificationBox({ turn, onAnswer }: {
         <button type="button" onClick={() => onAnswer("recommend anyway")}>
           Recommend anyway
         </button>
+        {turn.clarification.allow_skip && (
+          <button type="button" onClick={() => onAnswer("skip clarification")}>
+            Skip
+          </button>
+        )}
       </div>
+      {turn.clarification.allow_free_answer && (
+        <form className="clarification-answer" onSubmit={submitFreeAnswer}>
+          <label htmlFor="clarification-answer">Clarification answer</label>
+          <input
+            id="clarification-answer"
+            value={freeAnswer}
+            onChange={(event) => setFreeAnswer(event.target.value)}
+            placeholder="Type your own answer"
+          />
+          <button type="submit" disabled={freeAnswer.trim().length === 0}>
+            Submit answer
+          </button>
+        </form>
+      )}
     </section>
   );
 }
@@ -204,38 +247,128 @@ function WhatChanged({ turn }: { turn: ChatTurnResponse }) {
   );
 }
 
+function ProductComparisonTable({ products }: { products: ProductRecommendation[] }) {
+  const comparisonProducts = products.slice(0, 4);
+  if (comparisonProducts.length < 2) {
+    return null;
+  }
+  const suggestedProduct = comparisonProducts[0];
+  return (
+    <section className="comparison" aria-label="Product comparison">
+      <h2>Comparison</h2>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Product</th>
+            <th scope="col">Price</th>
+            <th scope="col">Constraint</th>
+            <th scope="col">Evidence</th>
+            <th scope="col">Unknowns</th>
+            <th scope="col">Suggested</th>
+          </tr>
+        </thead>
+        <tbody>
+          {comparisonProducts.map((product) => (
+            <tr key={product.product_id}>
+              <th scope="row">{product.title}</th>
+              <td>{formatPrice(product)}</td>
+              <td>{product.constraint_status}</td>
+              <td>{product.evidence.length > 0 ? `${product.evidence.length} source` : "Evidence missing"}</td>
+              <td>{product.uncertainties.length > 0 ? product.uncertainties.join(", ") : "None"}</td>
+              <td>{product.product_id === suggestedProduct.product_id ? "Suggested choice" : ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
 function ConsumerWorkspace({ client, initialTurn }: Required<Pick<AppProps, "client" | "initialTurn">>) {
   const [turn, setTurn] = useState(initialTurn);
+  const [healthLabel, setHealthLabel] = useState("Checking API");
+  const [healthStatus, setHealthStatus] = useState<"checking" | "ok" | "error">("checking");
   const [draft, setDraft] = useState("Show me something similar but cheaper");
   const [status, setStatus] = useState<"idle" | "submitting" | "error">("idle");
   const [error, setError] = useState("");
+  const [retryRequest, setRetryRequest] = useState<ChatRequest | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<ProductRecommendation | null>(null);
+  const [drawerStatus, setDrawerStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [drawerError, setDrawerError] = useState("");
 
-  async function submitMessage(message: string) {
+  useEffect(() => {
+    let isMounted = true;
+    client
+      .getHealth()
+      .then((health) => {
+        if (isMounted) {
+          setHealthLabel(`${health.service} · ${health.status}`);
+          setHealthStatus("ok");
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setHealthLabel("API status unavailable");
+          setHealthStatus("error");
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [client]);
+
+  async function submitChatRequest(request: ChatRequest, options: { clearDraftOnSuccess?: boolean } = {}) {
     setStatus("submitting");
     setError("");
+    setRetryRequest(request);
     try {
-      const nextTurn = await client.chat({ session_id: turn.session_id, message });
+      const nextTurn = await client.chat(request);
       setTurn(nextTurn);
-      setDraft("");
+      if (options.clearDraftOnSuccess) {
+        setDraft("");
+      }
       setStatus("idle");
+      setRetryRequest(null);
     } catch {
       setStatus("error");
       setError("We could not finish this recommendation. Try again.");
     }
   }
 
+  async function submitMessage(message: string) {
+    await submitChatRequest(
+      { session_id: turn.session_id, message },
+      { clearDraftOnSuccess: true }
+    );
+  }
+
   async function submitFeedback(text: string, type: string, productId: string) {
-    setStatus("submitting");
-    setError("");
-    try {
-      const nextTurn = await client.chat(createFeedbackRequest(turn, text, type, productId));
-      setTurn(nextTurn);
-      setStatus("idle");
-    } catch {
-      setStatus("error");
-      setError("We could not update recommendations from feedback.");
+    await submitChatRequest(createFeedbackRequest(turn, text, type, productId));
+  }
+
+  async function retryLastRequest() {
+    if (retryRequest) {
+      await submitChatRequest(retryRequest, { clearDraftOnSuccess: retryRequest.feedback_text == null });
     }
+  }
+
+  async function inspectProduct(product: ProductRecommendation) {
+    setSelectedProduct(product);
+    setDrawerStatus("loading");
+    setDrawerError("");
+    try {
+      setSelectedProduct(await client.getProduct(product.product_id));
+      setDrawerStatus("idle");
+    } catch {
+      setDrawerStatus("error");
+      setDrawerError("Full product facts could not be loaded. Showing current recommendation facts.");
+    }
+  }
+
+  function closeDrawer() {
+    setSelectedProduct(null);
+    setDrawerStatus("idle");
+    setDrawerError("");
   }
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -250,6 +383,9 @@ function ConsumerWorkspace({ client, initialTurn }: Required<Pick<AppProps, "cli
           <header>
             <p className="eyebrow">Catalog-backed shopping assistant</p>
             <h1>InteRecAgent</h1>
+            <p className={`system-status ${healthStatus}`} aria-label="System status">
+              {healthLabel}
+            </p>
           </header>
           <section className="thread" aria-label="Chat thread">
             <div className="bubble user">I need wireless headphones under $100 for commuting.</div>
@@ -260,21 +396,40 @@ function ConsumerWorkspace({ client, initialTurn }: Required<Pick<AppProps, "cli
               {loadingLabels.map((label) => <span key={label}>{label}</span>)}
             </section>
           )}
-          {error && <div className="error" role="alert">{error}</div>}
+          {error && (
+            <div className="error" role="alert">
+              <p>{error}</p>
+              <button type="button" onClick={retryLastRequest} disabled={status === "submitting" || !retryRequest}>
+                Retry
+              </button>
+            </div>
+          )}
           <ClarificationBox turn={turn} onAnswer={submitMessage} />
           <UnsupportedBox turn={turn} />
           <WhatChanged turn={turn} />
           <section className="product-list" aria-label="Recommendation results">
-            {turn.products.map((product) => (
-              <ProductCard
-                key={product.product_id}
-                product={product}
-                onFeedback={submitFeedback}
-                onInspect={setSelectedProduct}
-              />
-            ))}
+            {turn.products.length > 0 ? (
+              turn.products.map((product) => (
+                <ProductCard
+                  key={product.product_id}
+                  product={product}
+                  onFeedback={submitFeedback}
+                  onInspect={inspectProduct}
+                />
+              ))
+            ) : (
+              <div className="empty-state" role="status">
+                No recommendations to show yet.
+              </div>
+            )}
           </section>
-          <ProductEvidenceDrawer product={selectedProduct} onClose={() => setSelectedProduct(null)} />
+          <ProductComparisonTable products={turn.products} />
+          <ProductEvidenceDrawer
+            product={selectedProduct}
+            loading={drawerStatus === "loading"}
+            error={drawerError}
+            onClose={closeDrawer}
+          />
           <form className="composer" onSubmit={onSubmit}>
             <label htmlFor="message">Message</label>
             <input
@@ -296,18 +451,109 @@ function ConsumerWorkspace({ client, initialTurn }: Required<Pick<AppProps, "cli
 
 function InternalTrace({ client }: { client: ApiClient }) {
   const [trace, setTrace] = useState<Record<string, unknown> | null>(null);
+  const [turnInput, setTurnInput] = useState("turn_001");
+  const [replay, setReplay] = useState<ReplayResult | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
-    client
-      .getInternalTrace("turn_001")
-      .then((nextTrace) => setTrace(nextTrace as unknown as Record<string, unknown>))
-      .catch(() => setError("Trace could not be loaded."));
+    void loadTrace("turn_001");
   }, [client]);
+
+  async function loadTrace(turnId: string) {
+    setError("");
+    setReplay(null);
+    try {
+      const nextTrace = await client.getInternalTrace(turnId);
+      setTrace(nextTrace as unknown as Record<string, unknown>);
+      setTurnInput(turnId);
+    } catch {
+      setError("Trace could not be loaded.");
+    }
+  }
+
+  function submitTraceLookup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const turnId = turnInput.trim();
+    if (turnId) {
+      void loadTrace(turnId);
+    }
+  }
+
+  async function replayCurrentTurn() {
+    const turnId = String(trace?.turn_id ?? "turn_001");
+    setError("");
+    try {
+      setReplay(await client.replayTurn(turnId));
+    } catch {
+      setError("Replay could not be run.");
+    }
+  }
+
+  const traceErrors = Array.isArray(trace?.errors)
+    ? (trace.errors as Array<Record<string, unknown>>)
+    : [];
+
   return (
     <main className="internal-page">
       <h1>Internal Trace Console</h1>
       {error && <p role="alert">{error}</p>}
+      <form className="trace-selector" aria-label="Trace selector" onSubmit={submitTraceLookup}>
+        <label htmlFor="trace-turn-id">Turn ID</label>
+        <input
+          id="trace-turn-id"
+          value={turnInput}
+          onChange={(event) => setTurnInput(event.target.value)}
+          placeholder="turn_001"
+        />
+        <button type="submit" disabled={turnInput.trim().length === 0}>
+          Load trace
+        </button>
+      </form>
       <p>Turn: {String(trace?.turn_id ?? "loading")}</p>
+      <button type="button" onClick={replayCurrentTurn} disabled={!trace}>
+        Replay turn
+      </button>
+      {replay && (
+        <section aria-label="Replay result" className="notice">
+          <h2>Replay result</h2>
+          <p>{replay.replayed ? "Replay completed" : "Trace missing"}</p>
+          <p>Stages: {replay.stages.join(" -> ")}</p>
+        </section>
+      )}
+      {trace && (
+        <section aria-label="Trace stages" className="stage-list">
+          {[
+            ["Task route", trace.task_route],
+            ["Intent", trace.intent_after],
+            ["Retrieval", trace.retrieval],
+            ["Filtering", trace.filtering],
+            ["Validation", trace.final_validation],
+            ["Response", trace.response],
+          ].map(([label, value]) => (
+            <article className="stage-item" key={String(label)}>
+              <h2>{String(label)}</h2>
+              <code>{JSON.stringify(value)}</code>
+            </article>
+          ))}
+        </section>
+      )}
+      {trace && (
+        <section aria-label="Trace errors" className="notice">
+          <h2>Trace errors</h2>
+          {traceErrors.length > 0 ? (
+            <ul>
+              {traceErrors.map((traceError, index) => (
+                <li key={String(traceError.code ?? traceError.message ?? index)}>
+                  <strong>{String(traceError.code ?? `error_${index + 1}`)}</strong>
+                  {traceError.message ? `: ${String(traceError.message)}` : ""}
+                  {traceError.details ? ` (${JSON.stringify(traceError.details)})` : ""}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No trace errors</p>
+          )}
+        </section>
+      )}
       <pre aria-label="Raw trace JSON">{JSON.stringify(trace ?? { loading: true }, null, 2)}</pre>
     </main>
   );
@@ -315,13 +561,50 @@ function InternalTrace({ client }: { client: ApiClient }) {
 
 function EvaluationDashboard({ client }: { client: ApiClient }) {
   const [metricsData, setMetricsData] = useState(evaluationFixture);
+  const [runInput, setRunInput] = useState(evaluationFixture.run_id);
+  const [error, setError] = useState("");
   useEffect(() => {
-    client.runEvaluation().then(setMetricsData).catch(() => setMetricsData(evaluationFixture));
+    client
+      .runEvaluation()
+      .then((run) => {
+        setMetricsData(run);
+        setRunInput(run.run_id);
+      })
+      .catch(() => setMetricsData(evaluationFixture));
   }, [client]);
   const metrics = useMemo(() => Object.entries(metricsData.metrics), [metricsData]);
+
+  async function submitRunLookup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const runId = runInput.trim();
+    if (!runId) {
+      return;
+    }
+    setError("");
+    try {
+      setMetricsData(await client.getEvaluationRun(runId));
+    } catch {
+      setError("Evaluation run could not be loaded.");
+    }
+  }
+
   return (
     <main className="internal-page">
       <h1>Evaluation dashboard</h1>
+      {error && <p role="alert">{error}</p>}
+      <form className="trace-selector" aria-label="Evaluation run selector" onSubmit={submitRunLookup}>
+        <label htmlFor="evaluation-run-id">Run ID</label>
+        <input
+          id="evaluation-run-id"
+          value={runInput}
+          onChange={(event) => setRunInput(event.target.value)}
+          placeholder="eval_demo"
+        />
+        <button type="submit" disabled={runInput.trim().length === 0}>
+          Load run
+        </button>
+      </form>
+      <p>Run: {metricsData.run_id}</p>
       <section aria-label="Evaluation metrics">
         {metrics.map(([name, value]) => (
           <div className="metric" key={name}>
@@ -330,7 +613,31 @@ function EvaluationDashboard({ client }: { client: ApiClient }) {
           </div>
         ))}
       </section>
-      <p>Failure cases: {metricsData.case_failures.length}</p>
+      <section aria-label="Evaluation failures">
+        <h2>Case failures</h2>
+        {metricsData.case_failures.length > 0 ? (
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Case</th>
+                <th scope="col">Expected</th>
+                <th scope="col">Actual</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metricsData.case_failures.map((failure, index) => (
+                <tr key={String(failure.case_id ?? index)}>
+                  <th scope="row">{String(failure.case_id ?? `case_${index + 1}`)}</th>
+                  <td>{String(failure.expected ?? "")}</td>
+                  <td>{String(failure.actual ?? "")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p>No case failures</p>
+        )}
+      </section>
     </main>
   );
 }

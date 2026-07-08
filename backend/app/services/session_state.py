@@ -8,6 +8,7 @@ class SessionStateManager:
         self._sessions: dict[str, SessionState] = {}
         self._recommendation_history: dict[str, list[str]] = {}
         self._feedback_history: dict[str, list[dict[str, str | None]]] = {}
+        self._clarification_history: dict[str, list[str]] = {}
 
     def get(self, session_id: str) -> SessionState:
         return self._sessions.setdefault(session_id, SessionState(session_id=session_id))
@@ -19,6 +20,8 @@ class SessionStateManager:
         session.current_intent = response.intent_state
         if response.products:
             self._recommendation_history.setdefault(response.session_id, []).append(response.turn_id)
+        if response.status == "clarification_required":
+            self._clarification_history.setdefault(response.session_id, []).append(response.turn_id)
         if request.feedback_text or request.feedback_type:
             self._feedback_history.setdefault(response.session_id, []).append(
                 {
@@ -38,3 +41,6 @@ class SessionStateManager:
 
     def feedback_events(self, session_id: str) -> list[dict[str, str | None]]:
         return list(self._feedback_history.get(session_id, []))
+
+    def clarification_turns(self, session_id: str) -> list[str]:
+        return list(self._clarification_history.get(session_id, []))
