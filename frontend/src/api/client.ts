@@ -11,8 +11,10 @@ import type {
 } from "../types/contracts";
 import {
   clarificationFixture,
+  errorFixture,
   evaluationFixture,
   feedbackUpdatedFixture,
+  partialSupportFixture,
   recommendationFixture,
   unsupportedFixture
 } from "../test/fixtures/chat";
@@ -131,6 +133,12 @@ export const mockApiClient: ApiClient = {
     }
     if (message.includes("stock") || message.includes("buy") || message.includes("checkout")) {
       return unsupportedFixture;
+    }
+    if (message.includes("partial") || message.includes("unknown facts")) {
+      return partialSupportFixture;
+    }
+    if (message.includes("recoverable error")) {
+      return errorFixture;
     }
     return recommendationFixture;
   },

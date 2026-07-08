@@ -59,6 +59,14 @@ def test_chat_orchestrator_filters_hard_violations_and_returns_trace_summary():
     assert "prod_headphones_003" not in product_ids
     assert response.trace_summary.filtered_count == 1
     assert response.trace_summary.ranking_summary["ranker"] == "rule_ranker"
+    portable_action = next(
+        action for action in response.suggested_actions if action.label == "More portable"
+    )
+    assert portable_action.action_type == "feedback"
+    assert portable_action.payload == {
+        "feedback_type": "portable",
+        "anchor_product_id": response.products[0].product_id,
+    }
 
 
 def test_chat_orchestrator_applies_brand_feedback_before_retrieval_results():

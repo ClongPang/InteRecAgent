@@ -58,6 +58,7 @@ button:disabled {
   background: #ffffff;
   border: 1px solid #d8dee7;
   border-radius: 8px;
+  min-width: 0;
   padding: 18px;
 }
 
@@ -79,6 +80,43 @@ button:disabled {
 
 .system-status.error {
   color: #9d1c1c;
+}
+
+.session-restore {
+  border-top: 1px solid #d8dee7;
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.session-restore form {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.session-restore label {
+  grid-column: 1 / -1;
+  font-weight: 600;
+}
+
+.session-restore input {
+  border: 1px solid #b8c2cf;
+  border-radius: 6px;
+  min-height: 40px;
+  padding: 0 10px;
+  width: 100%;
+}
+
+.session-restore dl {
+  display: grid;
+  gap: 6px 10px;
+  grid-template-columns: 90px minmax(0, 1fr);
+  margin: 10px 0 0;
+}
+
+.session-restore dd {
+  margin: 0;
 }
 
 h1,
@@ -165,6 +203,27 @@ p {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.custom-feedback {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: 10px;
+}
+
+.custom-feedback label {
+  grid-column: 1 / -1;
+  font-weight: 600;
+}
+
+.custom-feedback input {
+  border: 1px solid #b8c2cf;
+  border-radius: 6px;
+  min-height: 40px;
+  padding: 0 10px;
+  width: 100%;
 }
 
 .status {
@@ -382,9 +441,29 @@ pre {
     grid-template-columns: 72px minmax(0, 1fr);
   }
 
+  .chat-results {
+    padding-bottom: 128px;
+  }
+
   .composer,
-  .trace-selector {
+  .trace-selector,
+  .custom-feedback,
+  .session-restore form {
     grid-template-columns: 1fr;
+  }
+
+  .composer {
+    background: #ffffff;
+    border: 1px solid #d8dee7;
+    border-radius: 8px 8px 0 0;
+    bottom: 0;
+    box-shadow: 0 -8px 24px rgba(28, 36, 48, 0.12);
+    left: 10px;
+    margin: 0;
+    padding: 12px;
+    position: fixed;
+    right: 10px;
+    z-index: 20;
   }
 
   .clarification-answer {

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from backend.app.schemas import ChatRequest, ChatTurnResponse
@@ -19,6 +21,9 @@ class GoldenCase:
     expected_feedback: dict[str, Any] = field(default_factory=dict)
     feedback_type: str | None = None
     anchor_product_id: str | None = None
+
+
+DEFAULT_GOLDEN_CASES_PATH = Path("data/eval/golden_cases.jsonl")
 
 
 GOLDEN_CASES = [
@@ -49,16 +54,30 @@ GOLDEN_CASES = [
 ]
 
 
+def load_golden_cases(path: Path | str = DEFAULT_GOLDEN_CASES_PATH) -> list[GoldenCase]:
+    golden_path = Path(path)
+    if not golden_path.exists():
+        return []
+    cases: list[GoldenCase] = []
+    with golden_path.open("r", encoding="utf-8") as case_file:
+        for line in case_file:
+            if not line.strip():
+                continue
+            cases.append(GoldenCase(**json.loads(line)))
+    return cases
+
+
 class EvaluationService:
     def __init__(
         self,
         task_router: TaskRouter | None = None,
         orchestrator: ChatOrchestrator | None = None,
         golden_cases: list[GoldenCase] | None = None,
+        golden_cases_path: Path | str = DEFAULT_GOLDEN_CASES_PATH,
     ) -> None:
         self._task_router = task_router or TaskRouter()
         self._orchestrator = orchestrator or ChatOrchestrator()
-        self._golden_cases = golden_cases or GOLDEN_CASES
+        self._golden_cases = golden_cases or load_golden_cases(golden_cases_path) or GOLDEN_CASES
 
     def run(self, run_id: str = "eval_demo") -> EvaluationRunSummary:
         responses = [

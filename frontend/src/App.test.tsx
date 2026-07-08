@@ -1,10 +1,12 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App";
 import type { ApiClient } from "./api/client";
 import {
   clarificationFixture,
+  errorFixture,
   feedbackUpdatedFixture,
+  partialSupportFixture,
   recommendationFixture,
   unsupportedFixture
 } from "./test/fixtures/chat";
@@ -99,6 +101,72 @@ test("renders degraded API health status when health check fails", async () => {
   expect(await screen.findByLabelText("System status")).toHaveTextContent("API status unavailable");
 });
 
+test("loads a session summary through API client", async () => {
+  const user = userEvent.setup();
+  const getSession = vi.fn(async (sessionId: string) => ({
+    session_id: sessionId,
+    messages: [
+      { role: "user", content: "Recommend wireless headphones." },
+      { role: "assistant", content: "I found catalog-backed recommendations." }
+    ],
+    current_intent: {
+      ...recommendationFixture.intent_state,
+      category: "wireless headphones"
+    }
+  }));
+  render(<App client={makeClient({ getSession })} initialTurn={recommendationFixture} path="/" />);
+
+  await user.clear(screen.getByLabelText("Session ID"));
+  await user.type(screen.getByLabelText("Session ID"), "sess_restore");
+  await user.click(screen.getByRole("button", { name: "Load session" }));
+
+  expect(getSession).toHaveBeenCalledWith("sess_restore");
+  expect(await screen.findByLabelText("Session summary")).toHaveTextContent("sess_restore");
+  expect(screen.getByLabelText("Session summary")).toHaveTextContent("2");
+  expect(screen.getByLabelText("Session summary")).toHaveTextContent("wireless headphones");
+});
+
+test("reports recoverable session restore errors", async () => {
+  const user = userEvent.setup();
+  const getSession = vi.fn(async () => {
+    throw new Error("offline");
+  });
+  render(<App client={makeClient({ getSession })} initialTurn={recommendationFixture} path="/" />);
+
+  await user.click(screen.getByRole("button", { name: "Load session" }));
+
+  expect(getSession).toHaveBeenCalledWith("sess_demo");
+  expect(await screen.findByRole("alert")).toHaveTextContent("Session summary could not be loaded.");
+});
+
+test("shows pipeline loading state while chat request is pending", async () => {
+  const user = userEvent.setup();
+  let resolveChat: (value: typeof recommendationFixture) => void = () => {};
+  const chat = vi.fn(
+    () =>
+      new Promise<typeof recommendationFixture>((resolve) => {
+        resolveChat = resolve;
+      })
+  );
+  render(<App client={makeClient({ chat })} initialTurn={recommendationFixture} path="/" />);
+
+  const input = screen.getByLabelText("Message");
+  await user.clear(input);
+  await user.type(input, "Need a quieter pair");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+
+  expect(screen.getByLabelText("Loading pipeline")).toHaveTextContent("Understanding request");
+  expect(screen.getByLabelText("Loading pipeline")).toHaveTextContent("Checking catalog");
+  expect(screen.getByLabelText("Loading pipeline")).toHaveTextContent("Verifying constraints");
+  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+
+  resolveChat(recommendationFixture);
+
+  await waitFor(() => expect(screen.queryByLabelText("Loading pipeline")).not.toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  expect(screen.getByLabelText("Message")).toHaveValue("");
+});
+
 test("submits feedback with anchor context and displays what changed", async () => {
   const user = userEvent.setup();
   const chat = vi.fn(async () => feedbackUpdatedFixture);
@@ -116,6 +184,44 @@ test("submits feedback with anchor context and displays what changed", async () 
     anchor_product_id: "prod_headphones_001"
   });
   expect(await screen.findByLabelText("What changed")).toHaveTextContent("price");
+});
+
+test("submits portable feedback with anchor context", async () => {
+  const user = userEvent.setup();
+  const chat = vi.fn(async () => feedbackUpdatedFixture);
+  render(<App client={makeClient({ chat })} initialTurn={recommendationFixture} path="/" />);
+
+  const firstCard = screen.getByLabelText("Recommendation 1: AeroLite Wireless Commuter Headphones");
+  await user.click(within(firstCard).getByRole("button", { name: "More portable" }));
+
+  expect(chat).toHaveBeenCalledWith({
+    session_id: "sess_demo",
+    turn_id: "turn_001",
+    message: "Need something more portable",
+    feedback_text: "Need something more portable",
+    feedback_type: "portable",
+    anchor_product_id: "prod_headphones_001"
+  });
+});
+
+test("submits custom feedback with anchor context", async () => {
+  const user = userEvent.setup();
+  const chat = vi.fn(async () => feedbackUpdatedFixture);
+  render(<App client={makeClient({ chat })} initialTurn={recommendationFixture} path="/" />);
+
+  const firstCard = screen.getByLabelText("Recommendation 1: AeroLite Wireless Commuter Headphones");
+  await user.type(within(firstCard).getByLabelText("Custom feedback"), "Need a softer headband");
+  await user.click(within(firstCard).getByRole("button", { name: "Send feedback" }));
+
+  expect(chat).toHaveBeenCalledWith({
+    session_id: "sess_demo",
+    turn_id: "turn_001",
+    message: "Need a softer headband",
+    feedback_text: "Need a softer headband",
+    feedback_type: "generic",
+    anchor_product_id: "prod_headphones_001"
+  });
+  expect(within(firstCard).getByLabelText("Custom feedback")).toHaveValue("");
 });
 
 test("keeps message draft and retries after chat error", async () => {
@@ -250,6 +356,27 @@ test("renders unsupported fallback without checkout claims", () => {
   expect(screen.getByLabelText("Unsupported request")).toHaveTextContent("Live commerce action");
   expect(screen.getByText(/Cannot do:/)).toHaveTextContent("Checkout");
   expect(screen.getByLabelText("Recommendation results")).toHaveTextContent("No recommendations to show yet.");
+});
+
+test("renders partial support fixture with unknown state", () => {
+  render(<App client={makeClient()} initialTurn={partialSupportFixture} path="/" />);
+
+  expect(screen.getByLabelText("Partial support")).toHaveTextContent("Some details are limited");
+  expect(screen.getByLabelText("Recommendation results")).toHaveTextContent("Price unknown");
+  expect(screen.getByLabelText("Agent workflow panel")).toHaveTextContent(
+    "Some requested facts are unavailable"
+  );
+});
+
+test("renders response-level error fixture without raw internals", () => {
+  render(<App client={makeClient()} initialTurn={errorFixture} path="/" />);
+
+  expect(screen.getByLabelText("Recommendation error")).toHaveTextContent(
+    "Recommendation could not be completed"
+  );
+  expect(screen.getByLabelText("Recommendation results")).toHaveTextContent("No recommendations to show yet.");
+  expect(screen.queryByText("stack")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Raw trace JSON")).not.toBeInTheDocument();
 });
 
 test("consumer route does not render raw internal trace", () => {

@@ -36,6 +36,20 @@ test("mockApiClient returns unsupported fixture for live commerce requests", asy
   expect(response.unsupported?.cannot_do).toContain("Checkout");
 });
 
+test("mockApiClient returns partial support fixture for unknown fact requests", async () => {
+  const response = await mockApiClient.chat({ message: "Recommend with partial unknown facts." });
+
+  expect(response.status).toBe("partial_support");
+  expect(response.products[0].constraint_status).toBe("unknown");
+});
+
+test("mockApiClient returns response-level error fixture for recoverable errors", async () => {
+  const response = await mockApiClient.chat({ message: "Trigger recoverable error fixture." });
+
+  expect(response.status).toBe("error");
+  expect(response.products).toEqual([]);
+});
+
 test("mockApiClient replays a turn with deterministic stages", async () => {
   const result = await mockApiClient.replayTurn("turn_001");
 

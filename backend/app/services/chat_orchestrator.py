@@ -147,6 +147,14 @@ class ChatOrchestrator:
                         "anchor_product_id": grounded_products[0].product_id if grounded_products else None,
                     },
                 ),
+                SuggestedAction(
+                    label="More portable",
+                    action_type="feedback",
+                    payload={
+                        "feedback_type": "portable",
+                        "anchor_product_id": grounded_products[0].product_id if grounded_products else None,
+                    },
+                ),
             ],
         )
 

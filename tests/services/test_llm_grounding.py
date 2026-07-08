@@ -56,6 +56,64 @@ def test_llm_adapter_live_mode_uses_openai_compatible_transport():
     assert plan.rationale == "live transport"
 
 
+def test_llm_adapter_live_mode_reads_model_from_dotenv(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("DeepSeek_MODEL=deepseek-v4-flash\n", encoding="utf-8")
+    captured_payload = {}
+
+    def fake_transport(payload):
+        captured_payload.update(payload)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"ordered_product_ids":[],"rationale":"dotenv model"}'
+                    }
+                }
+            ]
+        }
+
+    LLMAdapter(mode="live", transport=fake_transport).generate_json("rerank", RerankPlan)
+
+    assert captured_payload["model"] == "deepseek-v4-flash"
+
+
+def test_llm_adapter_post_live_reads_endpoint_and_key_from_dotenv(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "DeepSeek_BASE_URL=https://api.deepseek.example/v1\nDeepSeek_API_KEY=test_key\n",
+        encoding="utf-8",
+    )
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"choices":[{"message":{"content":"{}"}}]}'
+
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["auth"] = req.headers["Authorization"]
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("backend.app.services.llm_adapter.request.urlopen", fake_urlopen)
+
+    completion = LLMAdapter(mode="live")._post_live({"model": "deepseek-v4-flash"})
+
+    assert captured == {
+        "url": "https://api.deepseek.example/v1/chat/completions",
+        "auth": "Bearer test_key",
+        "timeout": 30,
+    }
+    assert completion["choices"][0]["message"]["content"] == "{}"
+
+
 def test_llm_adapter_live_mode_rejects_non_json_transport_output():
     adapter = LLMAdapter(
         mode="live",

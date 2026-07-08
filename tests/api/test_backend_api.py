@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from backend.app import main
 from backend.app.main import app
 
 
@@ -130,6 +131,47 @@ def test_validation_error_uses_stable_error_shape():
     assert body["code"] == "request_validation_error"
     assert body["message"] == "Request failed validation."
     assert body["details"]["errors"][0]["loc"] == ["body", "message"]
+
+
+def test_chat_pipeline_error_writes_internal_trace(monkeypatch):
+    def fail_run(*_args, **_kwargs):
+        raise RuntimeError("sensitive provider failure")
+
+    monkeypatch.setattr(main.chat_orchestrator, "run", fail_run)
+    local_client = TestClient(app, raise_server_exceptions=False)
+
+    response = local_client.post(
+        "/api/chat",
+        json={
+            "session_id": "sess_api_error_trace",
+            "turn_id": "turn_api_error_trace",
+            "message": "Recommend wireless headphones.",
+        },
+    )
+
+    assert response.status_code == 500
+    body = response.json()
+    assert body == {
+        "code": "chat_pipeline_error",
+        "message": "Chat pipeline failed before a safe response could be generated.",
+        "details": {
+            "turn_id": "turn_api_error_trace",
+            "session_id": "sess_api_error_trace",
+        },
+    }
+
+    trace_response = local_client.get("/api/internal/traces/turn_api_error_trace")
+    assert trace_response.status_code == 200
+    trace = trace_response.json()
+    assert trace["errors"] == [
+        {
+            "code": "chat_pipeline_error",
+            "message": "Chat pipeline failed before a safe response could be generated.",
+            "stage": "chat_orchestrator",
+        }
+    ]
+    assert trace["response"]["status"] == "error"
+    assert "sensitive provider failure" not in trace_response.text
 
 
 def test_evaluation_runner_returns_five_metrics():

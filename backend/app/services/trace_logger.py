@@ -85,6 +85,17 @@ class InMemoryTraceStore:
         self._traces[trace.turn_id] = trace
         return trace
 
+    def write_error(
+        self,
+        turn_id: str,
+        session_id: str,
+        request_message: str,
+        error: dict[str, object],
+    ) -> InternalTrace:
+        trace = build_error_trace(turn_id, session_id, request_message, error)
+        self._traces[trace.turn_id] = trace
+        return trace
+
     def read(self, turn_id: str) -> InternalTrace | None:
         return self._traces.get(turn_id)
 
@@ -95,6 +106,19 @@ class JsonlTraceStore:
 
     def write_from_response(self, request_message: str, response: ChatTurnResponse) -> InternalTrace:
         trace = build_trace_from_response(request_message, response)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("a", encoding="utf-8") as trace_file:
+            trace_file.write(trace.model_dump_json() + "\n")
+        return trace
+
+    def write_error(
+        self,
+        turn_id: str,
+        session_id: str,
+        request_message: str,
+        error: dict[str, object],
+    ) -> InternalTrace:
+        trace = build_error_trace(turn_id, session_id, request_message, error)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as trace_file:
             trace_file.write(trace.model_dump_json() + "\n")
@@ -111,6 +135,28 @@ class JsonlTraceStore:
                 if trace.turn_id == turn_id:
                     return trace
         return None
+
+
+def build_error_trace(
+    turn_id: str,
+    session_id: str,
+    request_message: str,
+    error: dict[str, object],
+) -> InternalTrace:
+    return InternalTrace(
+        turn_id=turn_id,
+        session_id=session_id,
+        input=request_message,
+        task_route={
+            "task_type": "error",
+            "confidence": 0.0,
+            "rationale": "chat pipeline failed before route completion",
+        },
+        final_validation={"passed": False, "violations": ["chat_pipeline_error"]},
+        response={"status": "error"},
+        latency_ms={"total": 0.0},
+        errors=[error],
+    )
 
 
 trace_store = InMemoryTraceStore()

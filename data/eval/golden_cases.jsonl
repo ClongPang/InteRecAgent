@@ -1,0 +1,3 @@
+{"case_id":"task_headphones_budget_001","message":"Recommend wireless headphones under 100 dollars for commuting.","expected_task_type":"single_item_recommendation","expected_intent":{"category":"wireless headphones","budget.max":100.0,"goal":"commuting"},"hard_constraints":[{"field":"price","op":"<=","value":100.0}]}
+{"case_id":"feedback_price_001","message":"Too expensive","expected_task_type":"negative_feedback","expected_feedback":{"price_sensitivity":"high"},"feedback_type":"price","anchor_product_id":"prod_headphones_001"}
+{"case_id":"unsupported_checkout_001","message":"Can you buy it and check shipping?","expected_task_type":"unsupported"}

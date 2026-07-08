@@ -5,7 +5,13 @@ import {
   feedbackUpdatedFixture,
   recommendationFixture
 } from "./test/fixtures/chat";
-import type { ChatRequest, ChatTurnResponse, ProductRecommendation, ReplayResult } from "./types/contracts";
+import type {
+  ChatRequest,
+  ChatTurnResponse,
+  ProductRecommendation,
+  ReplayResult,
+  SessionState
+} from "./types/contracts";
 import "./App.css";
 
 interface AppProps {
@@ -35,6 +41,18 @@ function ProductCard({ product, onFeedback, onInspect }: {
   onInspect: (product: ProductRecommendation) => void;
 }) {
   const hasEvidence = product.evidence.length > 0;
+  const [customFeedback, setCustomFeedback] = useState("");
+
+  function submitCustomFeedback(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = customFeedback.trim();
+    if (!trimmed) {
+      return;
+    }
+    onFeedback(trimmed, "generic", product.product_id);
+    setCustomFeedback("");
+  }
+
   return (
     <article className="product-card" aria-label={`Recommendation ${product.rank}: ${product.title}`}>
       <div className="image-fallback" aria-label="Product image fallback">
@@ -79,7 +97,24 @@ function ProductCard({ product, onFeedback, onInspect }: {
           <button type="button" onClick={() => onFeedback("Avoid this brand", "brand", product.product_id)}>
             Avoid brand
           </button>
+          <button type="button" onClick={() => onFeedback("Need something more portable", "portable", product.product_id)}>
+            More portable
+          </button>
         </div>
+        <form className="custom-feedback" onSubmit={submitCustomFeedback}>
+          <label htmlFor={`custom-feedback-${product.product_id}`}>
+            Custom feedback
+          </label>
+          <input
+            id={`custom-feedback-${product.product_id}`}
+            value={customFeedback}
+            onChange={(event) => setCustomFeedback(event.target.value)}
+            placeholder="Tell us what to adjust"
+          />
+          <button type="submit" disabled={customFeedback.trim().length === 0}>
+            Send feedback
+          </button>
+        </form>
       </div>
     </article>
   );
@@ -234,6 +269,26 @@ function UnsupportedBox({ turn }: { turn: ChatTurnResponse }) {
   );
 }
 
+function TurnStatusNotice({ turn }: { turn: ChatTurnResponse }) {
+  if (turn.status === "partial_support") {
+    return (
+      <section className="notice" aria-label="Partial support">
+        <h3>Some details are limited</h3>
+        <p>{turn.message}</p>
+      </section>
+    );
+  }
+  if (turn.status === "error") {
+    return (
+      <section className="notice error" aria-label="Recommendation error">
+        <h3>Recommendation could not be completed</h3>
+        <p>{turn.message}</p>
+      </section>
+    );
+  }
+  return null;
+}
+
 function WhatChanged({ turn }: { turn: ChatTurnResponse }) {
   if (!turn.trace_summary.feedback_update) {
     return null;
@@ -243,6 +298,55 @@ function WhatChanged({ turn }: { turn: ChatTurnResponse }) {
       <h3>What changed</h3>
       <p>Feedback type: {String(turn.trace_summary.feedback_update.feedback_type)}</p>
       <p>Price sensitivity: {turn.intent_state.price_sensitivity || "unchanged"}</p>
+    </section>
+  );
+}
+
+function SessionRestore({
+  session,
+  sessionId,
+  status,
+  error,
+  onSessionIdChange,
+  onLoad
+}: {
+  session: SessionState | null;
+  sessionId: string;
+  status: "idle" | "loading" | "error";
+  error: string;
+  onSessionIdChange: (sessionId: string) => void;
+  onLoad: () => void;
+}) {
+  function submitSessionLookup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onLoad();
+  }
+
+  return (
+    <section className="session-restore" aria-label="Session restore">
+      <form onSubmit={submitSessionLookup}>
+        <label htmlFor="session-id">Session ID</label>
+        <input
+          id="session-id"
+          value={sessionId}
+          onChange={(event) => onSessionIdChange(event.target.value)}
+          placeholder="sess_demo"
+        />
+        <button type="submit" disabled={status === "loading" || sessionId.trim().length === 0}>
+          Load session
+        </button>
+      </form>
+      {error && <p className="error" role="alert">{error}</p>}
+      {session && (
+        <dl aria-label="Session summary">
+          <dt>Session</dt>
+          <dd>{session.session_id}</dd>
+          <dt>Messages</dt>
+          <dd>{session.messages.length}</dd>
+          <dt>Intent</dt>
+          <dd>{session.current_intent.category || "unknown"}</dd>
+        </dl>
+      )}
     </section>
   );
 }
@@ -295,6 +399,10 @@ function ConsumerWorkspace({ client, initialTurn }: Required<Pick<AppProps, "cli
   const [selectedProduct, setSelectedProduct] = useState<ProductRecommendation | null>(null);
   const [drawerStatus, setDrawerStatus] = useState<"idle" | "loading" | "error">("idle");
   const [drawerError, setDrawerError] = useState("");
+  const [sessionInput, setSessionInput] = useState(initialTurn.session_id);
+  const [sessionSummary, setSessionSummary] = useState<SessionState | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [sessionError, setSessionError] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -371,6 +479,23 @@ function ConsumerWorkspace({ client, initialTurn }: Required<Pick<AppProps, "cli
     setDrawerError("");
   }
 
+  async function loadSessionSummary() {
+    const nextSessionId = sessionInput.trim();
+    if (!nextSessionId) {
+      return;
+    }
+    setSessionStatus("loading");
+    setSessionError("");
+    try {
+      setSessionSummary(await client.getSession(nextSessionId));
+      setSessionStatus("idle");
+    } catch {
+      setSessionSummary(null);
+      setSessionStatus("error");
+      setSessionError("Session summary could not be loaded.");
+    }
+  }
+
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void submitMessage(draft);
@@ -386,6 +511,14 @@ function ConsumerWorkspace({ client, initialTurn }: Required<Pick<AppProps, "cli
             <p className={`system-status ${healthStatus}`} aria-label="System status">
               {healthLabel}
             </p>
+            <SessionRestore
+              session={sessionSummary}
+              sessionId={sessionInput}
+              status={sessionStatus}
+              error={sessionError}
+              onSessionIdChange={setSessionInput}
+              onLoad={loadSessionSummary}
+            />
           </header>
           <section className="thread" aria-label="Chat thread">
             <div className="bubble user">I need wireless headphones under $100 for commuting.</div>
@@ -406,6 +539,7 @@ function ConsumerWorkspace({ client, initialTurn }: Required<Pick<AppProps, "cli
           )}
           <ClarificationBox turn={turn} onAnswer={submitMessage} />
           <UnsupportedBox turn={turn} />
+          <TurnStatusNotice turn={turn} />
           <WhatChanged turn={turn} />
           <section className="product-list" aria-label="Recommendation results">
             {turn.products.length > 0 ? (

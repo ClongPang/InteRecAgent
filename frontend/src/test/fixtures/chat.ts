@@ -119,6 +119,11 @@ export const recommendationFixture: ChatTurnResponse = {
       label: "Avoid this brand",
       action_type: "feedback",
       payload: { feedback_type: "brand", anchor_product_id: "prod_headphones_001" }
+    },
+    {
+      label: "More portable",
+      action_type: "feedback",
+      payload: { feedback_type: "portable", anchor_product_id: "prod_headphones_001" }
     }
   ]
 };
@@ -160,6 +165,38 @@ export const unsupportedFixture: ChatTurnResponse = {
     task_type: "unsupported",
     warnings: ["live commerce action unsupported"]
   }
+};
+
+export const partialSupportFixture: ChatTurnResponse = {
+  ...recommendationFixture,
+  status: "partial_support",
+  message:
+    "I found catalog-backed options, but some requested facts are unknown and marked explicitly.",
+  products: [recommendationFixture.products[1]],
+  trace_summary: {
+    ...recommendationFixture.trace_summary,
+    turn_id: "turn_partial",
+    filtered_count: 1,
+    warnings: ["Some requested facts are unavailable in the catalog."]
+  }
+};
+
+export const errorFixture: ChatTurnResponse = {
+  ...recommendationFixture,
+  status: "error",
+  message: "I could not complete this recommendation safely. Please try again.",
+  products: [],
+  trace_summary: {
+    ...recommendationFixture.trace_summary,
+    turn_id: "turn_error",
+    retrieved_count: 0,
+    filtered_count: 0,
+    ranking_summary: {},
+    rerank_summary: {},
+    evidence_sources: [],
+    warnings: ["A recoverable recommendation error occurred."]
+  },
+  suggested_actions: []
 };
 
 export const feedbackUpdatedFixture: ChatTurnResponse = {

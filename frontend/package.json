@@ -10,17 +10,19 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "vitest run src/App.responsive.test.tsx",
+    "test:responsive": "vitest run src/App.responsive.test.tsx",
+    "test:e2e": "playwright test",
     "test:integration": "VITE_API_BASE_URL=http://127.0.0.1:8000 VITE_RUN_LIVE_INTEGRATION=true vitest run src/api/live-client.integration.test.ts",
     "test:a11y": "vitest run src/App.a11y.test.tsx"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.2",
-    "vite": "^7.3.0",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "vite": "^7.3.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
     "@testing-library/user-event": "^14.6.1",

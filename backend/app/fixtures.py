@@ -209,5 +209,10 @@ def build_chat_response(
                 action_type="feedback",
                 payload={"feedback_type": "brand", "anchor_product_id": "prod_headphones_001"},
             ),
+            SuggestedAction(
+                label="More portable",
+                action_type="feedback",
+                payload={"feedback_type": "portable", "anchor_product_id": "prod_headphones_001"},
+            ),
         ],
     )

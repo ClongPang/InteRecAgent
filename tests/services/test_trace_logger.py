@@ -41,3 +41,26 @@ def test_jsonl_trace_store_returns_none_for_missing_turn(tmp_path):
     store = JsonlTraceStore(tmp_path / "missing.jsonl")
 
     assert store.read("missing_turn") is None
+
+
+def test_jsonl_trace_store_appends_error_trace(tmp_path):
+    path = tmp_path / "traces" / "chat-traces.jsonl"
+    store = JsonlTraceStore(path)
+
+    store.write_error(
+        turn_id="turn_jsonl_error",
+        session_id="sess_jsonl_error",
+        request_message="Recommend a laptop.",
+        error={
+            "code": "chat_pipeline_error",
+            "message": "Chat pipeline failed before a safe response could be generated.",
+            "stage": "chat_orchestrator",
+        },
+    )
+
+    persisted = JsonlTraceStore(path).read("turn_jsonl_error")
+
+    assert persisted is not None
+    assert persisted.response["status"] == "error"
+    assert persisted.final_validation["passed"] is False
+    assert persisted.errors[0]["code"] == "chat_pipeline_error"

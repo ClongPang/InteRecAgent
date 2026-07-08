@@ -70,7 +70,28 @@ def health() -> HealthResponse:
 def chat(request: ChatRequest) -> ChatTurnResponse:
     session_id = request.session_id or "sess_demo"
     allow_clarification = len(session_state.clarification_turns(session_id)) < 3
-    response = chat_orchestrator.run(request, allow_clarification=allow_clarification)
+    turn_id = request.turn_id or "turn_001"
+    try:
+        response = chat_orchestrator.run(request, allow_clarification=allow_clarification)
+    except Exception:
+        trace_store.write_error(
+            turn_id=turn_id,
+            session_id=session_id,
+            request_message=request.message,
+            error={
+                "code": "chat_pipeline_error",
+                "message": "Chat pipeline failed before a safe response could be generated.",
+                "stage": "chat_orchestrator",
+            },
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "chat_pipeline_error",
+                "message": "Chat pipeline failed before a safe response could be generated.",
+                "details": {"turn_id": turn_id, "session_id": session_id},
+            },
+        )
     trace_store.write_from_response(request.message, response)
     session_state.record_turn(request, response)
     return response

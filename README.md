@@ -28,6 +28,8 @@ Run the API locally:
 uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
 
+Optional live LLM settings can be placed in the ignored root `.env` file. Use an http(s) endpoint for `DeepSeek_BASE_URL`, keep the secret token in `DeepSeek_API_KEY`, and set `DeepSeek_MODEL` when overriding the default model.
+
 ## Frontend
 
 Install dependencies with npm:
@@ -42,12 +44,13 @@ Run validation:
 ```bash
 npm run typecheck
 npm test
+npm run test:responsive
 npm run test:e2e
 npm run test:a11y
 npm run build
 ```
 
-The default frontend tests use deterministic mock fixtures. The shared API client covers chat, product lookup, session restore, internal traces, evaluation runs, and replay. `npm run test:e2e` runs responsive workflow smoke tests in jsdom, and `npm run test:a11y` checks named regions, keyboard access, and internal route isolation. `npm run test:integration` calls the real FastAPI backend and requires the backend command above to be running.
+The default frontend tests use deterministic mock fixtures. The shared API client covers chat, product lookup, session restore, internal traces, evaluation runs, and replay. `npm run test:responsive` runs jsdom responsive layout checks, `npm run test:e2e` runs Playwright browser smoke tests for consumer and internal routes, and `npm run test:a11y` checks named regions, keyboard access, and internal route isolation. `npm run test:integration` calls the real FastAPI backend and requires the backend command above to be running.
 
 Run the app locally:
 
