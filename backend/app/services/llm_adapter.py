@@ -12,6 +12,9 @@ from urllib import request
 from pydantic import BaseModel, ValidationError
 
 
+DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
+
+
 class LLMAdapterError(RuntimeError):
     pass
 
@@ -31,6 +34,12 @@ def _read_dotenv(path: Path = Path(".env")) -> dict[str, str]:
 
 def _env_value(name: str, default: str | None = None) -> str | None:
     return os.getenv(name) or _read_dotenv().get(name) or default
+
+
+def _looks_like_secret(value: str | None) -> bool:
+    if not value:
+        return False
+    return value.startswith(("sk-", "sk_"))
 
 
 @dataclass
@@ -84,11 +93,16 @@ class LLMAdapter:
             raise LLMAdapterError("live LLM response was not valid JSON") from exc
 
     def _post_live(self, payload: dict[str, Any]) -> dict[str, Any]:
-        base_url = (self.base_url or _env_value("DeepSeek_BASE_URL") or "").rstrip("/")
+        configured_base_url = self.base_url or _env_value("DeepSeek_BASE_URL")
+        api_key = self.api_key or _env_value("DeepSeek_API_KEY")
+        if _looks_like_secret(configured_base_url) and not api_key:
+            api_key = configured_base_url
+            configured_base_url = DEFAULT_DEEPSEEK_BASE_URL
+
+        base_url = (configured_base_url or "").rstrip("/")
         if not base_url.startswith(("http://", "https://")):
             raise LLMAdapterError("live LLM base URL must be configured as an http(s) endpoint")
         endpoint = f"{base_url}/chat/completions"
-        api_key = self.api_key or _env_value("DeepSeek_API_KEY")
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"

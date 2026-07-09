@@ -43,13 +43,15 @@ liveTest("liveApiClient reads internal trace and evaluation contracts", async ()
   expect(session.session_id).toBe("sess_live_contract");
   expect(readiness.ready).toBe(false);
   expect(readiness.errors.some((error) => error.includes("normalized catalog"))).toBe(true);
-  expect(datasetReadiness.ready).toBe(false);
+  expect(datasetReadiness.ready).toBe(true);
   expect(datasetReadiness.path).toContain("task_cases.jsonl");
+  expect(datasetReadiness.case_count).toBe(140);
   expect(profileReadiness.ready).toBe(false);
   expect(profileReadiness.profiles_path).toContain("user_profiles.jsonl");
   expect(indexReadiness.ready).toBe(false);
   expect(indexReadiness.index_path).toContain("product_index.jsonl");
   expect(systemReadiness.ready).toBe(false);
   expect(systemReadiness.gates.catalog.ready).toBe(false);
+  expect(systemReadiness.gates.evaluation_cases.ready).toBe(true);
   expect(systemReadiness.errors.some((error) => error.startsWith("catalog:"))).toBe(true);
 });

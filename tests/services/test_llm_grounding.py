@@ -114,6 +114,36 @@ def test_llm_adapter_post_live_reads_endpoint_and_key_from_dotenv(tmp_path, monk
     assert completion["choices"][0]["message"]["content"] == "{}"
 
 
+def test_llm_adapter_accepts_legacy_key_in_base_url_dotenv(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("DeepSeek_BASE_URL=sk-test-local\n", encoding="utf-8")
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"choices":[{"message":{"content":"{}"}}]}'
+
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["auth"] = req.headers["Authorization"]
+        return FakeResponse()
+
+    monkeypatch.setattr("backend.app.services.llm_adapter.request.urlopen", fake_urlopen)
+
+    LLMAdapter(mode="live")._post_live({"model": "deepseek-v4-flash"})
+
+    assert captured == {
+        "url": "https://api.deepseek.com/v1/chat/completions",
+        "auth": "Bearer sk-test-local",
+    }
+
+
 def test_llm_adapter_live_mode_rejects_non_json_transport_output():
     adapter = LLMAdapter(
         mode="live",

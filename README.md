@@ -133,7 +133,7 @@ uv run python -m backend.app.data_pipeline.profile_readiness \
 
 When `data/profiles/user_profiles.jsonl` exists, the API can use it as an internal weak ranking signal. Set `INTEREC_PROFILE_PATH=/path/to/user_profiles.jsonl` to test another artifact, then include `user_id` in `/api/chat` requests. Profile affinity is applied only after hard constraint filtering and appears in `score_breakdown.profile_affinity` plus `trace_summary.ranking_summary.profile_applied`.
 
-Optional live LLM settings can be placed in the ignored root `.env` file. Use an http(s) endpoint for `DeepSeek_BASE_URL`, keep the secret token in `DeepSeek_API_KEY`, and set `DeepSeek_MODEL` when overriding the default model.
+Optional live LLM settings can be placed in the ignored root `.env` file. Prefer an http(s) endpoint in `DeepSeek_BASE_URL`, keep the secret token in `DeepSeek_API_KEY`, and set `DeepSeek_MODEL` when overriding the default model. For local compatibility, a `sk-...` value accidentally placed in `DeepSeek_BASE_URL` is treated as the API key and the adapter uses the default DeepSeek endpoint.
 
 ## Frontend
 

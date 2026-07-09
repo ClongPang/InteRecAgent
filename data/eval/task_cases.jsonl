@@ -1,0 +1,140 @@
+{"case_id": "task_single_item_recommendation_001", "expected_intent": {"budget.max": 50.0, "category": "wireless headphones", "goal": "commuting"}, "expected_task_type": "single_item_recommendation", "message": "Recommend wireless headphones under 50 dollars for commuting."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_002", "expected_task_type": "negative_feedback", "feedback_type": "price", "message": "Too expensive"}
+{"case_id": "task_alternative_recommendation_003", "expected_task_type": "alternative_recommendation", "message": "Show me a cheaper alternative."}
+{"case_id": "task_comparison_004", "expected_task_type": "comparison", "message": "Compare these headphones for commuting."}
+{"case_id": "task_gift_recommendation_005", "expected_task_type": "gift_recommendation", "message": "Recommend a gift for someone who commutes daily."}
+{"case_id": "task_bundle_recommendation_006", "expected_task_type": "bundle_recommendation", "message": "Recommend a starter kit bundle for a home office."}
+{"case_id": "task_unsupported_007", "expected_task_type": "unsupported", "message": "Can you buy it and check shipping?"}
+{"case_id": "task_single_item_recommendation_008", "expected_intent": {"budget.max": 100.0, "category": "wireless mouse", "goal": "work"}, "expected_task_type": "single_item_recommendation", "message": "Recommend a quiet office mouse under 100 dollars."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_009", "expected_task_type": "negative_feedback", "feedback_type": "brand", "message": "Avoid this brand"}
+{"case_id": "task_alternative_recommendation_010", "expected_task_type": "alternative_recommendation", "message": "Show me another one similar to this."}
+{"case_id": "task_comparison_011", "expected_task_type": "comparison", "message": "Compare quiet office mice under 50 dollars."}
+{"case_id": "task_gift_recommendation_012", "expected_task_type": "gift_recommendation", "message": "Find a gift under 75 dollars for an office worker."}
+{"case_id": "task_bundle_recommendation_013", "expected_task_type": "bundle_recommendation", "message": "Build a bundle under 100 dollars for commuting."}
+{"case_id": "task_unsupported_014", "expected_task_type": "unsupported", "message": "Is this in stock today?"}
+{"case_id": "task_single_item_recommendation_015", "expected_intent": {"category": "wireless headphones", "goal": "commuting"}, "expected_task_type": "single_item_recommendation", "message": "I need comfortable wireless headphones for daily commuting."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_016", "expected_task_type": "negative_feedback", "feedback_type": "brand", "message": "I don't want this brand"}
+{"case_id": "task_alternative_recommendation_017", "expected_task_type": "alternative_recommendation", "message": "Is there a more portable alternative?"}
+{"case_id": "task_comparison_018", "expected_task_type": "comparison", "message": "Can you compare the top options?"}
+{"case_id": "task_gift_recommendation_019", "expected_task_type": "gift_recommendation", "message": "I need a gift recommendation for a student."}
+{"case_id": "task_bundle_recommendation_020", "expected_task_type": "bundle_recommendation", "message": "Suggest a set of accessories for work."}
+{"case_id": "task_unsupported_021", "expected_task_type": "unsupported", "message": "Please complete checkout and payment."}
+{"case_id": "task_single_item_recommendation_022", "expected_intent": {"budget.max": 75.0, "category": "wireless headphones", "goal": "commuting"}, "expected_task_type": "single_item_recommendation", "message": "Recommend wireless headphones under 75 dollars for commuting."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_023", "expected_task_type": "negative_feedback", "feedback_type": "price", "message": "Too expensive"}
+{"case_id": "task_alternative_recommendation_024", "expected_task_type": "alternative_recommendation", "message": "Show me a cheaper alternative."}
+{"case_id": "task_comparison_025", "expected_task_type": "comparison", "message": "Compare these headphones for commuting."}
+{"case_id": "task_gift_recommendation_026", "expected_task_type": "gift_recommendation", "message": "Recommend a gift for someone who commutes daily."}
+{"case_id": "task_bundle_recommendation_027", "expected_task_type": "bundle_recommendation", "message": "Recommend a starter kit bundle for a home office."}
+{"case_id": "task_unsupported_028", "expected_task_type": "unsupported", "message": "Can you buy it and check shipping?"}
+{"case_id": "task_single_item_recommendation_029", "expected_intent": {"budget.max": 125.0, "category": "wireless mouse", "goal": "work"}, "expected_task_type": "single_item_recommendation", "message": "Recommend a quiet office mouse under 125 dollars."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_030", "expected_task_type": "negative_feedback", "feedback_type": "brand", "message": "Avoid this brand"}
+{"case_id": "task_alternative_recommendation_031", "expected_task_type": "alternative_recommendation", "message": "Show me another one similar to this."}
+{"case_id": "task_comparison_032", "expected_task_type": "comparison", "message": "Compare quiet office mice under 75 dollars."}
+{"case_id": "task_gift_recommendation_033", "expected_task_type": "gift_recommendation", "message": "Find a gift under 100 dollars for an office worker."}
+{"case_id": "task_bundle_recommendation_034", "expected_task_type": "bundle_recommendation", "message": "Build a bundle under 125 dollars for commuting."}
+{"case_id": "task_unsupported_035", "expected_task_type": "unsupported", "message": "Is this in stock today?"}
+{"case_id": "task_single_item_recommendation_036", "expected_intent": {"category": "wireless headphones", "goal": "commuting"}, "expected_task_type": "single_item_recommendation", "message": "I need comfortable wireless headphones for daily commuting."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_037", "expected_task_type": "negative_feedback", "feedback_type": "brand", "message": "I don't want this brand"}
+{"case_id": "task_alternative_recommendation_038", "expected_task_type": "alternative_recommendation", "message": "Is there a more portable alternative?"}
+{"case_id": "task_comparison_039", "expected_task_type": "comparison", "message": "Can you compare the top options?"}
+{"case_id": "task_gift_recommendation_040", "expected_task_type": "gift_recommendation", "message": "I need a gift recommendation for a student."}
+{"case_id": "task_bundle_recommendation_041", "expected_task_type": "bundle_recommendation", "message": "Suggest a set of accessories for work."}
+{"case_id": "task_unsupported_042", "expected_task_type": "unsupported", "message": "Please complete checkout and payment."}
+{"case_id": "task_single_item_recommendation_043", "expected_intent": {"budget.max": 100.0, "category": "wireless headphones", "goal": "commuting"}, "expected_task_type": "single_item_recommendation", "message": "Recommend wireless headphones under 100 dollars for commuting."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_044", "expected_task_type": "negative_feedback", "feedback_type": "price", "message": "Too expensive"}
+{"case_id": "task_alternative_recommendation_045", "expected_task_type": "alternative_recommendation", "message": "Show me a cheaper alternative."}
+{"case_id": "task_comparison_046", "expected_task_type": "comparison", "message": "Compare these headphones for commuting."}
+{"case_id": "task_gift_recommendation_047", "expected_task_type": "gift_recommendation", "message": "Recommend a gift for someone who commutes daily."}
+{"case_id": "task_bundle_recommendation_048", "expected_task_type": "bundle_recommendation", "message": "Recommend a starter kit bundle for a home office."}
+{"case_id": "task_unsupported_049", "expected_task_type": "unsupported", "message": "Can you buy it and check shipping?"}
+{"case_id": "task_single_item_recommendation_050", "expected_intent": {"budget.max": 150.0, "category": "wireless mouse", "goal": "work"}, "expected_task_type": "single_item_recommendation", "message": "Recommend a quiet office mouse under 150 dollars."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_051", "expected_task_type": "negative_feedback", "feedback_type": "brand", "message": "Avoid this brand"}
+{"case_id": "task_alternative_recommendation_052", "expected_task_type": "alternative_recommendation", "message": "Show me another one similar to this."}
+{"case_id": "task_comparison_053", "expected_task_type": "comparison", "message": "Compare quiet office mice under 100 dollars."}
+{"case_id": "task_gift_recommendation_054", "expected_task_type": "gift_recommendation", "message": "Find a gift under 125 dollars for an office worker."}
+{"case_id": "task_bundle_recommendation_055", "expected_task_type": "bundle_recommendation", "message": "Build a bundle under 150 dollars for commuting."}
+{"case_id": "task_unsupported_056", "expected_task_type": "unsupported", "message": "Is this in stock today?"}
+{"case_id": "task_single_item_recommendation_057", "expected_intent": {"category": "wireless headphones", "goal": "commuting"}, "expected_task_type": "single_item_recommendation", "message": "I need comfortable wireless headphones for daily commuting."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_058", "expected_task_type": "negative_feedback", "feedback_type": "brand", "message": "I don't want this brand"}
+{"case_id": "task_alternative_recommendation_059", "expected_task_type": "alternative_recommendation", "message": "Is there a more portable alternative?"}
+{"case_id": "task_comparison_060", "expected_task_type": "comparison", "message": "Can you compare the top options?"}
+{"case_id": "task_gift_recommendation_061", "expected_task_type": "gift_recommendation", "message": "I need a gift recommendation for a student."}
+{"case_id": "task_bundle_recommendation_062", "expected_task_type": "bundle_recommendation", "message": "Suggest a set of accessories for work."}
+{"case_id": "task_unsupported_063", "expected_task_type": "unsupported", "message": "Please complete checkout and payment."}
+{"case_id": "task_single_item_recommendation_064", "expected_intent": {"budget.max": 125.0, "category": "wireless headphones", "goal": "commuting"}, "expected_task_type": "single_item_recommendation", "message": "Recommend wireless headphones under 125 dollars for commuting."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_065", "expected_task_type": "negative_feedback", "feedback_type": "price", "message": "Too expensive"}
+{"case_id": "task_alternative_recommendation_066", "expected_task_type": "alternative_recommendation", "message": "Show me a cheaper alternative."}
+{"case_id": "task_comparison_067", "expected_task_type": "comparison", "message": "Compare these headphones for commuting."}
+{"case_id": "task_gift_recommendation_068", "expected_task_type": "gift_recommendation", "message": "Recommend a gift for someone who commutes daily."}
+{"case_id": "task_bundle_recommendation_069", "expected_task_type": "bundle_recommendation", "message": "Recommend a starter kit bundle for a home office."}
+{"case_id": "task_unsupported_070", "expected_task_type": "unsupported", "message": "Can you buy it and check shipping?"}
+{"case_id": "task_single_item_recommendation_071", "expected_intent": {"budget.max": 50.0, "category": "wireless mouse", "goal": "work"}, "expected_task_type": "single_item_recommendation", "message": "Recommend a quiet office mouse under 50 dollars."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_072", "expected_task_type": "negative_feedback", "feedback_type": "brand", "message": "Avoid this brand"}
+{"case_id": "task_alternative_recommendation_073", "expected_task_type": "alternative_recommendation", "message": "Show me another one similar to this."}
+{"case_id": "task_comparison_074", "expected_task_type": "comparison", "message": "Compare quiet office mice under 125 dollars."}
+{"case_id": "task_gift_recommendation_075", "expected_task_type": "gift_recommendation", "message": "Find a gift under 150 dollars for an office worker."}
+{"case_id": "task_bundle_recommendation_076", "expected_task_type": "bundle_recommendation", "message": "Build a bundle under 50 dollars for commuting."}
+{"case_id": "task_unsupported_077", "expected_task_type": "unsupported", "message": "Is this in stock today?"}
+{"case_id": "task_single_item_recommendation_078", "expected_intent": {"category": "wireless headphones", "goal": "commuting"}, "expected_task_type": "single_item_recommendation", "message": "I need comfortable wireless headphones for daily commuting."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_079", "expected_task_type": "negative_feedback", "feedback_type": "brand", "message": "I don't want this brand"}
+{"case_id": "task_alternative_recommendation_080", "expected_task_type": "alternative_recommendation", "message": "Is there a more portable alternative?"}
+{"case_id": "task_comparison_081", "expected_task_type": "comparison", "message": "Can you compare the top options?"}
+{"case_id": "task_gift_recommendation_082", "expected_task_type": "gift_recommendation", "message": "I need a gift recommendation for a student."}
+{"case_id": "task_bundle_recommendation_083", "expected_task_type": "bundle_recommendation", "message": "Suggest a set of accessories for work."}
+{"case_id": "task_unsupported_084", "expected_task_type": "unsupported", "message": "Please complete checkout and payment."}
+{"case_id": "task_single_item_recommendation_085", "expected_intent": {"budget.max": 150.0, "category": "wireless headphones", "goal": "commuting"}, "expected_task_type": "single_item_recommendation", "message": "Recommend wireless headphones under 150 dollars for commuting."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_086", "expected_task_type": "negative_feedback", "feedback_type": "price", "message": "Too expensive"}
+{"case_id": "task_alternative_recommendation_087", "expected_task_type": "alternative_recommendation", "message": "Show me a cheaper alternative."}
+{"case_id": "task_comparison_088", "expected_task_type": "comparison", "message": "Compare these headphones for commuting."}
+{"case_id": "task_gift_recommendation_089", "expected_task_type": "gift_recommendation", "message": "Recommend a gift for someone who commutes daily."}
+{"case_id": "task_bundle_recommendation_090", "expected_task_type": "bundle_recommendation", "message": "Recommend a starter kit bundle for a home office."}
+{"case_id": "task_unsupported_091", "expected_task_type": "unsupported", "message": "Can you buy it and check shipping?"}
+{"case_id": "task_single_item_recommendation_092", "expected_intent": {"budget.max": 75.0, "category": "wireless mouse", "goal": "work"}, "expected_task_type": "single_item_recommendation", "message": "Recommend a quiet office mouse under 75 dollars."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_093", "expected_task_type": "negative_feedback", "feedback_type": "brand", "message": "Avoid this brand"}
+{"case_id": "task_alternative_recommendation_094", "expected_task_type": "alternative_recommendation", "message": "Show me another one similar to this."}
+{"case_id": "task_comparison_095", "expected_task_type": "comparison", "message": "Compare quiet office mice under 150 dollars."}
+{"case_id": "task_gift_recommendation_096", "expected_task_type": "gift_recommendation", "message": "Find a gift under 50 dollars for an office worker."}
+{"case_id": "task_bundle_recommendation_097", "expected_task_type": "bundle_recommendation", "message": "Build a bundle under 75 dollars for commuting."}
+{"case_id": "task_unsupported_098", "expected_task_type": "unsupported", "message": "Is this in stock today?"}
+{"case_id": "task_single_item_recommendation_099", "expected_intent": {"category": "wireless headphones", "goal": "commuting"}, "expected_task_type": "single_item_recommendation", "message": "I need comfortable wireless headphones for daily commuting."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_100", "expected_task_type": "negative_feedback", "feedback_type": "brand", "message": "I don't want this brand"}
+{"case_id": "task_alternative_recommendation_101", "expected_task_type": "alternative_recommendation", "message": "Is there a more portable alternative?"}
+{"case_id": "task_comparison_102", "expected_task_type": "comparison", "message": "Can you compare the top options?"}
+{"case_id": "task_gift_recommendation_103", "expected_task_type": "gift_recommendation", "message": "I need a gift recommendation for a student."}
+{"case_id": "task_bundle_recommendation_104", "expected_task_type": "bundle_recommendation", "message": "Suggest a set of accessories for work."}
+{"case_id": "task_unsupported_105", "expected_task_type": "unsupported", "message": "Please complete checkout and payment."}
+{"case_id": "task_single_item_recommendation_106", "expected_intent": {"budget.max": 50.0, "category": "wireless headphones", "goal": "commuting"}, "expected_task_type": "single_item_recommendation", "message": "Recommend wireless headphones under 50 dollars for commuting."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_107", "expected_task_type": "negative_feedback", "feedback_type": "price", "message": "Too expensive"}
+{"case_id": "task_alternative_recommendation_108", "expected_task_type": "alternative_recommendation", "message": "Show me a cheaper alternative."}
+{"case_id": "task_comparison_109", "expected_task_type": "comparison", "message": "Compare these headphones for commuting."}
+{"case_id": "task_gift_recommendation_110", "expected_task_type": "gift_recommendation", "message": "Recommend a gift for someone who commutes daily."}
+{"case_id": "task_bundle_recommendation_111", "expected_task_type": "bundle_recommendation", "message": "Recommend a starter kit bundle for a home office."}
+{"case_id": "task_unsupported_112", "expected_task_type": "unsupported", "message": "Can you buy it and check shipping?"}
+{"case_id": "task_single_item_recommendation_113", "expected_intent": {"budget.max": 100.0, "category": "wireless mouse", "goal": "work"}, "expected_task_type": "single_item_recommendation", "message": "Recommend a quiet office mouse under 100 dollars."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_114", "expected_task_type": "negative_feedback", "feedback_type": "brand", "message": "Avoid this brand"}
+{"case_id": "task_alternative_recommendation_115", "expected_task_type": "alternative_recommendation", "message": "Show me another one similar to this."}
+{"case_id": "task_comparison_116", "expected_task_type": "comparison", "message": "Compare quiet office mice under 50 dollars."}
+{"case_id": "task_gift_recommendation_117", "expected_task_type": "gift_recommendation", "message": "Find a gift under 75 dollars for an office worker."}
+{"case_id": "task_bundle_recommendation_118", "expected_task_type": "bundle_recommendation", "message": "Build a bundle under 100 dollars for commuting."}
+{"case_id": "task_unsupported_119", "expected_task_type": "unsupported", "message": "Is this in stock today?"}
+{"case_id": "task_single_item_recommendation_120", "expected_intent": {"category": "wireless headphones", "goal": "commuting"}, "expected_task_type": "single_item_recommendation", "message": "I need comfortable wireless headphones for daily commuting."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_121", "expected_task_type": "negative_feedback", "feedback_type": "brand", "message": "I don't want this brand"}
+{"case_id": "task_alternative_recommendation_122", "expected_task_type": "alternative_recommendation", "message": "Is there a more portable alternative?"}
+{"case_id": "task_comparison_123", "expected_task_type": "comparison", "message": "Can you compare the top options?"}
+{"case_id": "task_gift_recommendation_124", "expected_task_type": "gift_recommendation", "message": "I need a gift recommendation for a student."}
+{"case_id": "task_bundle_recommendation_125", "expected_task_type": "bundle_recommendation", "message": "Suggest a set of accessories for work."}
+{"case_id": "task_unsupported_126", "expected_task_type": "unsupported", "message": "Please complete checkout and payment."}
+{"case_id": "task_single_item_recommendation_127", "expected_intent": {"budget.max": 75.0, "category": "wireless headphones", "goal": "commuting"}, "expected_task_type": "single_item_recommendation", "message": "Recommend wireless headphones under 75 dollars for commuting."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_128", "expected_task_type": "negative_feedback", "feedback_type": "price", "message": "Too expensive"}
+{"case_id": "task_alternative_recommendation_129", "expected_task_type": "alternative_recommendation", "message": "Show me a cheaper alternative."}
+{"case_id": "task_comparison_130", "expected_task_type": "comparison", "message": "Compare these headphones for commuting."}
+{"case_id": "task_gift_recommendation_131", "expected_task_type": "gift_recommendation", "message": "Recommend a gift for someone who commutes daily."}
+{"case_id": "task_bundle_recommendation_132", "expected_task_type": "bundle_recommendation", "message": "Recommend a starter kit bundle for a home office."}
+{"case_id": "task_unsupported_133", "expected_task_type": "unsupported", "message": "Can you buy it and check shipping?"}
+{"case_id": "task_single_item_recommendation_134", "expected_intent": {"budget.max": 125.0, "category": "wireless mouse", "goal": "work"}, "expected_task_type": "single_item_recommendation", "message": "Recommend a quiet office mouse under 125 dollars."}
+{"anchor_product_id": "prod_headphones_001", "case_id": "task_negative_feedback_135", "expected_task_type": "negative_feedback", "feedback_type": "brand", "message": "Avoid this brand"}
+{"case_id": "task_alternative_recommendation_136", "expected_task_type": "alternative_recommendation", "message": "Show me another one similar to this."}
+{"case_id": "task_comparison_137", "expected_task_type": "comparison", "message": "Compare quiet office mice under 75 dollars."}
+{"case_id": "task_gift_recommendation_138", "expected_task_type": "gift_recommendation", "message": "Find a gift under 100 dollars for an office worker."}
+{"case_id": "task_bundle_recommendation_139", "expected_task_type": "bundle_recommendation", "message": "Build a bundle under 125 dollars for commuting."}
+{"case_id": "task_unsupported_140", "expected_task_type": "unsupported", "message": "Is this in stock today?"}

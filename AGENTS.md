@@ -2,28 +2,30 @@
 
 ## Project Structure & Module Organization
 
-This repository is currently documentation-first. `main.py` is a placeholder Python entry point, `docs/` contains product, architecture, data, evaluation, and roadmap material, and `docs/prototype/index.html` is the static UI prototype. The intended implementation layout is documented in `docs/system_architecture.md`: place backend code under `backend/app/`, frontend code under `frontend/src/`, datasets and generated indexes under `data/`, and automated tests under `tests/`. Keep long-form design notes in `docs/` and avoid mixing implementation files into the prototype directory.
+InteRecAgent is a FastAPI + React/Vite MVP for traceable e-commerce recommendations. Backend code lives in `backend/app/`, with service modules in `backend/app/services/` and data pipeline utilities in `backend/app/data_pipeline/`. Frontend code lives in `frontend/src/`, browser tests in `frontend/tests/e2e/`, and shared contract types in `frontend/src/types/`. Backend, service, pipeline, API, integration, and validation-script tests live under `tests/`. Product, architecture, data, evaluation, and roadmap notes stay in `docs/`; the static prototype remains in `docs/prototype/`. Generated local data artifacts belong under `data/catalog/`, `data/indexes/`, `data/profiles/`, and `data/eval/`.
 
 ## Build, Test, and Development Commands
 
-- `python3 main.py`: runs the current placeholder script.
-- `python3 -m http.server 8000 --directory docs/prototype`: previews the static prototype at `http://localhost:8000`.
-- `python3 -m pytest`: run the test suite once `tests/` exists.
-
-There is no dependency manifest yet. When adding real backend or frontend code, introduce `pyproject.toml`, `requirements.txt`, or `package.json` with the new commands in the same change.
+- `UV_CACHE_DIR=.uv-cache uv run uvicorn backend.app.main:app --reload`: run the backend locally.
+- `UV_CACHE_DIR=.uv-cache uv run pytest`: run all backend and Python tests.
+- `cd frontend && npm run dev`: start the Vite frontend.
+- `cd frontend && npm test`: run frontend unit tests.
+- `cd frontend && npm run test:e2e`: run Playwright browser tests.
+- `python3 scripts/validate_mvp.py`: run the combined backend, frontend, build, and live integration gates.
+- `python3 scripts/validate_mvp.py --require-system-readiness`: require catalog, index, profile, and evaluation artifacts before validation.
 
 ## Coding Style & Naming Conventions
 
-Use 4-space indentation for Python. Prefer `snake_case` for modules, functions, and variables; `PascalCase` for classes and schema models; and clear service names such as `intent_parser.py` or `constraint_verifier.py`. Keep agent pipeline modules small and aligned with the architecture docs. For future React code, use `PascalCase` components and colocate component-specific state or styles under `frontend/src/`. Markdown docs should use descriptive headings and stable terminology from the PRD.
+Use 4-space indentation and `snake_case` for Python modules, functions, and variables. Use `PascalCase` for Pydantic models, React components, and TypeScript types. Keep backend services small and aligned with the pipeline stages: routing, intent parsing, retrieval, constraint verification, ranking, reranking, response generation, tracing, replay, and evaluation. Frontend components should render backend-owned fields instead of inferring recommendation truth.
 
 ## Testing Guidelines
 
-Use `pytest` for backend, pipeline, and evaluation tests. Name files `test_<module>.py` and test functions `test_<behavior>()`. Store golden recommendation cases as JSONL when needed and experiment settings as YAML, matching the evaluation plan. Prioritize tests for task routing, intent parsing, constraint verification, evidence grounding, reranking, feedback updates, and API contracts.
+Use `pytest` for backend and pipeline tests; name files `test_<module>.py` and tests `test_<behavior>()`. Use Vitest for React tests and Playwright for browser flows. Cover contract changes on both sides: backend schema/API tests plus frontend type/client tests. Run `python3 scripts/validate_mvp.py --skip-e2e` for a fast local gate and the full script before handoff.
 
 ## Commit & Pull Request Guidelines
 
-This checkout has no Git history, so use a simple Conventional Commits style going forward: `feat: add retriever service`, `fix: enforce price constraint`, or `docs: update evaluation plan`. Pull requests should include a short problem statement, summary of changes, test results, linked issue or task, and screenshots for UI/prototype changes. Call out data assumptions, new environment variables, and any LLM prompt or schema changes.
+Use concise Conventional Commits, such as `feat: add profile readiness gate` or `fix: filter unknown critical prices`. Pull requests should include the problem, implementation summary, test commands and results, linked issue or task, screenshots for UI changes, and notes for data artifacts, environment variables, or LLM schema/prompt changes.
 
 ## Security & Configuration Tips
 
-Do not commit raw private datasets, API keys, generated indexes, `.DS_Store`, or IDE metadata. Keep secrets in local environment files that are ignored by Git, and document required variables in an example config instead of hard-coding them.
+Do not commit `.env`, raw private datasets, API keys, generated indexes, `.DS_Store`, IDE metadata, or cache directories. Keep local secrets in ignored environment files and document required variables with safe example values.

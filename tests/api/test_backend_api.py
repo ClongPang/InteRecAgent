@@ -295,10 +295,12 @@ def test_evaluation_dataset_readiness_endpoint_reports_current_case_status():
 
     assert response.status_code == 200
     body = response.json()
-    assert body["ready"] is False
+    assert body["ready"] is True
     assert body["path"] == "data/eval/task_cases.jsonl"
-    assert body["case_count"] == 0
-    assert any("task case file is missing" in error for error in body["errors"])
+    assert body["case_count"] == 140
+    assert "single_item_recommendation" in body["labels"]
+    assert "unsupported" in body["labels"]
+    assert body["errors"] == []
 
 
 def test_profile_readiness_endpoint_reports_current_artifact_status():
