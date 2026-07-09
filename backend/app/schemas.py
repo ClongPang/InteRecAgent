@@ -24,7 +24,13 @@ ChatTurnStatus = Literal[
     "error",
 ]
 
-ConstraintStatus = Literal["satisfied", "violated", "unknown"]
+ConstraintStatus = Literal[
+    "satisfied",
+    "violated",
+    "unknown",
+    "unknown_noncritical",
+    "unknown_critical",
+]
 
 
 class HealthResponse(BaseModel):
@@ -208,6 +214,7 @@ class EvaluationRunSummary(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metrics: dict[str, float]
     readiness: dict[str, Any] = Field(default_factory=dict)
+    case_results: list[dict[str, Any]] = Field(default_factory=list)
     case_failures: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -251,6 +258,13 @@ class VectorIndexReadinessResponse(BaseModel):
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     manifest: dict[str, Any] = Field(default_factory=dict)
+
+
+class SystemReadinessResponse(BaseModel):
+    ready: bool
+    gates: dict[str, dict[str, Any]]
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ReplayResult(BaseModel):

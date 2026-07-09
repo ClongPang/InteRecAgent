@@ -220,9 +220,22 @@ Each evaluation run should produce:
       "feedback_recovery": {"actual": 0.0, "operator": ">=", "threshold": 0.9, "passed": false},
       "unsupported_claim_rate": {"actual": 0.0, "operator": "<=", "threshold": 0.2, "passed": true},
       "final_validation_violation_rate": {"actual": 0.0, "operator": "<=", "threshold": 0.0, "passed": true},
+      "unknown_critical_constraint_rate": {"actual": 0.0, "operator": "<=", "threshold": 0.25, "passed": true},
       "golden_case_coverage": {"actual": "complete", "operator": "complete", "threshold": [], "passed": true}
     }
   },
+  "case_results": [
+    {
+      "case_id": "",
+      "scenario": "",
+      "message": "",
+      "expected_task_type": "",
+      "actual_task_type": "",
+      "expected_status": "",
+      "actual_status": "",
+      "passed": true
+    }
+  ],
   "case_failures": []
 }
 ```

@@ -30,6 +30,7 @@ python3 scripts/validate_mvp.py
 
 Use `--skip-e2e` or `--skip-live-integration` when local port binding is unavailable. Add `--include-artifact-gate` after `data/catalog` has been built and readiness passes.
 Add `--generate-eval-cases` to create and validate the 100-300 labeled task evaluation set before running the normal gates.
+Use `--require-system-readiness` for final artifact validation; it requires catalog, vector index, evaluation cases, and profile readiness before running the normal tests and live integration.
 To build from local Amazon-style data and then run readiness plus the artifact gate in one pass:
 
 ```bash
@@ -40,6 +41,15 @@ python3 scripts/validate_mvp.py \
   --build-index \
   --build-profiles
 ```
+
+When artifact flags are used, `validate_mvp.py` passes the same paths and thresholds into the live FastAPI integration server. This keeps `/api/internal/readiness` aligned with the build gates instead of falling back to defaults.
+
+| Validation option | Runtime env used by readiness |
+|---|---|
+| `--artifact-dir`, `--target-min`, `--target-max`, `--demo-limit` | `INTEREC_CATALOG_PATH`, `INTEREC_TARGET_MIN`, `INTEREC_TARGET_MAX`, `INTEREC_DEMO_LIMIT` |
+| `--index-dir`, `--index-min-products` | `INTEREC_INDEX_PATH`, `INTEREC_INDEX_MIN_PRODUCTS` |
+| `--profile-dir`, `--profile-min-profiles` | `INTEREC_PROFILE_PATH`, `INTEREC_PROFILE_MIN_PROFILES` |
+| `--eval-cases`, `--eval-min-cases`, `--eval-max-cases` | `INTEREC_EVAL_CASES_PATH`, `INTEREC_EVAL_MIN_CASES`, `INTEREC_EVAL_MAX_CASES` |
 
 Run the API locally:
 

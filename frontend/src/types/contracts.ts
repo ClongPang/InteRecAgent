@@ -14,7 +14,12 @@ export type ChatTurnStatus =
   | "partial_support"
   | "error";
 
-export type ConstraintStatus = "satisfied" | "violated" | "unknown";
+export type ConstraintStatus =
+  | "satisfied"
+  | "violated"
+  | "unknown"
+  | "unknown_noncritical"
+  | "unknown_critical";
 
 export interface HealthResponse {
   status: "ok";
@@ -179,6 +184,7 @@ export interface EvaluationRunSummary {
     passed: boolean;
     gates: Record<string, Record<string, unknown>>;
   };
+  case_results?: Array<Record<string, unknown>>;
   case_failures: Array<Record<string, unknown>>;
 }
 
@@ -222,6 +228,13 @@ export interface VectorIndexReadinessResponse {
   errors: string[];
   warnings: string[];
   manifest: Record<string, unknown>;
+}
+
+export interface SystemReadinessResponse {
+  ready: boolean;
+  gates: Record<string, { ready: boolean; errors: string[]; warnings: string[] }>;
+  errors: string[];
+  warnings: string[];
 }
 
 export interface InternalTrace {

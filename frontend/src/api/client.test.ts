@@ -1,5 +1,10 @@
-import { ApiClientError, createFeedbackRequest, mockApiClient } from "./client";
+import { ApiClientError, createFeedbackRequest, liveApiClient, mockApiClient } from "./client";
 import { recommendationFixture } from "../test/fixtures/chat";
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 test("createFeedbackRequest preserves turn and anchor context", () => {
   const request = createFeedbackRequest(
@@ -40,7 +45,7 @@ test("mockApiClient returns partial support fixture for unknown fact requests", 
   const response = await mockApiClient.chat({ message: "Recommend with partial unknown facts." });
 
   expect(response.status).toBe("partial_support");
-  expect(response.products[0].constraint_status).toBe("unknown");
+  expect(response.products[0].constraint_status).toBe("unknown_critical");
 });
 
 test("mockApiClient returns response-level error fixture for recoverable errors", async () => {
@@ -105,11 +110,65 @@ test("mockApiClient reads vector index readiness contract", async () => {
   expect(readiness.errors[0]).toContain("vector index is missing");
 });
 
+test("mockApiClient reads aggregate system readiness contract", async () => {
+  const readiness = await mockApiClient.getSystemReadiness();
+
+  expect(readiness.ready).toBe(false);
+  expect(Object.keys(readiness.gates)).toEqual([
+    "catalog",
+    "evaluation_cases",
+    "profiles",
+    "vector_index"
+  ]);
+  expect(readiness.errors[0]).toContain("catalog:");
+});
+
 test("mockApiClient exposes stable error details for missing products", async () => {
   await expect(mockApiClient.getProduct("missing")).rejects.toMatchObject({
     name: "ApiClientError",
     status: 404,
     code: "product_not_found",
     details: { product_id: "missing" }
+  } satisfies Partial<ApiClientError>);
+});
+
+test("liveApiClient converts network failures into stable recoverable errors", async () => {
+  const fetchMock = vi.fn(async () => {
+    throw new Error("connection refused");
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  await expect(liveApiClient.getHealth()).rejects.toMatchObject({
+    name: "ApiClientError",
+    status: 0,
+    code: "network_error",
+    details: { reason: "connection refused" }
+  } satisfies Partial<ApiClientError>);
+
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/health",
+    expect.objectContaining({ signal: expect.any(AbortSignal) })
+  );
+});
+
+test("liveApiClient aborts hung requests with a stable timeout error", async () => {
+  vi.useFakeTimers();
+  const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => {
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+      });
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  const request = liveApiClient.getHealth().catch((error: unknown) => error);
+  await vi.advanceTimersByTimeAsync(15000);
+
+  await expect(request).resolves.toMatchObject({
+    name: "ApiClientError",
+    status: 0,
+    code: "request_timeout",
+    details: { timeout_ms: 15000 }
   } satisfies Partial<ApiClientError>);
 });

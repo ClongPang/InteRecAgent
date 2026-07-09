@@ -75,11 +75,11 @@ export const recommendationFixture: ChatTurnResponse = {
       matched_tags: ["compact", "portable"],
       evidence: [],
       uncertainties: ["price unknown", "review evidence missing"],
-      constraint_status: "unknown",
+      constraint_status: "unknown_critical",
       constraint_checks: [
         {
           field: "price",
-          status: "unknown",
+          status: "unknown_critical",
           reason: "Catalog price is missing and cannot be claimed under budget."
         }
       ],
@@ -244,5 +244,16 @@ export const evaluationFixture: EvaluationRunSummary = {
       unsupported_claim_rate: { actual: 0.25, operator: "<=", threshold: 0.2, passed: false }
     }
   },
+  case_results: [
+    {
+      case_id: "task_headphones_simple_001",
+      scenario: "simple_recommendation",
+      expected_task_type: "single_item_recommendation",
+      actual_task_type: "single_item_recommendation",
+      expected_status: "recommendations_ready",
+      actual_status: "recommendations_ready",
+      passed: true
+    }
+  ],
   case_failures: []
 };

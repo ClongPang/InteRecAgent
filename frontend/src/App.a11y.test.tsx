@@ -72,6 +72,12 @@ function makeSlowClient(): ApiClient {
       warnings: [],
       manifest: {}
     }),
+    getSystemReadiness: async () => ({
+      ready: false,
+      gates: {},
+      errors: [],
+      warnings: []
+    }),
     getInternalTrace: async () => ({
       turn_id: "turn_001",
       session_id: "sess_demo",

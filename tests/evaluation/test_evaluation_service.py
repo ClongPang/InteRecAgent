@@ -28,6 +28,11 @@ def test_evaluation_service_reports_required_metrics():
     assert summary.readiness["passed"] is False
     assert summary.readiness["gates"]["evidence_coverage"]["passed"] is False
     assert summary.readiness["gates"]["final_validation_violation_rate"]["passed"] is True
+    assert summary.readiness["gates"]["unknown_critical_constraint_rate"]["actual"] == 0.5
+    assert summary.readiness["gates"]["unknown_critical_constraint_rate"]["passed"] is False
+    assert summary.case_results[0]["case_id"] == "task_headphones_simple_001"
+    assert summary.case_results[0]["actual_task_type"] == "single_item_recommendation"
+    assert any(result["scenario"] == "unsupported_checkout" for result in summary.case_results)
 
 
 def test_evaluation_service_loads_jsonl_golden_cases_by_default():
@@ -136,6 +141,13 @@ def test_evaluation_service_reports_metrics_from_jsonl_golden_cases(tmp_path):
     assert summary.metrics["task_type_accuracy"] == 1.0
     assert any(failure["case_id"] == "jsonl_budget" for failure in summary.case_failures)
     assert "unsupported_claim_rate" in summary.readiness["gates"]
+    assert "unknown_critical_constraint_rate" in summary.readiness["gates"]
+    assert [result["case_id"] for result in summary.case_results] == [
+        "jsonl_budget",
+        "jsonl_clarify",
+        "jsonl_feedback",
+        "jsonl_unsupported",
+    ]
 
 
 def test_evaluation_service_records_status_failures(tmp_path):
@@ -193,3 +205,7 @@ def test_evaluation_service_records_task_type_failures():
         and failure["actual"] == "single_item_recommendation"
         for failure in summary.case_failures
     )
+    failed_result = next(
+        result for result in summary.case_results if result["case_id"] == "unsupported_checkout_001"
+    )
+    assert failed_result["passed"] is False

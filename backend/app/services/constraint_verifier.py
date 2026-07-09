@@ -16,11 +16,11 @@ class ConstraintVerifier:
                     checks.append(
                         ConstraintCheck(
                             field="price",
-                            status="unknown",
+                            status="unknown_critical",
                             reason="Catalog price is missing and cannot be claimed under budget.",
                         )
                     )
-                    status = "unknown"
+                    status = "unknown_critical"
                 elif product.price <= intent.budget.max:
                     checks.append(
                         ConstraintCheck(
@@ -54,5 +54,19 @@ class ConstraintVerifier:
             verified.append(product)
         return verified
 
-    def final_validate(self, candidates: list[ProductRecommendation]) -> list[ProductRecommendation]:
-        return [product for product in candidates if product.constraint_status != "violated"]
+    def final_validate(
+        self,
+        candidates: list[ProductRecommendation],
+        minimum_confident_recommendations: int = 2,
+    ) -> list[ProductRecommendation]:
+        safe_candidates = [
+            product for product in candidates if product.constraint_status != "violated"
+        ]
+        confident_candidates = [
+            product
+            for product in safe_candidates
+            if product.constraint_status != "unknown_critical"
+        ]
+        if len(confident_candidates) >= minimum_confident_recommendations:
+            return confident_candidates
+        return safe_candidates

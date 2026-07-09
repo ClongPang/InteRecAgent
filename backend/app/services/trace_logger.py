@@ -43,11 +43,11 @@ def build_trace_from_response(request_message: str, response: ChatTurnResponse) 
                     "checks": [
                         check.model_dump()
                         for check in product.constraint_checks
-                        if check.status == "unknown"
+                        if check.status.startswith("unknown")
                     ],
                 }
                 for product in response.products
-                if any(check.status == "unknown" for check in product.constraint_checks)
+                if any(check.status.startswith("unknown") for check in product.constraint_checks)
             ],
         },
         constraint_checks=[

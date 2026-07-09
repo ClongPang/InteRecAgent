@@ -20,7 +20,38 @@ def test_constraint_verifier_excludes_budget_violations_and_marks_unknown_price(
 
     assert "prod_headphones_003" not in [product.product_id for product in safe]
     unknown = next(product for product in safe if product.product_id == "prod_headphones_002")
-    assert unknown.constraint_status == "unknown"
+    assert unknown.constraint_status == "unknown_critical"
+    assert unknown.constraint_checks[0].status == "unknown_critical"
+
+
+def test_constraint_verifier_excludes_unknown_critical_when_confident_options_exist():
+    store = ProductStore(load_default_artifact=False)
+    route = TaskRouter().route("Recommend wireless headphones under 100 dollars")
+    intent = IntentParser().parse("Recommend wireless headphones under 100 dollars", route)
+    products = store.list()
+    extra_safe = products[0].model_copy(
+        deep=True,
+        update={
+            "product_id": "prod_headphones_004",
+            "title": "SafeTone Budget Wireless Headphones",
+            "brand": "SafeTone",
+            "price": 89.99,
+            "rank": 0,
+        },
+    )
+    candidates = [
+        product
+        for product in products
+        if product.product_id in {"prod_headphones_001", "prod_headphones_002"}
+    ] + [extra_safe]
+
+    verified = ConstraintVerifier().verify(candidates, intent)
+    safe = ConstraintVerifier().final_validate(verified)
+
+    assert [product.product_id for product in safe] == [
+        "prod_headphones_001",
+        "prod_headphones_004",
+    ]
 
 
 def test_feedback_updater_adds_anchor_brand_to_negative_preferences():
@@ -119,6 +150,7 @@ def test_rule_ranker_applies_profile_affinity_without_restoring_violations():
     assert "prod_headphones_003" not in [product.product_id for product in ranked]
     boosted = next(product for product in ranked if product.product_id == "prod_headphones_002")
     assert boosted.score_breakdown["profile_affinity"] > 0
+    assert boosted.score_breakdown["uncertainty_penalty"] >= 0.4
 
 
 def test_chat_orchestrator_uses_user_profile_for_ranking_trace():

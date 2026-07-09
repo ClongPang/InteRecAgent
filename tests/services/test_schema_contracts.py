@@ -20,6 +20,7 @@ from backend.app.schemas import (
     ReplayResult,
     SessionState,
     SuggestedAction,
+    SystemReadinessResponse,
     TraceSummary,
     UnsupportedPayload,
 )
@@ -141,7 +142,16 @@ VALID_CHAT_TURN = {
             },
         ),
         (ConstraintCheck, {"field": "price", "status": "satisfied", "reason": "ok"}),
+        (
+            ConstraintCheck,
+            {"field": "price", "status": "unknown_noncritical", "reason": "optional attribute missing"},
+        ),
+        (
+            ConstraintCheck,
+            {"field": "price", "status": "unknown_critical", "reason": "required price missing"},
+        ),
         (ProductRecommendation, VALID_PRODUCT),
+        (ProductRecommendation, {**VALID_PRODUCT, "constraint_status": "unknown_critical"}),
         (
             ClarificationPayload,
             {
@@ -169,6 +179,21 @@ VALID_CHAT_TURN = {
             },
         ),
         (TraceSummary, VALID_TRACE_SUMMARY),
+        (
+            SystemReadinessResponse,
+            {
+                "ready": False,
+                "gates": {
+                    "catalog": {
+                        "ready": False,
+                        "errors": ["normalized catalog is missing"],
+                        "warnings": [],
+                    }
+                },
+                "errors": ["catalog: normalized catalog is missing"],
+                "warnings": [],
+            },
+        ),
         (ChatRequest, {"message": "Recommend wireless headphones."}),
         (ChatTurnResponse, VALID_CHAT_TURN),
         (

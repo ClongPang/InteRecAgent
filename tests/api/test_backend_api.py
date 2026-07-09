@@ -31,6 +31,7 @@ def test_chat_returns_recommendations_and_writes_trace():
     body = response.json()
     assert body["status"] == "recommendations_ready"
     assert body["products"][0]["constraint_status"] == "satisfied"
+    assert body["products"][1]["constraint_status"] == "unknown_critical"
     assert body["products"][1]["uncertainties"] == ["price unknown", "review evidence missing"]
 
     trace_response = client.get(f"/api/internal/traces/{body['turn_id']}")
@@ -40,6 +41,7 @@ def test_chat_returns_recommendations_and_writes_trace():
     assert trace["filtering"]["input_count"] == body["trace_summary"]["retrieved_count"]
     assert trace["filtering"]["output_count"] == body["trace_summary"]["filtered_count"]
     assert trace["filtering"]["unknown_constraints"][0]["product_id"] == "prod_headphones_002"
+    assert trace["filtering"]["unknown_constraints"][0]["checks"][0]["status"] == "unknown_critical"
 
     replay_response = client.post(f"/api/internal/replay?turn_id={body['turn_id']}")
     assert replay_response.status_code == 200
@@ -259,6 +261,13 @@ def test_evaluation_runner_returns_five_metrics():
     }
     assert body["readiness"]["gates"]["task_type_accuracy"]["threshold"] == 0.95
     assert "unsupported_claim_rate" in body["readiness"]["gates"]
+    assert "unknown_critical_constraint_rate" in body["readiness"]["gates"]
+    assert body["case_results"][0]["case_id"] == "task_headphones_simple_001"
+    assert body["case_results"][0]["actual_status"] in {
+        "recommendations_ready",
+        "clarification_required",
+        "unsupported",
+    }
 
 
 def test_evaluation_run_lookup_returns_requested_run_id():
@@ -312,3 +321,57 @@ def test_vector_index_readiness_endpoint_reports_current_artifact_status():
     assert body["product_count"] == 0
     assert body["index_path"] == "data/indexes/product_index.jsonl"
     assert any("vector index is missing" in error for error in body["errors"])
+
+
+def test_system_readiness_endpoint_aggregates_artifact_gates():
+    response = client.get("/api/internal/readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is False
+    assert set(body["gates"]) == {"catalog", "evaluation_cases", "profiles", "vector_index"}
+    assert body["gates"]["catalog"]["ready"] is False
+    assert any(error.startswith("catalog:") for error in body["errors"])
+    assert any(error.startswith("vector_index:") for error in body["errors"])
+
+
+def test_readiness_endpoints_follow_runtime_artifact_environment(monkeypatch, tmp_path):
+    catalog_dir = tmp_path / "catalog_alt"
+    eval_cases_path = tmp_path / "eval_alt" / "custom_task_cases.jsonl"
+    profile_dir = tmp_path / "profiles_alt"
+    index_dir = tmp_path / "indexes_alt"
+    eval_cases_path.parent.mkdir(parents=True)
+    eval_cases_path.write_text("", encoding="utf-8")
+    monkeypatch.setenv("INTEREC_CATALOG_PATH", str(catalog_dir / "normalized_catalog.jsonl"))
+    monkeypatch.setenv("INTEREC_EVAL_CASES_PATH", str(eval_cases_path))
+    monkeypatch.setenv("INTEREC_PROFILE_PATH", str(profile_dir / "user_profiles.jsonl"))
+    monkeypatch.setenv("INTEREC_INDEX_PATH", str(index_dir / "product_index.jsonl"))
+    monkeypatch.setenv("INTEREC_TARGET_MIN", "7")
+    monkeypatch.setenv("INTEREC_TARGET_MAX", "9")
+    monkeypatch.setenv("INTEREC_DEMO_LIMIT", "3")
+    monkeypatch.setenv("INTEREC_EVAL_MIN_CASES", "11")
+    monkeypatch.setenv("INTEREC_EVAL_MAX_CASES", "12")
+    monkeypatch.setenv("INTEREC_PROFILE_MIN_PROFILES", "13")
+    monkeypatch.setenv("INTEREC_INDEX_MIN_PRODUCTS", "14")
+
+    catalog = client.get("/api/internal/catalog/readiness").json()
+    eval_cases = client.get("/api/internal/evaluation/dataset/readiness").json()
+    profile = client.get("/api/internal/profiles/readiness").json()
+    index = client.get("/api/internal/index/readiness").json()
+    system = client.get("/api/internal/readiness").json()
+
+    assert catalog["catalog_path"] == str(catalog_dir / "normalized_catalog.jsonl")
+    assert eval_cases["path"] == str(eval_cases_path)
+    assert profile["profiles_path"] == str(profile_dir / "user_profiles.jsonl")
+    assert index["index_path"] == str(index_dir / "product_index.jsonl")
+    assert any("target minimum is 7" in error for error in catalog["errors"])
+    assert any("below minimum 11" in error for error in eval_cases["errors"])
+    assert any("minimum is 13" in error for error in profile["errors"])
+    assert any("minimum is 14" in error for error in index["errors"])
+    assert any(str(catalog_dir) in error for error in system["gates"]["catalog"]["errors"])
+    assert any(
+        "below minimum 11" in error
+        for error in system["gates"]["evaluation_cases"]["errors"]
+    )
+    assert any(str(profile_dir) in error for error in system["gates"]["profiles"]["errors"])
+    assert any(str(index_dir) in error for error in system["gates"]["vector_index"]["errors"])

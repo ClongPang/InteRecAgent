@@ -27,6 +27,7 @@ liveTest("liveApiClient reads internal trace and evaluation contracts", async ()
   const datasetReadiness = await liveApiClient.getEvaluationDatasetReadiness();
   const profileReadiness = await liveApiClient.getProfileReadiness();
   const indexReadiness = await liveApiClient.getVectorIndexReadiness();
+  const systemReadiness = await liveApiClient.getSystemReadiness();
 
   expect(trace.turn_id).toBe("turn_001");
   expect(trace.task_route.task_type).toBe("single_item_recommendation");
@@ -48,4 +49,7 @@ liveTest("liveApiClient reads internal trace and evaluation contracts", async ()
   expect(profileReadiness.profiles_path).toContain("user_profiles.jsonl");
   expect(indexReadiness.ready).toBe(false);
   expect(indexReadiness.index_path).toContain("product_index.jsonl");
+  expect(systemReadiness.ready).toBe(false);
+  expect(systemReadiness.gates.catalog.ready).toBe(false);
+  expect(systemReadiness.errors.some((error) => error.startsWith("catalog:"))).toBe(true);
 });

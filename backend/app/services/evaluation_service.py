@@ -44,6 +44,7 @@ MVP_READINESS_THRESHOLDS = {
     "feedback_recovery": {"operator": ">=", "threshold": 0.9},
     "unsupported_claim_rate": {"operator": "<=", "threshold": 0.2},
     "final_validation_violation_rate": {"operator": "<=", "threshold": 0.0},
+    "unknown_critical_constraint_rate": {"operator": "<=", "threshold": 0.25},
 }
 
 
@@ -121,6 +122,11 @@ class EvaluationService:
         feedback_recovery = self._feedback_recovery(responses, failures)
         self._status_expectations(responses, failures)
         self._golden_case_coverage(failures)
+        diagnostics = {
+            "unknown_critical_constraint_rate": self._unknown_critical_constraint_rate(
+                responses
+            )
+        }
         metrics = {
             "task_type_accuracy": task_accuracy,
             "intent_slot_f1": intent_f1,
@@ -131,7 +137,8 @@ class EvaluationService:
         return EvaluationRunSummary(
             run_id=run_id,
             metrics=metrics,
-            readiness=self._readiness_report(metrics, failures),
+            readiness=self._readiness_report(metrics, failures, diagnostics),
+            case_results=self._case_results(responses, failures),
             case_failures=failures,
         )
 
@@ -323,13 +330,30 @@ class EvaluationService:
                 return None
         return current
 
+    def _unknown_critical_constraint_rate(
+        self,
+        responses: list[tuple[GoldenCase, ChatTurnResponse]],
+    ) -> float:
+        total = 0
+        unknown_critical = 0
+        for case, response in responses:
+            if not case.hard_constraints:
+                continue
+            for product in response.products:
+                total += 1
+                if product.constraint_status == "unknown_critical":
+                    unknown_critical += 1
+        return round(unknown_critical / total, 4) if total else 0.0
+
     def _readiness_report(
         self,
         metrics: dict[str, float],
         failures: list[dict[str, Any]],
+        diagnostics: dict[str, float],
     ) -> dict[str, Any]:
         actuals = {
             **metrics,
+            **diagnostics,
             "unsupported_claim_rate": round(1.0 - metrics["evidence_coverage"], 4),
             "final_validation_violation_rate": round(1.0 - metrics["constraint_satisfaction"], 4),
         }
@@ -359,3 +383,27 @@ class EvaluationService:
             "passed": all(gate["passed"] for gate in gates.values()),
             "gates": gates,
         }
+
+    def _case_results(
+        self,
+        responses: list[tuple[GoldenCase, ChatTurnResponse]],
+        failures: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        failed_case_ids = {
+            str(failure["case_id"])
+            for failure in failures
+            if failure.get("case_id")
+        }
+        return [
+            {
+                "case_id": case.case_id,
+                "scenario": case.scenario,
+                "message": case.message,
+                "expected_task_type": case.expected_task_type,
+                "actual_task_type": response.task_type,
+                "expected_status": case.expected_status,
+                "actual_status": response.status,
+                "passed": case.case_id not in failed_case_ids,
+            }
+            for case, response in responses
+        ]

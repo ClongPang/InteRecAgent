@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -70,6 +71,29 @@ def build_commands(args: argparse.Namespace) -> list[Command]:
             )
         )
         args.include_artifact_gate = True
+
+    if args.require_system_readiness and not args.metadata:
+        commands.append(
+            Command(
+                "catalog readiness",
+                [
+                    "uv",
+                    "run",
+                    "python",
+                    "-m",
+                    "backend.app.data_pipeline.catalog_readiness",
+                    "--artifact-dir",
+                    str(args.artifact_dir),
+                    "--target-min",
+                    str(args.target_min),
+                    "--target-max",
+                    str(args.target_max),
+                    "--demo-limit",
+                    str(args.demo_limit),
+                ],
+                env={"UV_CACHE_DIR": ".uv-cache"},
+            )
+        )
 
     if args.build_index:
         index_args = [
@@ -221,16 +245,54 @@ def build_commands(args: argparse.Namespace) -> list[Command]:
 
 def run_command(command: Command) -> None:
     print(f"\n==> {command.label}", flush=True)
-    print(f"$ {' '.join(command.args)}", flush=True)
+    print(f"$ {format_command_for_plan(command)}", flush=True)
     env = os.environ.copy()
     env.update(command.env)
     subprocess.run(command.args, cwd=command.cwd, env=env, check=True)
 
 
-def run_live_integration() -> None:
+def format_command_for_plan(command: Command) -> str:
+    env_parts = [
+        f"{name}={shlex.quote(value)}"
+        for name, value in sorted(command.env.items())
+    ]
+    return " ".join(env_parts + [shlex.join(command.args)])
+
+
+def runtime_artifact_env(args: argparse.Namespace) -> dict[str, str]:
+    env: dict[str, str] = {}
+    if args.metadata or args.include_artifact_gate:
+        env["INTEREC_CATALOG_PATH"] = str(args.artifact_dir / "normalized_catalog.jsonl")
+        env["INTEREC_TARGET_MIN"] = str(args.target_min)
+        env["INTEREC_TARGET_MAX"] = str(args.target_max)
+        env["INTEREC_DEMO_LIMIT"] = str(args.demo_limit)
+    if args.build_index or args.require_index:
+        env["INTEREC_INDEX_PATH"] = str(args.index_dir / "product_index.jsonl")
+        env["INTEREC_INDEX_MIN_PRODUCTS"] = str(args.index_min_products)
+    if args.build_profiles or args.require_profiles:
+        env["INTEREC_PROFILE_PATH"] = str(args.profile_dir / "user_profiles.jsonl")
+        env["INTEREC_PROFILE_MIN_PROFILES"] = str(args.profile_min_profiles)
+    if args.generate_eval_cases or args.require_eval_cases:
+        env["INTEREC_EVAL_CASES_PATH"] = str(args.eval_cases)
+        env["INTEREC_EVAL_MIN_CASES"] = str(args.eval_min_cases)
+        env["INTEREC_EVAL_MAX_CASES"] = str(args.eval_max_cases)
+    return env
+
+
+def apply_system_readiness_requirements(args: argparse.Namespace) -> None:
+    if not args.require_system_readiness:
+        return
+    args.include_artifact_gate = True
+    args.require_index = True
+    args.require_eval_cases = True
+    args.require_profiles = True
+
+
+def run_live_integration(runtime_env: dict[str, str] | None = None) -> None:
     print("\n==> frontend live integration", flush=True)
     backend_env = os.environ.copy()
     backend_env["UV_CACHE_DIR"] = ".uv-cache"
+    backend_env.update(runtime_env or {})
     backend = subprocess.Popen(
         [
             "uv",
@@ -285,6 +347,11 @@ def main() -> int:
         "--include-artifact-gate",
         action="store_true",
         help="Run the ready-catalog artifact gate. It skips until data/catalog is ready.",
+    )
+    parser.add_argument(
+        "--require-system-readiness",
+        action="store_true",
+        help="Require catalog, vector index, evaluation cases, and profile artifacts before validation.",
     )
     parser.add_argument(
         "--metadata",
@@ -342,6 +409,7 @@ def main() -> int:
     parser.add_argument("--profile-max-profiles", type=int, default=10_000)
     parser.add_argument("--print-plan", action="store_true", help="Print commands without running them.")
     args = parser.parse_args()
+    apply_system_readiness_requirements(args)
 
     if args.build_profiles and not args.reviews:
         parser.error("--build-profiles requires --reviews")
@@ -350,16 +418,23 @@ def main() -> int:
 
     commands = build_commands(args)
     if not args.skip_live_integration:
-        commands.append(Command("frontend live integration", ["npm", "run", "test:integration"], cwd=FRONTEND))
+        commands.append(
+            Command(
+                "frontend live integration",
+                ["npm", "run", "test:integration"],
+                cwd=FRONTEND,
+                env=runtime_artifact_env(args),
+            )
+        )
 
     if args.print_plan:
         for command in commands:
-            print(f"{command.label}: {' '.join(command.args)}")
+            print(f"{command.label}: {format_command_for_plan(command)}")
         return 0
 
     for command in commands:
         if command.label == "frontend live integration":
-            run_live_integration()
+            run_live_integration(command.env)
         else:
             run_command(command)
     return 0

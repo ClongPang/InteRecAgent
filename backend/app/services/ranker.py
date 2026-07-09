@@ -12,6 +12,10 @@ class RuleRanker:
             profile_affinity = self._profile_affinity(product, intent)
             evidence = min(1.0, len(product.evidence) * 0.4 + (0.2 if product.average_rating else 0.0))
             uncertainty_penalty = 0.2 * len(product.uncertainties)
+            if product.constraint_status == "unknown_critical":
+                uncertainty_penalty += 0.4
+            elif product.constraint_status == "unknown_noncritical":
+                uncertainty_penalty += 0.1
             score = intent_match + price_fit + evidence + profile_affinity - uncertainty_penalty
             product.score_breakdown = {
                 "intent_match": round(intent_match, 3),
@@ -73,6 +77,6 @@ class RuleRanker:
         return max(-0.3, min(score, 0.4))
 
     def _rank_reason(self, product: ProductRecommendation) -> str:
-        if product.constraint_status == "unknown":
+        if product.constraint_status.startswith("unknown"):
             return "Close match, but some required facts are unknown."
         return "Ranked by intent match, price fit, and available evidence."

@@ -11,6 +11,7 @@ import type {
   ProfileReadinessResponse,
   ReplayResult,
   SessionState,
+  SystemReadinessResponse,
   VectorIndexReadinessResponse
 } from "../types/contracts";
 import {
@@ -25,6 +26,7 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS !== "false";
+const API_TIMEOUT_MS = parsePositiveTimeout(import.meta.env.VITE_API_TIMEOUT_MS, 15000);
 
 export interface ApiClient {
   getHealth(): Promise<HealthResponse>;
@@ -37,6 +39,7 @@ export interface ApiClient {
   getEvaluationDatasetReadiness(): Promise<EvaluationDatasetReadinessResponse>;
   getProfileReadiness(): Promise<ProfileReadinessResponse>;
   getVectorIndexReadiness(): Promise<VectorIndexReadinessResponse>;
+  getSystemReadiness(): Promise<SystemReadinessResponse>;
   getInternalTrace(turnId: string): Promise<InternalTrace>;
   replayTurn(turnId: string): Promise<ReplayResult>;
 }
@@ -83,17 +86,62 @@ async function readJson<T>(response: Response): Promise<T> {
   return body as T;
 }
 
+function parsePositiveTimeout(value: string | undefined, fallback: number): number {
+  if (value == null || value === "") {
+    return fallback;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function requestTimeoutError(): ApiClientError {
+  return new ApiClientError(0, {
+    code: "request_timeout",
+    message: "Request timed out. Check the backend connection and try again.",
+    details: { timeout_ms: API_TIMEOUT_MS }
+  });
+}
+
+function networkError(error: unknown): ApiClientError {
+  if (error instanceof ApiClientError) {
+    return error;
+  }
+  return new ApiClientError(0, {
+    code: "network_error",
+    message: "Network request failed. Check the backend connection and try again.",
+    details: { reason: error instanceof Error ? error.message : String(error) }
+  });
+}
+
+async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      signal: controller.signal
+    });
+    return await readJson<T>(response);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw requestTimeoutError();
+    }
+    throw networkError(error);
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 async function getJson<T>(path: string): Promise<T> {
-  return readJson<T>(await fetch(`${API_BASE}${path}`));
+  return requestJson<T>(path);
 }
 
 async function postJson<T>(path: string, payload?: unknown): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  return requestJson<T>(path, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: payload === undefined ? undefined : JSON.stringify(payload)
   });
-  return readJson<T>(response);
 }
 
 export const liveApiClient: ApiClient = {
@@ -126,6 +174,9 @@ export const liveApiClient: ApiClient = {
   },
   getVectorIndexReadiness() {
     return getJson<VectorIndexReadinessResponse>("/api/internal/index/readiness");
+  },
+  getSystemReadiness() {
+    return getJson<SystemReadinessResponse>("/api/internal/readiness");
   },
   getInternalTrace(turnId) {
     return getJson<InternalTrace>(`/api/internal/traces/${encodeURIComponent(turnId)}`);
@@ -236,6 +287,40 @@ export const mockApiClient: ApiClient = {
       errors: ["vector index is missing: data/indexes/product_index.jsonl"],
       warnings: [],
       manifest: {}
+    };
+  },
+  async getSystemReadiness() {
+    return {
+      ready: false,
+      gates: {
+        catalog: {
+          ready: false,
+          errors: ["normalized catalog is missing: data/catalog/normalized_catalog.jsonl"],
+          warnings: []
+        },
+        evaluation_cases: {
+          ready: false,
+          errors: ["task case file is missing: data/eval/task_cases.jsonl"],
+          warnings: []
+        },
+        profiles: {
+          ready: false,
+          errors: ["user profiles are missing: data/profiles/user_profiles.jsonl"],
+          warnings: []
+        },
+        vector_index: {
+          ready: false,
+          errors: ["vector index is missing: data/indexes/product_index.jsonl"],
+          warnings: []
+        }
+      },
+      errors: [
+        "catalog: normalized catalog is missing: data/catalog/normalized_catalog.jsonl",
+        "evaluation_cases: task case file is missing: data/eval/task_cases.jsonl",
+        "profiles: user profiles are missing: data/profiles/user_profiles.jsonl",
+        "vector_index: vector index is missing: data/indexes/product_index.jsonl"
+      ],
+      warnings: []
     };
   },
   async getInternalTrace(turnId) {

@@ -57,11 +57,11 @@ DEMO_PRODUCTS = [
         matched_tags=["compact", "portable"],
         evidence=[],
         uncertainties=["price unknown", "review evidence missing"],
-        constraint_status="unknown",
+        constraint_status="unknown_critical",
         constraint_checks=[
             ConstraintCheck(
                 field="price",
-                status="unknown",
+                status="unknown_critical",
                 reason="Catalog price is missing and cannot be claimed under budget.",
             )
         ],

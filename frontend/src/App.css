@@ -238,7 +238,9 @@ p {
   color: #11643a;
 }
 
-.status.unknown {
+.status.unknown,
+.status.unknown_noncritical,
+.status.unknown_critical {
   background: #fff2cc;
   color: #7a4f00;
 }

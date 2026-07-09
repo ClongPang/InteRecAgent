@@ -16,6 +16,9 @@ test("evaluation route shows metrics and run lookup", async ({ page }) => {
   await page.goto("/internal/eval");
 
   await expect(page.getByRole("heading", { name: "Evaluation dashboard" })).toBeVisible();
+  await expect(page.getByLabel("System readiness")).toContainText("Not ready");
+  await expect(page.getByLabel("System readiness")).toContainText("catalog");
+  await expect(page.getByLabel("System readiness")).toContainText("vector_index");
   await expect(page.getByLabel("Catalog readiness")).toContainText("Not ready");
   await expect(page.getByLabel("Catalog readiness")).toContainText("normalized_catalog.jsonl");
   await expect(page.getByLabel("Task case readiness")).toContainText("Not ready");

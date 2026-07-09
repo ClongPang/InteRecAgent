@@ -75,6 +75,38 @@ function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
       warnings: [],
       manifest: {}
     }),
+    getSystemReadiness: async () => ({
+      ready: false,
+      gates: {
+        catalog: {
+          ready: false,
+          errors: ["normalized catalog is missing: data/catalog/normalized_catalog.jsonl"],
+          warnings: []
+        },
+        evaluation_cases: {
+          ready: false,
+          errors: ["task case file is missing: data/eval/task_cases.jsonl"],
+          warnings: []
+        },
+        profiles: {
+          ready: false,
+          errors: ["user profiles are missing: data/profiles/user_profiles.jsonl"],
+          warnings: []
+        },
+        vector_index: {
+          ready: false,
+          errors: ["vector index is missing: data/indexes/product_index.jsonl"],
+          warnings: []
+        }
+      },
+      errors: [
+        "catalog: normalized catalog is missing: data/catalog/normalized_catalog.jsonl",
+        "evaluation_cases: task case file is missing: data/eval/task_cases.jsonl",
+        "profiles: user profiles are missing: data/profiles/user_profiles.jsonl",
+        "vector_index: vector index is missing: data/indexes/product_index.jsonl"
+      ],
+      warnings: []
+    }),
     getInternalTrace: async () => ({
       turn_id: "turn_001",
       session_id: "sess_demo",
@@ -580,6 +612,8 @@ test("evaluation route renders five metric dashboard", async () => {
   expect(screen.getByLabelText("MVP readiness")).toHaveTextContent("Not passed");
   expect(screen.getByLabelText("MVP readiness")).toHaveTextContent("evidence_coverage");
   expect(screen.getByLabelText("Evaluation metrics")).toHaveTextContent("feedback_recovery");
+  expect(screen.getByLabelText("Golden cases")).toHaveTextContent("task_headphones_simple_001");
+  expect(screen.getByLabelText("Golden cases")).toHaveTextContent("simple_recommendation");
   expect(screen.getByLabelText("Evaluation failures")).toHaveTextContent("No case failures");
 });
 
@@ -604,6 +638,17 @@ test("evaluation route renders passing MVP readiness gates", async () => {
               final_validation_violation_rate: { actual: 0, operator: "<=", threshold: 0, passed: true }
             }
           },
+          case_results: [
+            {
+              case_id: "task_ready",
+              scenario: "simple_recommendation",
+              expected_task_type: "single_item_recommendation",
+              actual_task_type: "single_item_recommendation",
+              expected_status: "recommendations_ready",
+              actual_status: "recommendations_ready",
+              passed: true
+            }
+          ],
           case_failures: []
         })
       })}
@@ -614,6 +659,7 @@ test("evaluation route renders passing MVP readiness gates", async () => {
   const readiness = await screen.findByLabelText("MVP readiness");
   expect(readiness).toHaveTextContent("Passed");
   expect(readiness).toHaveTextContent("final_validation_violation_rate");
+  expect(screen.getByLabelText("Golden cases")).toHaveTextContent("task_ready");
 });
 
 test("evaluation route loads selected run id", async () => {
@@ -715,6 +761,37 @@ test("evaluation route renders catalog readiness status", async () => {
   expect(readiness).toHaveTextContent("Ready");
   expect(readiness).toHaveTextContent("20000");
   expect(readiness).toHaveTextContent("target_met");
+});
+
+test("evaluation route renders aggregate system readiness status", async () => {
+  render(
+    <App
+      client={makeClient({
+        getSystemReadiness: async () => ({
+          ready: false,
+          gates: {
+            catalog: { ready: true, errors: [], warnings: [] },
+            evaluation_cases: { ready: true, errors: [], warnings: [] },
+            profiles: {
+              ready: false,
+              errors: ["user profiles are missing: data/profiles/user_profiles.jsonl"],
+              warnings: []
+            },
+            vector_index: { ready: true, errors: [], warnings: [] }
+          },
+          errors: ["profiles: user profiles are missing: data/profiles/user_profiles.jsonl"],
+          warnings: []
+        })
+      })}
+      path="/internal/eval"
+    />
+  );
+
+  const readiness = await screen.findByLabelText("System readiness");
+  expect(readiness).toHaveTextContent("Not ready");
+  expect(readiness).toHaveTextContent("catalog");
+  expect(readiness).toHaveTextContent("profiles");
+  expect(readiness).toHaveTextContent("profiles: user profiles are missing");
 });
 
 test("evaluation route renders task case readiness status", async () => {

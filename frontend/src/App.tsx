@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Fragment, FormEvent, useEffect, useMemo, useState } from "react";
 import { apiClient, createFeedbackRequest, type ApiClient } from "./api/client";
 import {
   evaluationFixture,
@@ -14,6 +14,7 @@ import type {
   ProfileReadinessResponse,
   ReplayResult,
   SessionState,
+  SystemReadinessResponse,
   VectorIndexReadinessResponse
 } from "./types/contracts";
 import "./App.css";
@@ -703,6 +704,7 @@ function EvaluationDashboard({ client }: { client: ApiClient }) {
   const [taskCaseReadiness, setTaskCaseReadiness] = useState<EvaluationDatasetReadinessResponse | null>(null);
   const [profileReadiness, setProfileReadiness] = useState<ProfileReadinessResponse | null>(null);
   const [indexReadiness, setIndexReadiness] = useState<VectorIndexReadinessResponse | null>(null);
+  const [systemReadiness, setSystemReadiness] = useState<SystemReadinessResponse | null>(null);
   const [runInput, setRunInput] = useState(evaluationFixture.run_id);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -771,6 +773,17 @@ function EvaluationDashboard({ client }: { client: ApiClient }) {
           manifest: {}
         });
       });
+    client
+      .getSystemReadiness()
+      .then(setSystemReadiness)
+      .catch(() => {
+        setSystemReadiness({
+          ready: false,
+          gates: {},
+          errors: ["System readiness could not be loaded."],
+          warnings: []
+        });
+      });
   }, [client]);
   const metrics = useMemo(() => Object.entries(metricsData.metrics), [metricsData]);
 
@@ -792,6 +805,46 @@ function EvaluationDashboard({ client }: { client: ApiClient }) {
     <main className="internal-page">
       <h1>Evaluation dashboard</h1>
       {error && <p role="alert">{error}</p>}
+      <form className="trace-selector" aria-label="Evaluation run selector" onSubmit={submitRunLookup}>
+        <label htmlFor="evaluation-run-id">Run ID</label>
+        <input
+          id="evaluation-run-id"
+          value={runInput}
+          onChange={(event) => setRunInput(event.target.value)}
+          placeholder="eval_demo"
+        />
+        <button type="submit" disabled={runInput.trim().length === 0}>
+          Load run
+        </button>
+      </form>
+      <p>Run: {metricsData.run_id}</p>
+      <section aria-label="System readiness" className="notice">
+        <h2>System readiness</h2>
+        {systemReadiness ? (
+          <>
+            <p>{systemReadiness.ready ? "Ready" : "Not ready"}</p>
+            {Object.keys(systemReadiness.gates).length > 0 && (
+              <dl>
+                {Object.entries(systemReadiness.gates).map(([name, gate]) => (
+                  <Fragment key={name}>
+                    <dt>{name}</dt>
+                    <dd>{gate.ready ? "Ready" : "Not ready"}</dd>
+                  </Fragment>
+                ))}
+              </dl>
+            )}
+            {systemReadiness.errors.length > 0 && (
+              <ul>
+                {systemReadiness.errors.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
+          </>
+        ) : (
+          <p>Loading system readiness</p>
+        )}
+      </section>
       <section aria-label="Catalog readiness" className="notice">
         <h2>Catalog readiness</h2>
         {catalogReadiness ? (
@@ -890,19 +943,6 @@ function EvaluationDashboard({ client }: { client: ApiClient }) {
           <p>Loading vector index readiness</p>
         )}
       </section>
-      <form className="trace-selector" aria-label="Evaluation run selector" onSubmit={submitRunLookup}>
-        <label htmlFor="evaluation-run-id">Run ID</label>
-        <input
-          id="evaluation-run-id"
-          value={runInput}
-          onChange={(event) => setRunInput(event.target.value)}
-          placeholder="eval_demo"
-        />
-        <button type="submit" disabled={runInput.trim().length === 0}>
-          Load run
-        </button>
-      </form>
-      <p>Run: {metricsData.run_id}</p>
       <section aria-label="MVP readiness">
         <h2>MVP readiness</h2>
         <p>{metricsData.readiness?.passed ? "Passed" : "Not passed"}</p>
@@ -936,6 +976,35 @@ function EvaluationDashboard({ client }: { client: ApiClient }) {
             <strong>{Math.round(value * 100)}%</strong>
           </div>
         ))}
+      </section>
+      <section aria-label="Golden cases">
+        <h2>Golden cases</h2>
+        {metricsData.case_results && metricsData.case_results.length > 0 ? (
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Case</th>
+                <th scope="col">Scenario</th>
+                <th scope="col">Task</th>
+                <th scope="col">Status</th>
+                <th scope="col">Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metricsData.case_results.map((result, index) => (
+                <tr key={String(result.case_id ?? index)}>
+                  <th scope="row">{String(result.case_id ?? `case_${index + 1}`)}</th>
+                  <td>{String(result.scenario ?? "")}</td>
+                  <td>{`${String(result.expected_task_type ?? "")} -> ${String(result.actual_task_type ?? "")}`}</td>
+                  <td>{`${String(result.expected_status ?? "")} -> ${String(result.actual_status ?? "")}`}</td>
+                  <td>{result.passed ? "Pass" : "Fail"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p>No golden case results</p>
+        )}
       </section>
       <section aria-label="Evaluation failures">
         <h2>Case failures</h2>

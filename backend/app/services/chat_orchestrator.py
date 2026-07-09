@@ -197,7 +197,7 @@ class ChatOrchestrator:
 
     def _warnings(self, products) -> list[str]:
         warnings = []
-        if any(product.constraint_status == "unknown" for product in products):
+        if any(product.constraint_status.startswith("unknown") for product in products):
             warnings.append("Some product facts are unknown and labeled explicitly.")
         if any(not product.evidence for product in products):
             warnings.append("Some products have missing evidence.")
