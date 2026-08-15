@@ -1,7 +1,7 @@
 [project]
 name = "interecagent"
 version = "0.1.0"
-description = "Traceable e-commerce recommendation agent MVP"
+description = "Traceable conversational game recommendation agent MVP"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115.0",
@@ -20,6 +20,6 @@ testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
 markers = [
-  "artifact: requires generated catalog artifacts under data/catalog",
+  "artifact: requires generated game catalog artifacts under data/games",
   "integration: cross-module integration checks",
 ]
