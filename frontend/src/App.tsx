@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
 
 type View = 'home' | 'discover' | 'compare' | 'watchlist'
 type Product = {
@@ -24,6 +24,15 @@ type Product = {
   description: string
   delivery: string
   history: { month: string; value: number }[]
+}
+
+type ConversationMessage = {
+  id: string
+  role: 'user' | 'agent'
+  kind: 'message' | 'progress' | 'question' | 'result' | 'decision'
+  text: string
+  meta?: string
+  actions?: string[]
 }
 
 const products: Product[] = [
@@ -239,6 +248,37 @@ function AgentInsight() {
   </section>
 }
 
+function ConversationPanel({ messages, onAction, onSend, compact = false }: { messages: ConversationMessage[]; onAction: (action: string) => void; onSend: (text: string) => void; compact?: boolean }) {
+  const [draft, setDraft] = useState('')
+  const [collapsed, setCollapsed] = useState(false)
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const text = draft.trim()
+    if (!text) return
+    onSend(text)
+    setDraft('')
+  }
+
+  if (collapsed) {
+    return <aside className="conversation-collapsed"><button onClick={() => setCollapsed(false)} aria-label="展开 Agent 对话"><Icon name="spark" size={17} /><span>继续追问 Agent</span><Icon name="arrow" size={14} /></button></aside>
+  }
+
+  return <aside className={`conversation-panel ${compact ? 'is-compact' : ''}`}>
+    <div className="conversation-header"><div><span className="eyebrow"><span className="agent-live-dot" /> AGENT SESSION</span><strong>购物任务对话</strong></div><button className="conversation-collapse" onClick={() => setCollapsed(true)} aria-label="收起对话"><Icon name="minus" size={15} /></button></div>
+    <div className="mission-context"><div className="mission-context-title"><Icon name="target" size={14} /> 当前任务简报</div><div className="mission-context-chips"><span>通勤降噪耳机</span><span>预算 ¥2,500</span><span>中国大陆</span></div></div>
+    <div className="conversation-thread" aria-live="polite">
+      {messages.map((message) => <div className={`conversation-message ${message.role} message-${message.kind}`} key={message.id}>
+        <div className="message-meta">{message.role === 'user' ? '你' : 'Agent'}{message.meta && <span> · {message.meta}</span>}</div>
+        <p>{message.text}</p>
+        {message.kind === 'progress' && <div className="progress-steps"><span className="is-done"><Icon name="check" size={11} /> 搜索平台</span><span className="is-done"><Icon name="check" size={11} /> 换算 RMB</span><span className="is-active"><i /> 整理候选</span></div>}
+        {message.actions && <div className="message-actions">{message.actions.map((action) => <button key={action} onClick={() => onAction(action)}>{action}<Icon name="arrow" size={12} /></button>)}</div>}
+      </div>)}
+    </div>
+    <div className="conversation-suggestions"><span>继续告诉我</span><button onClick={() => onAction('只看有货')}>只看有货</button><button onClick={() => onAction('比较前 3 个')}>比较前 3 个</button></div>
+    <form className="conversation-composer" onSubmit={submit}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="继续告诉我你的偏好……" rows={2} aria-label="继续追问 Agent" /><div className="composer-row"><button type="button" className="composer-attach"><Icon name="plus" size={14} /> 条件</button><button className="send-button" type="submit" disabled={!draft.trim()} aria-label="发送追问"><Icon name="arrow" size={16} /></button></div></form>
+  </aside>
+}
+
 function FilterBar({ sort, setSort }: { sort: string; setSort: (value: string) => void }) {
   return <div className="filter-bar">
     <div className="result-count"><strong>12</strong> 个候选商品 <span>· 4 个平台</span></div>
@@ -272,19 +312,55 @@ function CompareTray({ selected, onCompare, onRemove }: { selected: Product[]; o
 
 function DiscoverView({ onReset, selectedIds, onSelect, onDetail, onCompare }: { onReset: () => void; selectedIds: string[]; onSelect: (id: string) => void; onDetail: (id: string) => void; onCompare: () => void }) {
   const [sort, setSort] = useState('综合推荐')
+  const [preference, setPreference] = useState('')
+  const [messages, setMessages] = useState<ConversationMessage[]>([
+    { id: 'm1', role: 'user', kind: 'message', text: '帮我找一副适合通勤的降噪耳机，预算 2500 元以内', meta: '刚刚' },
+    { id: 'm2', role: 'agent', kind: 'message', text: '我理解你要找：通勤用降噪耳机，预算 ¥2,500，送至中国大陆。接下来我会比较不同国际平台的商品价、规格和配送信息。', meta: '已理解' },
+    { id: 'm3', role: 'agent', kind: 'progress', text: '我已搜索 Amazon US、Lazada SG 和 Best Buy US，并把原币种价格换算为 RMB。', meta: '刚刚' },
+    { id: 'm4', role: 'agent', kind: 'question', text: '你更在意降噪效果，还是更长的续航？这会改变候选排序。', actions: ['优先降噪', '优先续航', '我不确定'] },
+    { id: 'm5', role: 'agent', kind: 'result', text: '目前找到 12 个候选，我先在右侧展示 3 个取向不同的选择。', meta: '结果已更新', actions: ['只看有货', '比较前 3 个'] },
+  ])
   const selected = products.filter((product) => selectedIds.includes(product.id))
+  const shownProducts = useMemo(() => {
+    const next = [...products]
+    if (preference === '续航') next.sort((a, b) => (b.id === 'sennheiser-m4' ? 1 : 0) - (a.id === 'sennheiser-m4' ? 1 : 0))
+    if (sort === '人民币最低') next.sort((a, b) => a.rmbPrice - b.rmbPrice)
+    if (sort === '评分最高') next.sort((a, b) => b.rating - a.rating)
+    return next
+  }, [preference, sort])
+
+  const pushConversation = (userText: string, agentText: string, actions?: string[]) => setMessages((current) => [...current, { id: `user-${Date.now()}`, role: 'user', kind: 'message', text: userText, meta: '刚刚' }, { id: `agent-${Date.now() + 1}`, role: 'agent', kind: 'result', text: agentText, meta: '已更新', actions }])
+  const handleAction = (action: string) => {
+    if (action === '优先续航') setPreference('续航')
+    if (action === '人民币最低') setSort('人民币最低')
+    if (action === '只看有货') pushConversation(action, '已将结果收窄为当前显示有库存的商品。配送范围仍需在商户结算页确认。')
+    else if (action === '比较前 3 个') onCompare()
+    else if (action === '优先续航') pushConversation(action, '已按续航重新排序。Sennheiser Momentum 4 上升为优先候选，续航达到 60 小时。', ['比较前 3 个', '查看推荐依据'])
+    else if (action === '优先降噪') pushConversation(action, '已把降噪权重调高。Bose QuietComfort Ultra 的降噪取向更突出。', ['比较 Sony 和 Bose'])
+    else if (action === '我不确定') pushConversation(action, '没关系，我先保持综合推荐，不强行改变排序。你可以先看右侧候选，再告诉我倾向。')
+  }
+  const handleSend = (text: string) => {
+    if (text.includes('续航')) setPreference('续航')
+    if (text.includes('最低')) setSort('人民币最低')
+    const reply = text.includes('续航') ? '收到，我会提高续航权重，并保留预算和通勤场景作为硬条件。' : text.includes('最低') ? '收到，我会按人民币估算价从低到高重新排序，并标注价格信息是否完整。' : `收到“${text}”。我会把它作为当前任务的新偏好，继续更新右侧候选。`
+    pushConversation(text, reply, ['只看有货', '比较前 3 个'])
+  }
+  const handleSelect = (id: string) => {
+    const product = products.find((item) => item.id === id)
+    onSelect(id)
+    if (product) setMessages((current) => [...current, { id: `select-${Date.now()}`, role: 'user', kind: 'result', text: `把 ${product.brand} 加入候选`, meta: '刚刚' }])
+  }
   return <main className="workspace-view">
     <StageRail active={1} />
     <MissionHeader onReset={onReset} />
-    <AgentInsight />
-    <FilterBar sort={sort} setSort={setSort} />
-    <div className="results-layout">
-      <aside className="context-rail">
-        <div className="context-card"><span className="eyebrow">任务约束</span><div className="constraint"><Icon name="target" size={16} /><span>预算<strong>¥2,500</strong></span></div><div className="constraint"><Icon name="grid" size={16} /><span>偏好<strong>头戴式 · 黑色</strong></span></div><div className="constraint"><Icon name="bell" size={16} /><span>目的地<strong>中国大陆</strong></span></div><button className="edit-constraints"><Icon name="sliders" size={14} /> 调整条件</button></div>
-        <div className="context-note"><span className="note-pin"><Icon name="info" size={14} /></span><p>人民币价格已包含当前汇率换算，<strong>不含关税与平台最终运费</strong>。</p></div>
-        <div className="source-list"><span className="eyebrow">正在检索</span><div><PlatformMark product={products[0]} small /> Amazon US <Icon name="check" size={13} /></div><div><PlatformMark product={products[1]} small /> Lazada SG <Icon name="check" size={13} /></div><div><PlatformMark product={products[2]} small /> Best Buy US <Icon name="check" size={13} /></div><button>查看全部平台 <Icon name="arrow" size={13} /></button></div>
-      </aside>
-      <section className="product-results"><div className="products-grid">{products.map((product) => <ProductCard key={product.id} product={product} selected={selectedIds.includes(product.id)} onSelect={() => onSelect(product.id)} onDetail={() => onDetail(product.id)} />)}</div><button className="load-more"><Icon name="plus" size={15} /> 加载更多候选</button></section>
+    <div className="workspace-layout">
+      <ConversationPanel messages={messages} onAction={handleAction} onSend={handleSend} />
+      <section className="results-region">
+        <AgentInsight />
+        <div className="result-context-strip"><div className="strip-constraints"><span><Icon name="target" size={14} /> 预算 <strong>¥2,500</strong></span><span><Icon name="grid" size={14} /> 偏好 <strong>{preference === '续航' ? '优先长续航' : '头戴式 · 黑色'}</strong></span><span><Icon name="bell" size={14} /> 目的地 <strong>中国大陆</strong></span></div><div className="strip-sources"><PlatformMark product={products[0]} small /> <PlatformMark product={products[1]} small /> <PlatformMark product={products[2]} small /><span>3 个平台已检索</span></div></div>
+        <FilterBar sort={sort} setSort={setSort} />
+        <section className="product-results"><div className="products-grid">{shownProducts.map((product) => <ProductCard key={product.id} product={product} selected={selectedIds.includes(product.id)} onSelect={() => handleSelect(product.id)} onDetail={() => onDetail(product.id)} />)}</div><button className="load-more"><Icon name="plus" size={15} /> 加载更多候选</button></section>
+      </section>
     </div>
     {selected.length > 0 && <CompareTray selected={selected} onCompare={onCompare} onRemove={onSelect} />}
   </main>
@@ -299,11 +375,20 @@ function MiniSparkline({ values }: { values: number[] }) {
 
 function CompareView({ onBack, onDetail }: { onBack: () => void; onDetail: (id: string) => void }) {
   const compared = products.slice(0, 3)
+  const [messages, setMessages] = useState<ConversationMessage[]>([
+    { id: 'compare-1', role: 'user', kind: 'message', text: '比较前 3 个候选', meta: '刚刚' },
+    { id: 'compare-2', role: 'agent', kind: 'decision', text: '我把价格、规格、到手路径和近期趋势放在右侧。当前更稳妥的是 Sony，主要取舍是它不是最低价，但信息和配送路径更完整。', meta: '决策摘要', actions: ['为什么推荐 Sony', '只看最低价'] },
+  ])
+  const handleSend = (text: string) => setMessages((current) => [...current, { id: `compare-user-${Date.now()}`, role: 'user', kind: 'message', text, meta: '刚刚' }, { id: `compare-agent-${Date.now() + 1}`, role: 'agent', kind: 'decision', text: '我会保留当前三款比较，并按你的新问题更新推荐依据。', meta: '已更新' }])
+  const handleAction = (action: string) => handleSend(action)
   return <main className="workspace-view compare-view">
     <StageRail active={2} />
-    <div className="compare-heading"><div><div className="breadcrumb"><button onClick={onBack}>候选池</button><Icon name="chevron" size={13} /><span>比较决策</span></div><h1>3 个候选，哪个最适合你？</h1><p>我已经把价格、规格、到手路径和近期趋势放在同一张桌面上。</p></div><Button variant="secondary" icon="plus" onClick={onBack}>添加候选</Button></div>
-    <section className="decision-banner"><div className="decision-icon"><Icon name="spark" size={21} /></div><div><span className="eyebrow">AGENT DECISION · 综合判断</span><p><strong>Sony WH-1000XM5</strong> 目前是更稳妥的选择：人民币价格低于预算 ¥351，配送路径明确，降噪和佩戴评价都比较平衡。</p></div><div className="decision-score"><span>匹配度</span><strong>94</strong><small>/100</small></div></section>
-    <section className="comparison-table-wrap"><div className="table-toolbar"><span className="eyebrow">横向比较 · 价格已统一为人民币</span><div><button><Icon name="sliders" size={15} /> 显示字段</button><button><Icon name="external" size={15} /> 分享结果</button></div></div><div className="comparison-table"><div className="comparison-label-column"><div className="table-spacer" /><div>平台与所在地</div><div>当前价格</div><div>近 30 日走势</div><div>核心规格</div><div>库存与配送</div><div>用户反馈</div><div>决策动作</div></div>{compared.map((product, index) => <div className={`comparison-product ${index === 0 ? 'is-recommended' : ''}`} key={product.id}>
+    <div className="compare-layout">
+      <ConversationPanel compact messages={messages} onAction={handleAction} onSend={handleSend} />
+      <section className="compare-content">
+        <div className="compare-heading"><div><div className="breadcrumb"><button onClick={onBack}>候选池</button><Icon name="chevron" size={13} /><span>比较决策</span></div><h1>3 个候选，哪个最适合你？</h1><p>我已经把价格、规格、到手路径和近期趋势放在同一张桌面上。</p></div><Button variant="secondary" icon="plus" onClick={onBack}>添加候选</Button></div>
+        <section className="decision-banner"><div className="decision-icon"><Icon name="spark" size={21} /></div><div><span className="eyebrow">AGENT DECISION · 综合判断</span><p><strong>Sony WH-1000XM5</strong> 目前是更稳妥的选择：人民币价格低于预算 ¥351，配送路径明确，降噪和佩戴评价都比较平衡。</p></div><div className="decision-score"><span>匹配度</span><strong>94</strong><small>/100</small></div></section>
+        <section className="comparison-table-wrap"><div className="table-toolbar"><span className="eyebrow">横向比较 · 价格已统一为人民币</span><div><button><Icon name="sliders" size={15} /> 显示字段</button><button><Icon name="external" size={15} /> 分享结果</button></div></div><div className="comparison-table"><div className="comparison-label-column"><div className="table-spacer" /><div>平台与所在地</div><div>当前价格</div><div>近 30 日走势</div><div>核心规格</div><div>库存与配送</div><div>用户反馈</div><div>决策动作</div></div>{compared.map((product, index) => <div className={`comparison-product ${index === 0 ? 'is-recommended' : ''}`} key={product.id}>
       <div className="comparison-product-head"><div className="compare-image" style={{ background: product.gradient }}><img src={product.image} alt="" onError={(event) => { event.currentTarget.style.display = 'none' }} /></div><span className="compare-tag">{index === 0 ? '推荐' : product.tag}</span><button onClick={() => onDetail(product.id)}>{product.title}<Icon name="external" size={13} /></button></div>
       <div className="compare-cell source-cell"><PlatformMark product={product} small /><span><strong>{product.platform}</strong><small>{product.market}</small></span></div>
       <div className="compare-cell price-cell"><strong>¥{product.rmbPrice.toLocaleString()}</strong><span>{product.nativePrice}</span>{index === 0 && <em>预算内 ¥351</em>}</div>
@@ -312,8 +397,10 @@ function CompareView({ onBack, onDetail }: { onBack: () => void; onDetail: (id: 
       <div className="compare-cell delivery-cell"><span className="stock"><Icon name="check" size={14} /> {product.availability.split(' · ')[0]}</span><small>{product.delivery}</small></div>
       <div className="compare-cell review-cell"><span className="stars"><Icon name="star" size={13} /> {product.rating}</span><small>{product.reviews.toLocaleString()} 条评价</small></div>
       <div className="compare-cell action-cell"><Button variant={index === 0 ? 'primary' : 'secondary'} onClick={() => onDetail(product.id)}>{index === 0 ? '查看购买路径' : '查看详情'}</Button></div>
-    </div>)}</div></section>
-    <div className="compare-footnote"><Icon name="info" size={14} /> 价格抓取时间：今天 14:32（北京时间） · 汇率仅作比较参考，最终以支付页为准。</div>
+        </div>)}</div></section>
+        <div className="compare-footnote"><Icon name="info" size={14} /> 价格抓取时间：今天 14:32（北京时间） · 汇率仅作比较参考，最终以支付页为准。</div>
+      </section>
+    </div>
   </main>
 }
 
