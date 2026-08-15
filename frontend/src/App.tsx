@@ -1,428 +1,143 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 
-type View = 'home' | 'discover' | 'compare' | 'watchlist'
-type Product = {
-  id: string
-  title: string
-  brand: string
-  model: string
-  platform: string
-  platformTone: string
-  market: string
-  nativePrice: string
-  currency: string
-  rmbPrice: number
-  discount?: string
-  rating: number
-  reviews: number
-  availability: string
-  updated: string
-  image: string
-  gradient: string
-  tag: string
-  specs: string[]
-  description: string
-  delivery: string
-  history: { month: string; value: number }[]
-}
-
-type ConversationMessage = {
-  id: string
-  role: 'user' | 'agent'
-  kind: 'message' | 'progress' | 'question' | 'result' | 'decision'
-  text: string
-  meta?: string
-  actions?: string[]
-}
+type View = 'home' | 'tasks' | 'discover' | 'compare'
+type Preference = 'balanced' | 'noise' | 'battery' | 'lowest'
+type IconName = 'arrow' | 'check' | 'chevron' | 'close' | 'external' | 'filter' | 'grid' | 'info' | 'plus' | 'search' | 'spark' | 'star' | 'target'
+type Mission = { id: number; intent: string; budget?: number; preference: Preference; onlyInStock: boolean; version: number }
+type Product = { id: string; title: string; brand: string; model: string; platform: string; tone: string; market: string; nativePrice: string; rmbPrice: number; fx: string; fxAsOf: string; updated: string; rating: number; reviews: number; stock: '有货' | '库存有限' | '暂无库存信息'; specs: string[]; why: string; tradeoff: string; image: string; gradient: string; url: string }
+type Message = { id: string; role: 'user' | 'agent'; text: string; actions?: string[] }
+type ChangeRecord = { id: string; summary: string; before: Mission; selectedBefore: string[]; resultBefore: number; resultAfter: number }
+type TaskPhase = 'collecting' | 'shortlisting' | 'comparing'
+type ShoppingTask = { id: number; mission: Mission; selected: string[]; messages: Message[]; latestChange: ChangeRecord | null; phase: TaskPhase; lastSurface: 'discover' | 'compare'; createdAt: string; updatedAt: string; updatedAtMs: number }
 
 const products: Product[] = [
-  {
-    id: 'sony-xm5',
-    title: 'Sony WH-1000XM5 无线降噪耳机',
-    brand: 'Sony',
-    model: 'WH-1000XM5',
-    platform: 'Amazon',
-    platformTone: 'amazon',
-    market: '美国 · US',
-    nativePrice: '$299.00',
-    currency: 'USD',
-    rmbPrice: 2149,
-    discount: '低于 30 日均价 8%',
-    rating: 4.8,
-    reviews: 1240,
-    availability: '现货 · 可配送至中国',
-    updated: '3 分钟前',
-    image: 'https://images.unsplash.com/photo-1546435770-a3e426bf472b?auto=format&fit=crop&w=900&q=80',
-    gradient: 'linear-gradient(135deg, #dce5f9, #f4f0e7)',
-    tag: '综合最优',
-    specs: ['主动降噪', '续航 30 小时', 'Bluetooth 5.2'],
-    description: '通勤场景的稳妥选择，降噪、佩戴和跨平台售后都比较均衡。',
-    delivery: '预计 7–12 个工作日',
-    history: [
-      { month: '5月', value: 2399 },
-      { month: '6月', value: 2259 },
-      { month: '7月', value: 2219 },
-      { month: '8月', value: 2149 },
-    ],
-  },
-  {
-    id: 'bose-qc-ultra',
-    title: 'Bose QuietComfort Ultra 头戴式耳机',
-    brand: 'Bose',
-    model: 'QC Ultra',
-    platform: 'Lazada',
-    platformTone: 'lazada',
-    market: '新加坡 · SG',
-    nativePrice: 'S$399.00',
-    currency: 'SGD',
-    rmbPrice: 2118,
-    discount: '券后价 · 需验证',
-    rating: 4.7,
-    reviews: 863,
-    availability: '现货 · 配送范围待确认',
-    updated: '8 分钟前',
-    image: 'https://images.unsplash.com/photo-1583394838336-acd977736f90?auto=format&fit=crop&w=900&q=80',
-    gradient: 'linear-gradient(135deg, #e9dfd2, #f5f3ef)',
-    tag: '降噪优先',
-    specs: ['沉浸式音频', '续航 24 小时', 'Bluetooth 5.1'],
-    description: '降噪体验更激进，适合长途飞行；价格优势依赖当前优惠券是否可用。',
-    delivery: '预计 10–16 个工作日',
-    history: [
-      { month: '5月', value: 2360 },
-      { month: '6月', value: 2280 },
-      { month: '7月', value: 2199 },
-      { month: '8月', value: 2118 },
-    ],
-  },
-  {
-    id: 'sennheiser-m4',
-    title: 'Sennheiser Momentum 4 Wireless',
-    brand: 'Sennheiser',
-    model: 'Momentum 4',
-    platform: 'Best Buy',
-    platformTone: 'bestbuy',
-    market: '美国 · US',
-    nativePrice: '$329.95',
-    currency: 'USD',
-    rmbPrice: 2378,
-    discount: '近 90 日低位',
-    rating: 4.6,
-    reviews: 516,
-    availability: '现货 · 可配送至中国',
-    updated: '12 分钟前',
-    image: 'https://images.unsplash.com/photo-1484704849700-f032a568e944?auto=format&fit=crop&w=900&q=80',
-    gradient: 'linear-gradient(135deg, #e5e0d4, #eef2f5)',
-    tag: '续航最长',
-    specs: ['自适应降噪', '续航 60 小时', 'Bluetooth 5.2'],
-    description: '续航明显领先，音质口碑好；整体价格略高，适合重度使用者。',
-    delivery: '预计 7–12 个工作日',
-    history: [
-      { month: '5月', value: 2589 },
-      { month: '6月', value: 2499 },
-      { month: '7月', value: 2419 },
-      { month: '8月', value: 2378 },
-    ],
-  },
+  { id: 'sony-xm5', title: 'Sony WH-1000XM5 无线降噪耳机', brand: 'Sony', model: 'WH-1000XM5', platform: 'Amazon', tone: 'amazon', market: '美国 · US', nativePrice: 'USD 299.00', rmbPrice: 2149, fx: '1 USD = 7.1882 CNY', fxAsOf: '更新于 2026-08-15 14:32', updated: '3 分钟前更新', rating: 4.8, reviews: 1240, stock: '有货', specs: ['主动降噪', '续航 30 小时', 'Bluetooth 5.2'], why: '降噪、续航与评分比较均衡。', tradeoff: '适合把降噪和续航放在同一优先级的人。', image: 'https://images.unsplash.com/photo-1546435770-a3e426bf472b?auto=format&fit=crop&w=900&q=80', gradient: 'linear-gradient(135deg, #dce5f9, #f4f0e7)', url: 'https://www.amazon.com/s?k=Sony+WH-1000XM5' },
+  { id: 'bose-qc-ultra', title: 'Bose QuietComfort Ultra 头戴式耳机', brand: 'Bose', model: 'QC Ultra', platform: 'Lazada', tone: 'lazada', market: '新加坡 · SG', nativePrice: 'SGD 399.00', rmbPrice: 2118, fx: '1 SGD = 5.3083 CNY', fxAsOf: '更新于 2026-08-15 14:32', updated: '8 分钟前更新', rating: 4.7, reviews: 863, stock: '有货', specs: ['沉浸式音频', '续航 24 小时', 'Bluetooth 5.1'], why: '降噪取向突出，商品价接近预算。', tradeoff: '适合优先考虑沉浸式降噪体验的人。', image: 'https://images.unsplash.com/photo-1583394838336-acd977736f90?auto=format&fit=crop&w=900&q=80', gradient: 'linear-gradient(135deg, #e9dfd2, #f5f3ef)', url: 'https://www.lazada.sg/catalog/?q=Bose%20QuietComfort%20Ultra' },
+  { id: 'sennheiser-m4', title: 'Sennheiser Momentum 4 Wireless', brand: 'Sennheiser', model: 'Momentum 4', platform: 'Best Buy', tone: 'bestbuy', market: '美国 · US', nativePrice: 'USD 329.95', rmbPrice: 2378, fx: '1 USD = 7.1882 CNY', fxAsOf: '更新于 2026-08-15 14:32', updated: '12 分钟前更新', rating: 4.6, reviews: 516, stock: '库存有限', specs: ['自适应降噪', '续航 60 小时', 'Bluetooth 5.2'], why: '60 小时续航明显领先。', tradeoff: '适合把长续航放在首位的人。', image: 'https://images.unsplash.com/photo-1484704849700-f032a568e944?auto=format&fit=crop&w=900&q=80', gradient: 'linear-gradient(135deg, #e5e0d4, #eef2f5)', url: 'https://www.bestbuy.com/site/searchpage.jsp?st=Sennheiser+Momentum+4' },
+  { id: 'soundcore-q45', title: 'Soundcore Space Q45 降噪耳机', brand: 'Soundcore', model: 'Space Q45', platform: 'Amazon', tone: 'amazon', market: '美国 · US', nativePrice: 'USD 149.99', rmbPrice: 1078, fx: '1 USD = 7.1882 CNY', fxAsOf: '更新于 2026-08-15 14:32', updated: '18 分钟前更新', rating: 4.4, reviews: 3210, stock: '暂无库存信息', specs: ['主动降噪', '续航 50 小时', 'LDAC'], why: '商品参考价最低，续航较长。', tradeoff: '适合优先控制商品预算的人。', image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=900&q=80', gradient: 'linear-gradient(135deg, #e8ecf3, #eee7e1)', url: 'https://www.amazon.com/s?k=Soundcore+Space+Q45' },
 ]
 
-const watchItems = [
-  { product: 'Sony WH-1000XM5', target: '¥2,000', current: '¥2,149', trend: '+7.5%', status: '等待降价', accent: 'blue' },
-  { product: 'Apple MacBook Air M3 15″', target: '¥8,200', current: '¥8,699', trend: '近 30 日稳定', status: '价格稳定', accent: 'amber' },
-]
+function Icon({ name, size = 18 }: { name: IconName; size?: number }) { const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }; const paths: Record<IconName, ReactNode> = { arrow: <><path d="M5 12h13" /><path d="m13 6 6 6-6 6" /></>, check: <path d="m5 12 4 4L19 6" />, chevron: <path d="m6 9 6 6 6-6" />, close: <><path d="m6 6 12 12" /><path d="m18 6-12 12" /></>, external: <><path d="M14 5h5v5" /><path d="M10 14 19 5" /><path d="M19 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" /></>, filter: <><path d="M4 6h16" /><path d="M7 12h10" /><path d="M10 18h4" /></>, grid: <><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><rect x="14" y="14" width="6" height="6" rx="1" /></>, info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 8h.01" /></>, plus: <><path d="M12 5v14" /><path d="M5 12h14" /></>, search: <><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></>, spark: <path d="m12 3-1.5 5.5L5 10l5.5 1.5L12 17l1.5-5.5L19 10l-5.5-1.5L12 3Z" />, star: <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z" />, target: <><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4" /><circle cx="12" cy="12" r="1" /></> }; return <svg {...common}>{paths[name]}</svg> }
+function Button({ children, onClick, icon, variant = 'secondary', disabled, type = 'button' }: { children: ReactNode; onClick?: () => void; icon?: IconName; variant?: 'primary' | 'secondary' | 'quiet'; disabled?: boolean; type?: 'button' | 'submit' }) { const isResetAction = children === '恢复默认'; return <button className={`button button-${variant}`} type={type} onClick={onClick} disabled={disabled} title={isResetAction ? '恢复综合推荐并显示全部库存；不会修改商品需求、预算或已选候选' : undefined} aria-label={isResetAction ? '重置筛选与排序：恢复综合推荐并显示全部库存，不修改商品需求、预算或已选候选' : undefined}>{isResetAction ? '重置筛选与排序' : children}{icon && <Icon name={icon} size={15} />}</button> }
+function Mark({ product }: { product: Product }) { return <span className={`platform-mark ${product.tone}`}>{product.platform === 'Best Buy' ? 'BB' : product.platform[0]}</span> }
+function budgetText(mission: Mission) { return mission.budget ? `¥${mission.budget.toLocaleString()} 内` : '未设置预算' }
+function preferenceText(preference: Preference) { return preference === 'battery' ? '优先续航' : preference === 'noise' ? '优先降噪' : preference === 'lowest' ? '按商品价' : '综合推荐' }
+function supportsIntent(intent: string) { return /(耳机|降噪|headphone)/i.test(intent) }
+function extractIntent(text: string) { const trimmed = text.replace(/预算\s*[¥￥]?\s*\d{3,5}\s*(元|块|人民币)?\s*(以内|之内)?/gi, '').replace(/[¥￥]\s*\d{3,5}\s*(元|块|人民币)?\s*(以内|之内)?/gi, '').replace(/\d{3,5}\s*(元|块|人民币)?\s*(以内|之内)/gi, '').replace(/优先\s*(续航|降噪)|只看有货|仅看有货|最低商品价|低价/gi, '').replace(/[，,。；;]+/g, ' ').trim(); return trimmed || '未命名购物任务' }
+function parsePreference(text: string): Preference { return /续航/.test(text) ? 'battery' : /降噪/.test(text) ? 'noise' : /最低|低价/.test(text) ? 'lowest' : 'balanced' }
+function createMission(query: string, id: number): Mission { const budget = query.match(/(?:预算|不超过|以内|¥|￥)?\s*(\d{3,5})\s*(?:元|块|人民币|rmb)?/i)?.[1]; return { id, intent: extractIntent(query), budget: budget && Number(budget) >= 100 ? Number(budget) : undefined, preference: parsePreference(query), onlyInStock: /只看有货|仅看有货/.test(query), version: 1 } }
+function phaseText(phase: TaskPhase, selected: string[]) { return phase === 'comparing' ? `比较中 · ${selected.length} 件` : selected.length ? `已选 ${selected.length} 件` : phase === 'shortlisting' ? '继续选择候选' : '查看候选' }
+function nowText() { return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date()) }
+function batteryHours(product: Product) { return Number(product.specs.find((spec) => spec.includes('续航'))?.match(/\d+/)?.[0] ?? 0) }
+function candidatesFor(mission: Mission) { let list = supportsIntent(mission.intent) ? [...products] : []; if (mission.onlyInStock) list = list.filter((product) => product.stock === '有货'); return list.sort((a, b) => { if (mission.preference === 'battery') return batteryHours(b) - batteryHours(a) || a.rmbPrice - b.rmbPrice; if (mission.preference === 'noise') return Number(b.brand === 'Bose') - Number(a.brand === 'Bose') || a.rmbPrice - b.rmbPrice; if (mission.preference === 'lowest') return a.rmbPrice - b.rmbPrice; const budget = mission.budget; const aBudget = budget !== undefined ? Number(a.rmbPrice > budget) : 0; const bBudget = budget !== undefined ? Number(b.rmbPrice > budget) : 0; return aBudget - bBudget || b.rating - a.rating }) }
+function eligibleFor(mission: Mission) { const candidates = candidatesFor(mission); const budget = mission.budget; return budget !== undefined ? candidates.filter((product) => product.rmbPrice <= budget) : candidates }
 
-const navItems: { id: View; label: string; icon: IconName }[] = [
-  { id: 'discover', label: '任务', icon: 'spark' },
-  { id: 'compare', label: '候选', icon: 'grid' },
-  { id: 'watchlist', label: '价格监控', icon: 'bell' },
-]
+function Header({ view, go }: { view: View; go: (view: View) => void }) { return <header className="topbar"><button className="brand-lockup" onClick={() => go('home')}><span className="brand-mark">ir</span><span><strong>跨境选物台</strong><small>商品发现与比较</small></span></button><nav className="main-nav"><button className={view === 'home' ? 'is-active' : ''} onClick={() => go('home')}><Icon name="plus" size={15} />新建任务</button><button className={view === 'tasks' || view === 'discover' || view === 'compare' ? 'is-active' : ''} onClick={() => go('tasks')}><Icon name="spark" size={15} />我的任务</button></nav><div className="topbar-actions"><span className="currency-lock">比较货币 <b>RMB</b></span></div></header> }
+function Home({ start }: { start: (query: string) => void }) { const [query, setQuery] = useState('帮我找一副适合通勤的降噪耳机，预算 2500 元以内'); const prompts = ['适合远程办公的 27 寸 4K 显示器，¥3,000 以内', '送给爸爸的轻便徒步鞋', '降噪耳机，¥2,000 以内，优先续航']; return <main className="home-view"><div className="home-hero"><h1>找到更适合你的<br /><em>国际商品。</em></h1><p>告诉我需求、预算或想比较的商品，我会整理各平台的价格和差异。</p></div><form className="mission-composer" onSubmit={(event) => { event.preventDefault(); start(query) }}><div className="composer-label">开始一个选购任务</div><textarea value={query} onChange={(event) => setQuery(event.target.value)} rows={3} aria-label="描述购物需求" /><div className="composer-footer"><span>价格将统一换算为人民币</span><Button variant="primary" type="submit" icon="arrow">开始挑选</Button></div></form><div className="prompt-row"><span>试试这样说</span>{prompts.map((prompt) => <button key={prompt} type="button" onClick={() => setQuery(prompt)}>{prompt}</button>)}</div><div className="home-features"><div><strong>跨平台挑选</strong><p>从不同市场和商户中整理相似商品。</p></div><div><strong>统一比较</strong><p>用人民币快速看清价格、规格和评价差异。</p></div><div><strong>前往商户</strong><p>选好后可前往对应平台查看并下单。</p></div></div></main> }
+function PriceEvidence({ product, compact = false }: { product: Product; compact?: boolean }) { return <div className={`price-evidence ${compact ? 'compact' : ''}`}><div><strong>约 ¥{product.rmbPrice.toLocaleString()}</strong><span>{product.nativePrice}</span></div><small>{product.fx} · {product.fxAsOf}</small>{!compact && <small>{product.updated} · 商品价以商户页面为准</small>}</div> }
+function Brief({ mission }: { mission: Mission }) { return <section className="mission-brief" aria-label="当前任务条件"><div className="brief-filters"><span className="brief-condition brief-condition-primary">{mission.intent}</span><span className="brief-condition">预算 {budgetText(mission)}</span><span className="brief-condition">{preferenceText(mission.preference)}</span>{mission.onlyInStock && <span className="brief-condition">仅看有货</span>}</div></section> }
+function EvidenceStrip() { return <section className="evidence-strip"><div><Icon name="search" size={15} /><span><b>已检索</b> Amazon US、Lazada SG、Best Buy US</span></div><div><Icon name="info" size={15} /><span><b>商品与汇率</b> 更新于 14:32</span></div></section> }
+function ChangeSummary({ change, undo }: { change: ChangeRecord | null; undo: () => void }) { if (!change) return null; const summary = change.summary === '已恢复综合推荐与全部库存' ? '已重置筛选与排序：综合推荐 · 显示全部库存；商品需求、预算和已选候选未改变' : change.summary; return <section className="change-summary" aria-live="polite"><div><strong>本次变更</strong><p>{summary} · 候选 {change.resultBefore} → {change.resultAfter}</p></div><button onClick={undo}>撤销本次修改</button></section> }
 
-type IconName = 'arrow' | 'bell' | 'check' | 'chevron' | 'close' | 'external' | 'filter' | 'grid' | 'headphones' | 'heart' | 'info' | 'menu' | 'minus' | 'plus' | 'search' | 'spark' | 'sliders' | 'star' | 'target' | 'trend' | 'x'
-
-function Icon({ name, size = 18, strokeWidth = 1.8 }: { name: IconName; size?: number; strokeWidth?: number }) {
-  const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
-  const paths: Record<IconName, ReactNode> = {
-    arrow: <><path d="M5 12h13" /><path d="m13 6 6 6-6 6" /></>,
-    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>,
-    check: <path d="m5 12 4 4L19 6" />,
-    chevron: <path d="m6 9 6 6 6-6" />,
-    close: <><path d="m6 6 12 12" /><path d="m18 6-12 12" /></>,
-    external: <><path d="M14 5h5v5" /><path d="M10 14 19 5" /><path d="M19 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" /></>,
-    filter: <><path d="M4 6h16" /><path d="M7 12h10" /><path d="M10 18h4" /></>,
-    grid: <><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><rect x="14" y="14" width="6" height="6" rx="1" /></>,
-    headphones: <><path d="M4 14v-2a8 8 0 0 1 16 0v2" /><path d="M4 14h3v5H5a1 1 0 0 1-1-1v-4Z" /><path d="M20 14h-3v5h2a1 1 0 0 0 1-1v-4Z" /></>,
-    heart: <path d="M20.8 8.7c0 5.2-8.8 10.1-8.8 10.1S3.2 13.9 3.2 8.7A4.7 4.7 0 0 1 12 6.4a4.7 4.7 0 0 1 8.8 2.3Z" />,
-    info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 8h.01" /></>,
-    menu: <><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /></>,
-    minus: <path d="M5 12h14" />,
-    plus: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
-    search: <><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></>,
-    spark: <><path d="m12 3-1.5 5.5L5 10l5.5 1.5L12 17l1.5-5.5L19 10l-5.5-1.5L12 3Z" /><path d="m19 16-.7 2.3L16 19l2.3.7L19 22l.7-2.3L22 19l-2.3-.7L19 16Z" /></>,
-    sliders: <><path d="M4 6h7" /><path d="M15 6h5" /><path d="M4 12h2" /><path d="M10 12h10" /><path d="M4 18h8" /><path d="M16 18h4" /><circle cx="13" cy="6" r="2" /><circle cx="8" cy="12" r="2" /><circle cx="14" cy="18" r="2" /></>,
-    star: <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z" />,
-    target: <><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4" /><circle cx="12" cy="12" r="1" /></>,
-    trend: <><path d="M4 17 10 11l4 4 6-7" /><path d="M15 8h5v5" /></>,
-    x: <><path d="M6 6 18 18" /><path d="m18 6-12 12" /></>,
-  }
-  return <svg {...common}>{paths[name]}</svg>
+function Conversation({ mission, apply, compare, canCompare, messages, append, latestChange, undo }: { mission: Mission; apply: (delta: Partial<Mission>, summary: string) => void; compare: () => void; canCompare: boolean; messages: Message[]; append: (items: Message[]) => void; latestChange: ChangeRecord | null; undo: () => void }) {
+  const [draft, setDraft] = useState('')
+  const action = (name: string) => { if (name === '比较已选候选') { if (canCompare) compare(); else append([{ id: String(Date.now()), role: 'agent', text: '先加入两件候选，再开始对比。' }]); return } const preference = name === '优先降噪' ? 'noise' : name === '优先续航' ? 'battery' : 'balanced'; apply({ preference }, `排序：${preferenceText(preference)}`); append([{ id: `u-${Date.now()}`, role: 'user', text: name }, { id: `a-${Date.now()}`, role: 'agent', text: `已将推荐依据改为“${preferenceText(preference)}”。` }]) }
+  const submit = (event?: FormEvent) => { event?.preventDefault(); const text = draft.trim(); if (!text) return; const budget = text.match(/(?:预算|改为|到)?\s*[¥￥]?\s*(\d{3,5})\s*(?:元|块|人民币)?/i)?.[1]; const onlyInStock = /只看有货|仅看有货/.test(text); const preference: Preference | undefined = /续航/.test(text) ? 'battery' : /降噪/.test(text) ? 'noise' : /最低|低价/.test(text) ? 'lowest' : undefined; const explicitIntent = /(?:换成|改找|我想买|帮我找|找一[副个台件])/.test(text) && /(耳机|降噪|headphone)/i.test(text); const delta: Partial<Mission> = {}; const parts: string[] = []; if (budget) { delta.budget = Number(budget); parts.push(`预算 ¥${Number(budget).toLocaleString()} 内`) } if (onlyInStock) { delta.onlyInStock = true; parts.push('仅看有货') } if (preference) { delta.preference = preference; parts.push(`排序：${preferenceText(preference)}`) } if (explicitIntent) { delta.intent = extractIntent(text); parts.push(`商品：${delta.intent}`) } append([{ id: `u-${Date.now()}`, role: 'user', text }]); if (parts.length) { apply(delta, parts.join(' · ')); append([{ id: `a-${Date.now()}`, role: 'agent', text: `已更新${parts.join('、')}；商品仍按“${delta.intent ?? mission.intent}”继续筛选。` }]) } else append([{ id: `a-${Date.now()}`, role: 'agent', text: `已记录你的说明。当前任务仍是“${mission.intent}”；你可以继续指定预算、库存或优先项。` }]); setDraft('') }
+  return <aside className="conversation-panel"><div className="conversation-header"><div><span>选购对话</span></div></div><Brief mission={mission} /><ChangeSummary change={latestChange} undo={undo} /><div className="conversation-thread" aria-live="polite">{messages.slice(-6).map((message) => <div className={`conversation-message ${message.role}`} key={message.id}><div className="message-meta">{message.role === 'user' ? '你' : '选购助手'}</div><p>{message.text}</p>{message.actions && <div className="message-actions">{message.actions.map((name) => <button key={name} onClick={() => action(name)}>{name}</button>)}</div>}</div>)}</div><div className="conversation-suggestions"><button onClick={() => apply({ onlyInStock: !mission.onlyInStock }, mission.onlyInStock ? '库存：显示全部' : '库存：仅看有货')}>{mission.onlyInStock ? '显示全部库存' : '只看有货'}</button><button onClick={() => action('比较已选候选')}>对比已选</button></div><form className="conversation-composer" onSubmit={submit}><textarea rows={2} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="继续修改预算、库存或偏好…" aria-label="选购对话输入" /><div className="composer-row"><button className="send-button" disabled={!draft.trim()} aria-label="发送"><Icon name="arrow" size={16} /></button></div></form></aside>
 }
+function CandidateCard({ product, selected, toggle, detail, budget, preference }: { product: Product; selected: boolean; toggle: () => void; detail: () => void; budget?: number; preference: Preference }) { const reason = preference === 'battery' ? `续航 ${batteryHours(product)} 小时${product.id === 'sennheiser-m4' ? '，当前候选中最长。' : '。'}` : preference === 'noise' && product.brand === 'Bose' ? '降噪取向与当前偏好一致。' : preference === 'lowest' && product.id === 'soundcore-q45' ? '当前候选中商品参考价最低。' : product.why; return <article className={`product-card evidence-card ${selected ? 'is-selected' : ''}`}><button className="product-image-button" onClick={detail}><div className="product-image" style={{ background: product.gradient }}><img src={product.image} alt="" /><span className="image-tag">{product.stock}</span></div></button><div className="product-card-body"><div className="product-source"><span><Mark product={product} /> {product.platform}</span><span>{product.market}</span></div><button className="product-title" onClick={detail}>{product.title}</button><div className="rating-line"><span className="stars"><Icon name="star" size={13} /> {product.rating}</span><span>{product.reviews.toLocaleString()} 条评价</span></div><PriceEvidence product={product} compact /><div className="spec-line">{product.specs.slice(0, 2).map((spec) => <span key={spec}>{spec}</span>)}</div><p className="candidate-reason"><b>为什么排在这里</b>{reason}</p>{budget && product.rmbPrice > budget && <p className="budget-warning">超出预算 ¥{(product.rmbPrice - budget).toLocaleString()}</p>}<div className="card-bottom"><span className={product.stock === '有货' ? 'stock confirmed' : 'stock pending'}>{product.stock}</span><Button variant={selected ? 'primary' : 'secondary'} onClick={toggle} icon={selected ? 'check' : 'plus'}>{selected ? '已加入候选' : '加入候选'}</Button></div></div></article> }
+function Decision({ candidates, mission }: { candidates: Product[]; mission: Mission }) { const product = candidates[0]; if (!product) return null; const explanation = mission.preference === 'battery' ? `续航 ${batteryHours(product)} 小时，是当前可推荐候选中最长的。` : mission.preference === 'noise' ? '它的降噪取向与当前偏好最一致。' : mission.preference === 'lowest' ? '它是当前可推荐候选中商品参考价最低的一件。' : product.why; return <section className="decision-card"><div className="decision-icon"><Icon name="spark" size={20} /></div><div><span>当前推荐</span><h2>{product.brand} {product.model}</h2><p>{explanation} {product.tradeoff}</p><div className="decision-tags">{[mission.budget ? '商品价在预算内' : '未设置预算', mission.onlyInStock ? '当前有货' : '库存已列出', preferenceText(mission.preference)].map((tag) => <span key={tag}>{tag}</span>)}</div></div></section> }
+function Discover({ mission, apply, selectedIds, toggle, compare, detail, messages, append, latestChange, undo }: { mission: Mission; apply: (delta: Partial<Mission>, summary: string) => void; selectedIds: string[]; toggle: (id: string) => void; compare: () => void; detail: (product: Product) => void; messages: Message[]; append: (items: Message[]) => void; latestChange: ChangeRecord | null; undo: () => void }) {
+  const candidates = useMemo(() => candidatesFor(mission), [mission])
+  const recommended = useMemo(() => eligibleFor(mission), [mission])
+  const selected = products.filter((product) => selectedIds.includes(product.id))
+  const unsupported = !supportsIntent(mission.intent)
+  const hasTemporaryFilters = mission.preference !== 'balanced' || mission.onlyInStock
+  const resetFilters = () => apply({ preference: 'balanced', onlyInStock: false }, '已重置筛选与排序')
 
-function PlatformMark({ product, small = false }: { product: Product; small?: boolean }) {
-  return <span className={`platform-mark ${product.platformTone} ${small ? 'is-small' : ''}`}>{product.platform === 'Best Buy' ? 'BB' : product.platform.slice(0, 1)}</span>
-}
-
-function Button({ children, variant = 'secondary', icon, onClick, className = '', type = 'button', disabled = false }: { children: ReactNode; variant?: 'primary' | 'secondary' | 'ghost' | 'quiet'; icon?: IconName; onClick?: () => void; className?: string; type?: 'button' | 'submit'; disabled?: boolean }) {
-  return <button className={`button button-${variant} ${className}`} type={type} onClick={onClick} disabled={disabled}>{children}{icon && <Icon name={icon} size={16} />}</button>
-}
-
-function Header({ view, onNavigate }: { view: View; onNavigate: (view: View) => void }) {
   return (
-    <header className="topbar">
-      <button className="brand-lockup" onClick={() => onNavigate('discover')} aria-label="返回任务发现">
-        <span className="brand-mark"><span>i</span><span>r</span></span>
-        <span><strong>跨境选物台</strong><small>INTELLIGENCE DESK</small></span>
-      </button>
-      <nav className="main-nav" aria-label="主导航">
-        {navItems.map((item) => <button key={item.id} className={view === item.id || (view === 'home' && item.id === 'discover') ? 'is-active' : ''} onClick={() => onNavigate(item.id)}><Icon name={item.icon} size={16} />{item.label}</button>)}
-      </nav>
-      <div className="topbar-actions">
-        <button className="region-switch"><span className="flag-dot">¥</span> RMB <Icon name="chevron" size={13} /></button>
-        <span className="topbar-divider" />
-        <button className="avatar-button" aria-label="账户设置">L</button>
+    <main className="workspace-view">
+      <div className="mission-header">
+        <div>
+          <div className="breadcrumb">我的任务 <Icon name="chevron" size={13} />推荐候选</div>
+          <h1>{mission.intent}</h1>
+        </div>
       </div>
-    </header>
+      <div className="workspace-layout">
+        <Conversation mission={mission} apply={apply} compare={compare} canCompare={selected.length >= 2} messages={messages} append={append} latestChange={latestChange} undo={undo} />
+        <section className="results-region">
+          <EvidenceStrip />
+          {unsupported ? (
+            <section className="empty-result">
+              <Icon name="search" size={24} />
+              <h2>暂未找到可比较的商品</h2>
+              <p>当前演示支持耳机类任务；你可以修改任务继续查看。</p>
+              <Button onClick={() => apply({ intent: '通勤降噪耳机' }, '商品：通勤降噪耳机')}>查看耳机候选</Button>
+            </section>
+          ) : (
+            <>
+              {recommended.length ? (
+                <Decision candidates={recommended} mission={mission} />
+              ) : (
+                <section className="empty-result">
+                  <Icon name="search" size={24} />
+                  <h2>没有候选同时满足当前条件</h2>
+                  <p>可以提高预算或显示全部库存后继续比较。</p>
+                  <Button onClick={() => apply({ onlyInStock: false }, '库存：显示全部')}>显示全部库存</Button>
+                </section>
+              )}
+              <div className="filter-bar">
+                <div className="result-count"><strong>{candidates.length}</strong> 个候选 <span>· 3 个平台</span></div>
+                <div className="filter-actions">
+                  <button onClick={() => apply({ onlyInStock: !mission.onlyInStock }, mission.onlyInStock ? '库存：显示全部' : '库存：仅看有货')}><Icon name="filter" size={15} />{mission.onlyInStock ? '显示全部库存' : '只看有货'}</button>
+                  <select value={mission.preference} onChange={(event) => apply({ preference: event.target.value as Preference }, `排序：${preferenceText(event.target.value as Preference)}`)} aria-label="候选排序">
+                    <option value="balanced">综合推荐</option>
+                    <option value="lowest">按商品价</option>
+                    <option value="noise">优先降噪</option>
+                    <option value="battery">优先续航</option>
+                  </select>
+                  {mission.preference !== 'balanced' && <button className="active-filter-chip" onClick={() => apply({ preference: 'balanced' }, '排序：综合推荐')} aria-label={`移除${preferenceText(mission.preference)}排序`}>{preferenceText(mission.preference)} <Icon name="close" size={13} /></button>}
+                  {mission.onlyInStock && <button className="active-filter-chip" onClick={() => apply({ onlyInStock: false }, '库存：显示全部')} aria-label="移除仅看有货筛选">只看有货 <Icon name="close" size={13} /></button>}
+                  {hasTemporaryFilters && <><span className="filter-divider" aria-hidden="true" /><button className="clear-filters-button" onClick={resetFilters} title="恢复为综合推荐，并显示全部库存；不会修改商品需求、预算或已选候选">清除筛选</button></>}
+                </div>
+              </div>
+              <section className="product-results">
+                <div className="products-grid">
+                  {candidates.map((product) => <CandidateCard key={product.id} product={product} selected={selectedIds.includes(product.id)} toggle={() => toggle(product.id)} detail={() => detail(product)} budget={mission.budget} preference={mission.preference} />)}
+                </div>
+              </section>
+            </>
+          )}
+        </section>
+      </div>
+      {selected.length > 0 && <div className="compare-tray">
+        <div><span className="tray-count">{selected.length}</span><strong>已选候选</strong><small>最多 5 件</small></div>
+        <div className="tray-items">{selected.map((product) => <button key={product.id} onClick={() => toggle(product.id)}>{product.brand} · 约 ¥{product.rmbPrice.toLocaleString()} <Icon name="close" size={13} /></button>)}</div>
+        <Button variant="primary" onClick={compare} disabled={selected.length < 2} icon="arrow">开始对比</Button>
+      </div>}
+    </main>
   )
 }
-
-function StageRail({ active = 1 }: { active?: number }) {
-  const stages = ['购物简报', '候选池', '比较决策', '去购买']
-  return <div className="stage-rail" aria-label="任务进度">
-    {stages.map((stage, index) => <div className={`stage-item ${index === active ? 'is-active' : ''} ${index < active ? 'is-done' : ''}`} key={stage}>
-      <span className="stage-number">{index < active ? <Icon name="check" size={13} strokeWidth={2.4} /> : `0${index + 1}`}</span>
-      <span className="stage-label">{stage}</span>
-      {index < stages.length - 1 && <span className="stage-line" />}
-    </div>)}
-  </div>
-}
-
-function HomeView({ query, setQuery, onSubmit }: { query: string; setQuery: (value: string) => void; onSubmit: () => void }) {
-  const prompts = ['适合远程办公的 27 寸 4K 显示器', '送给爸爸的轻便徒步鞋', '2000 元以内的降噪耳机']
-  return <main className="home-view">
-    <div className="home-hero">
-      <span className="eyebrow"><Icon name="spark" size={15} /> 跨平台购物情报台</span>
-      <h1>告诉我你想买什么，<br /><em>我来把选择变简单。</em></h1>
-      <p>从国际平台检索商品，统一换算成人民币，帮你看清价格、规格和到手路径。</p>
-    </div>
-    <form className="mission-composer" onSubmit={(event) => { event.preventDefault(); onSubmit() }}>
-      <div className="composer-label"><span className="live-dot" /> 新建购物任务</div>
-      <textarea aria-label="描述购物需求" value={query} onChange={(event) => setQuery(event.target.value)} rows={3} />
-      <div className="composer-footer">
-        <div className="composer-tools"><button type="button"><Icon name="plus" size={16} /> 添加图片</button><button type="button"><Icon name="target" size={16} /> 设定预算</button></div>
-        <Button variant="primary" type="submit" icon="arrow">开始探索</Button>
-      </div>
-    </form>
-    <div className="prompt-row"><span>试试这样说</span>{prompts.map((prompt) => <button key={prompt} onClick={() => setQuery(prompt)}>{prompt}<Icon name="arrow" size={13} /></button>)}</div>
-    <div className="home-features">
-      <div><span className="feature-icon blue"><Icon name="grid" size={18} /></span><strong>跨平台发现</strong><p>一条任务，聚合 Amazon、Lazada、Best Buy 等国际平台。</p></div>
-      <div><span className="feature-icon amber"><Icon name="trend" size={18} /></span><strong>人民币比价</strong><p>保留原币种价格，同时按实时汇率统一比较。</p></div>
-      <div><span className="feature-icon mint"><Icon name="bell" size={18} /></span><strong>价格跟踪</strong><p>错过好价也没关系，设置目标价后交给 Agent 盯住。</p></div>
-    </div>
-  </main>
-}
-
-function MissionHeader({ onReset }: { onReset: () => void }) {
-  return <div className="mission-header">
-    <div>
-      <div className="breadcrumb"><span>任务</span><Icon name="chevron" size={13} /><span>通勤装备</span></div>
-      <h1>帮我找一副适合通勤的降噪耳机</h1>
-      <div className="mission-meta"><span><Icon name="target" size={14} /> 预算 ¥2,500 以内</span><span><Icon name="grid" size={14} /> 4 个平台</span><span><Icon name="bell" size={14} /> 送至中国大陆</span></div>
-    </div>
-    <Button variant="quiet" icon="plus" onClick={onReset}>新建任务</Button>
-  </div>
-}
-
-function AgentInsight() {
-  return <section className="agent-insight">
-    <div className="insight-orb"><Icon name="spark" size={19} /></div>
-    <div className="insight-copy"><span className="eyebrow">AGENT NOTE · 刚刚更新</span><p>我先按<strong>降噪、佩戴舒适度和到手价格</strong>做了第一轮筛选。当前最值得比较的是 Sony 与 Bose：两者都在预算内，但价格优势来自不同市场。</p></div>
-    <div className="fx-signal"><span className="signal-label">汇率信号</span><strong>USD → RMB</strong><b>7.1882</b><small>实时参考</small></div>
-  </section>
-}
-
-function ConversationPanel({ messages, onAction, onSend, compact = false }: { messages: ConversationMessage[]; onAction: (action: string) => void; onSend: (text: string) => void; compact?: boolean }) {
-  const [draft, setDraft] = useState('')
-  const [collapsed, setCollapsed] = useState(false)
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const text = draft.trim()
-    if (!text) return
-    onSend(text)
-    setDraft('')
-  }
-
-  if (collapsed) {
-    return <aside className="conversation-collapsed"><button onClick={() => setCollapsed(false)} aria-label="展开 Agent 对话"><Icon name="spark" size={17} /><span>继续追问 Agent</span><Icon name="arrow" size={14} /></button></aside>
-  }
-
-  return <aside className={`conversation-panel ${compact ? 'is-compact' : ''}`}>
-    <div className="conversation-header"><div><span className="eyebrow"><span className="agent-live-dot" /> AGENT SESSION</span><strong>购物任务对话</strong></div><button className="conversation-collapse" onClick={() => setCollapsed(true)} aria-label="收起对话"><Icon name="minus" size={15} /></button></div>
-    <div className="mission-context"><div className="mission-context-title"><Icon name="target" size={14} /> 当前任务简报</div><div className="mission-context-chips"><span>通勤降噪耳机</span><span>预算 ¥2,500</span><span>中国大陆</span></div></div>
-    <div className="conversation-thread" aria-live="polite">
-      {messages.map((message) => <div className={`conversation-message ${message.role} message-${message.kind}`} key={message.id}>
-        <div className="message-meta">{message.role === 'user' ? '你' : 'Agent'}{message.meta && <span> · {message.meta}</span>}</div>
-        <p>{message.text}</p>
-        {message.kind === 'progress' && <div className="progress-steps"><span className="is-done"><Icon name="check" size={11} /> 搜索平台</span><span className="is-done"><Icon name="check" size={11} /> 换算 RMB</span><span className="is-active"><i /> 整理候选</span></div>}
-        {message.actions && <div className="message-actions">{message.actions.map((action) => <button key={action} onClick={() => onAction(action)}>{action}<Icon name="arrow" size={12} /></button>)}</div>}
-      </div>)}
-    </div>
-    <div className="conversation-suggestions"><span>继续告诉我</span><button onClick={() => onAction('只看有货')}>只看有货</button><button onClick={() => onAction('比较前 3 个')}>比较前 3 个</button></div>
-    <form className="conversation-composer" onSubmit={submit}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="继续告诉我你的偏好……" rows={2} aria-label="继续追问 Agent" /><div className="composer-row"><button type="button" className="composer-attach"><Icon name="plus" size={14} /> 条件</button><button className="send-button" type="submit" disabled={!draft.trim()} aria-label="发送追问"><Icon name="arrow" size={16} /></button></div></form>
-  </aside>
-}
-
-function FilterBar({ sort, setSort }: { sort: string; setSort: (value: string) => void }) {
-  return <div className="filter-bar">
-    <div className="result-count"><strong>12</strong> 个候选商品 <span>· 4 个平台</span></div>
-    <div className="filter-actions"><button className="filter-button"><Icon name="filter" size={15} /> 筛选 <span className="filter-count">2</span></button><span className="filter-divider" /><label className="sort-select">排序 <select value={sort} onChange={(event) => setSort(event.target.value)}><option>综合推荐</option><option>人民币最低</option><option>评分最高</option><option>近期降价</option></select><Icon name="chevron" size={14} /></label></div>
-  </div>
-}
-
-function ProductCard({ product, selected, onSelect, onDetail }: { product: Product; selected: boolean; onSelect: () => void; onDetail: () => void }) {
-  return <article className={`product-card ${selected ? 'is-selected' : ''}`}>
-    <button className="product-image-button" onClick={onDetail} aria-label={`查看 ${product.title} 详情`}>
-      <div className="product-image" style={{ background: product.gradient }}><img src={product.image} alt="" onError={(event) => { event.currentTarget.style.display = 'none' }} /><span className="image-tag">{product.tag}</span><span className="image-heart"><Icon name="heart" size={16} /></span></div>
-    </button>
-    <div className="product-card-body">
-      <div className="product-source"><span><PlatformMark product={product} small /> {product.platform}</span><span>{product.market}</span></div>
-      <button className="product-title" onClick={onDetail}>{product.title}</button>
-      <div className="rating-line"><span className="stars"><Icon name="star" size={13} /> {product.rating}</span><span>{product.reviews.toLocaleString()} 条评价</span></div>
-      <div className="price-line"><strong>¥{product.rmbPrice.toLocaleString()}</strong><span>{product.nativePrice}</span></div>
-      <div className="deal-line"><span className="deal-dot" /> {product.discount}</div>
-      <div className="card-bottom"><span className="stock"><Icon name="check" size={14} /> {product.availability.split(' · ')[0]}</span><Button variant={selected ? 'primary' : 'secondary'} icon={selected ? 'check' : 'plus'} onClick={onSelect}>{selected ? '已加入' : '加入候选'}</Button></div>
-    </div>
-  </article>
-}
-
-function CompareTray({ selected, onCompare, onRemove }: { selected: Product[]; onCompare: () => void; onRemove: (id: string) => void }) {
-  return <div className="compare-tray">
-    <div className="tray-copy"><span className="tray-count">{selected.length}</span><div><strong>已选候选</strong><small>最多选择 3 个进行横向比较</small></div></div>
-    <div className="tray-items">{selected.map((product) => <div className="tray-item" key={product.id}><span className="tray-thumb" style={{ backgroundImage: `url(${product.image})` }} /><span>{product.brand} <small>¥{product.rmbPrice.toLocaleString()}</small></span><button onClick={() => onRemove(product.id)} aria-label={`移除 ${product.title}`}><Icon name="close" size={13} /></button></div>)}</div>
-    <Button variant="primary" onClick={onCompare} disabled={selected.length < 2} icon="arrow">开始比较</Button>
-  </div>
-}
-
-function DiscoverView({ onReset, selectedIds, onSelect, onDetail, onCompare }: { onReset: () => void; selectedIds: string[]; onSelect: (id: string) => void; onDetail: (id: string) => void; onCompare: () => void }) {
-  const [sort, setSort] = useState('综合推荐')
-  const [preference, setPreference] = useState('')
-  const [messages, setMessages] = useState<ConversationMessage[]>([
-    { id: 'm1', role: 'user', kind: 'message', text: '帮我找一副适合通勤的降噪耳机，预算 2500 元以内', meta: '刚刚' },
-    { id: 'm2', role: 'agent', kind: 'message', text: '我理解你要找：通勤用降噪耳机，预算 ¥2,500，送至中国大陆。接下来我会比较不同国际平台的商品价、规格和配送信息。', meta: '已理解' },
-    { id: 'm3', role: 'agent', kind: 'progress', text: '我已搜索 Amazon US、Lazada SG 和 Best Buy US，并把原币种价格换算为 RMB。', meta: '刚刚' },
-    { id: 'm4', role: 'agent', kind: 'question', text: '你更在意降噪效果，还是更长的续航？这会改变候选排序。', actions: ['优先降噪', '优先续航', '我不确定'] },
-    { id: 'm5', role: 'agent', kind: 'result', text: '目前找到 12 个候选，我先在右侧展示 3 个取向不同的选择。', meta: '结果已更新', actions: ['只看有货', '比较前 3 个'] },
-  ])
-  const selected = products.filter((product) => selectedIds.includes(product.id))
-  const shownProducts = useMemo(() => {
-    const next = [...products]
-    if (preference === '续航') next.sort((a, b) => (b.id === 'sennheiser-m4' ? 1 : 0) - (a.id === 'sennheiser-m4' ? 1 : 0))
-    if (sort === '人民币最低') next.sort((a, b) => a.rmbPrice - b.rmbPrice)
-    if (sort === '评分最高') next.sort((a, b) => b.rating - a.rating)
-    return next
-  }, [preference, sort])
-
-  const pushConversation = (userText: string, agentText: string, actions?: string[]) => setMessages((current) => [...current, { id: `user-${Date.now()}`, role: 'user', kind: 'message', text: userText, meta: '刚刚' }, { id: `agent-${Date.now() + 1}`, role: 'agent', kind: 'result', text: agentText, meta: '已更新', actions }])
-  const handleAction = (action: string) => {
-    if (action === '优先续航') setPreference('续航')
-    if (action === '人民币最低') setSort('人民币最低')
-    if (action === '只看有货') pushConversation(action, '已将结果收窄为当前显示有库存的商品。配送范围仍需在商户结算页确认。')
-    else if (action === '比较前 3 个') onCompare()
-    else if (action === '优先续航') pushConversation(action, '已按续航重新排序。Sennheiser Momentum 4 上升为优先候选，续航达到 60 小时。', ['比较前 3 个', '查看推荐依据'])
-    else if (action === '优先降噪') pushConversation(action, '已把降噪权重调高。Bose QuietComfort Ultra 的降噪取向更突出。', ['比较 Sony 和 Bose'])
-    else if (action === '我不确定') pushConversation(action, '没关系，我先保持综合推荐，不强行改变排序。你可以先看右侧候选，再告诉我倾向。')
-  }
-  const handleSend = (text: string) => {
-    if (text.includes('续航')) setPreference('续航')
-    if (text.includes('最低')) setSort('人民币最低')
-    const reply = text.includes('续航') ? '收到，我会提高续航权重，并保留预算和通勤场景作为硬条件。' : text.includes('最低') ? '收到，我会按人民币估算价从低到高重新排序，并标注价格信息是否完整。' : `收到“${text}”。我会把它作为当前任务的新偏好，继续更新右侧候选。`
-    pushConversation(text, reply, ['只看有货', '比较前 3 个'])
-  }
-  const handleSelect = (id: string) => {
-    const product = products.find((item) => item.id === id)
-    onSelect(id)
-    if (product) setMessages((current) => [...current, { id: `select-${Date.now()}`, role: 'user', kind: 'result', text: `把 ${product.brand} 加入候选`, meta: '刚刚' }])
-  }
-  return <main className="workspace-view">
-    <StageRail active={1} />
-    <MissionHeader onReset={onReset} />
-    <div className="workspace-layout">
-      <ConversationPanel messages={messages} onAction={handleAction} onSend={handleSend} />
-      <section className="results-region">
-        <AgentInsight />
-        <div className="result-context-strip"><div className="strip-constraints"><span><Icon name="target" size={14} /> 预算 <strong>¥2,500</strong></span><span><Icon name="grid" size={14} /> 偏好 <strong>{preference === '续航' ? '优先长续航' : '头戴式 · 黑色'}</strong></span><span><Icon name="bell" size={14} /> 目的地 <strong>中国大陆</strong></span></div><div className="strip-sources"><PlatformMark product={products[0]} small /> <PlatformMark product={products[1]} small /> <PlatformMark product={products[2]} small /><span>3 个平台已检索</span></div></div>
-        <FilterBar sort={sort} setSort={setSort} />
-        <section className="product-results"><div className="products-grid">{shownProducts.map((product) => <ProductCard key={product.id} product={product} selected={selectedIds.includes(product.id)} onSelect={() => handleSelect(product.id)} onDetail={() => onDetail(product.id)} />)}</div><button className="load-more"><Icon name="plus" size={15} /> 加载更多候选</button></section>
-      </section>
-    </div>
-    {selected.length > 0 && <CompareTray selected={selected} onCompare={onCompare} onRemove={onSelect} />}
-  </main>
-}
-
-function MiniSparkline({ values }: { values: number[] }) {
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  const points = values.map((value, index) => `${(index / (values.length - 1)) * 100},${90 - ((value - min) / Math.max(1, max - min)) * 70}`).join(' ')
-  return <svg className="mini-sparkline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="价格趋势图"><polyline points={points} /></svg>
-}
-
-function CompareView({ onBack, onDetail }: { onBack: () => void; onDetail: (id: string) => void }) {
-  const compared = products.slice(0, 3)
-  const [messages, setMessages] = useState<ConversationMessage[]>([
-    { id: 'compare-1', role: 'user', kind: 'message', text: '比较前 3 个候选', meta: '刚刚' },
-    { id: 'compare-2', role: 'agent', kind: 'decision', text: '我把价格、规格、到手路径和近期趋势放在右侧。当前更稳妥的是 Sony，主要取舍是它不是最低价，但信息和配送路径更完整。', meta: '决策摘要', actions: ['为什么推荐 Sony', '只看最低价'] },
-  ])
-  const handleSend = (text: string) => setMessages((current) => [...current, { id: `compare-user-${Date.now()}`, role: 'user', kind: 'message', text, meta: '刚刚' }, { id: `compare-agent-${Date.now() + 1}`, role: 'agent', kind: 'decision', text: '我会保留当前三款比较，并按你的新问题更新推荐依据。', meta: '已更新' }])
-  const handleAction = (action: string) => handleSend(action)
-  return <main className="workspace-view compare-view">
-    <StageRail active={2} />
-    <div className="compare-layout">
-      <ConversationPanel compact messages={messages} onAction={handleAction} onSend={handleSend} />
-      <section className="compare-content">
-        <div className="compare-heading"><div><div className="breadcrumb"><button onClick={onBack}>候选池</button><Icon name="chevron" size={13} /><span>比较决策</span></div><h1>3 个候选，哪个最适合你？</h1><p>我已经把价格、规格、到手路径和近期趋势放在同一张桌面上。</p></div><Button variant="secondary" icon="plus" onClick={onBack}>添加候选</Button></div>
-        <section className="decision-banner"><div className="decision-icon"><Icon name="spark" size={21} /></div><div><span className="eyebrow">AGENT DECISION · 综合判断</span><p><strong>Sony WH-1000XM5</strong> 目前是更稳妥的选择：人民币价格低于预算 ¥351，配送路径明确，降噪和佩戴评价都比较平衡。</p></div><div className="decision-score"><span>匹配度</span><strong>94</strong><small>/100</small></div></section>
-        <section className="comparison-table-wrap"><div className="table-toolbar"><span className="eyebrow">横向比较 · 价格已统一为人民币</span><div><button><Icon name="sliders" size={15} /> 显示字段</button><button><Icon name="external" size={15} /> 分享结果</button></div></div><div className="comparison-table"><div className="comparison-label-column"><div className="table-spacer" /><div>平台与所在地</div><div>当前价格</div><div>近 30 日走势</div><div>核心规格</div><div>库存与配送</div><div>用户反馈</div><div>决策动作</div></div>{compared.map((product, index) => <div className={`comparison-product ${index === 0 ? 'is-recommended' : ''}`} key={product.id}>
-      <div className="comparison-product-head"><div className="compare-image" style={{ background: product.gradient }}><img src={product.image} alt="" onError={(event) => { event.currentTarget.style.display = 'none' }} /></div><span className="compare-tag">{index === 0 ? '推荐' : product.tag}</span><button onClick={() => onDetail(product.id)}>{product.title}<Icon name="external" size={13} /></button></div>
-      <div className="compare-cell source-cell"><PlatformMark product={product} small /><span><strong>{product.platform}</strong><small>{product.market}</small></span></div>
-      <div className="compare-cell price-cell"><strong>¥{product.rmbPrice.toLocaleString()}</strong><span>{product.nativePrice}</span>{index === 0 && <em>预算内 ¥351</em>}</div>
-      <div className="compare-cell trend-cell"><MiniSparkline values={product.history.map((point) => point.value)} /><span className="trend-down"><Icon name="trend" size={13} /> -{index + 4}.2%</span></div>
-      <div className="compare-cell specs-cell">{product.specs.map((spec) => <span key={spec}>{spec}</span>)}</div>
-      <div className="compare-cell delivery-cell"><span className="stock"><Icon name="check" size={14} /> {product.availability.split(' · ')[0]}</span><small>{product.delivery}</small></div>
-      <div className="compare-cell review-cell"><span className="stars"><Icon name="star" size={13} /> {product.rating}</span><small>{product.reviews.toLocaleString()} 条评价</small></div>
-      <div className="compare-cell action-cell"><Button variant={index === 0 ? 'primary' : 'secondary'} onClick={() => onDetail(product.id)}>{index === 0 ? '查看购买路径' : '查看详情'}</Button></div>
-        </div>)}</div></section>
-        <div className="compare-footnote"><Icon name="info" size={14} /> 价格抓取时间：今天 14:32（北京时间） · 汇率仅作比较参考，最终以支付页为准。</div>
-      </section>
-    </div>
-  </main>
-}
-
-function WatchlistView({ onDetail }: { onDetail: (id: string) => void }) {
-  return <main className="workspace-view watchlist-view"><div className="watchlist-heading"><div><span className="eyebrow"><Icon name="bell" size={14} /> PRICE MONITOR</span><h1>价格监控</h1><p>把还没准备好下单的选择交给我，价格到位时再回来。</p></div><Button variant="primary" icon="plus">添加监控</Button></div><div className="monitor-summary"><div><span>监控中</span><strong>02</strong><small>个商品</small></div><div><span>本周降价</span><strong className="green">01</strong><small>个商品</small></div><div><span>已节省空间</span><strong>¥351</strong><small>若现在购买</small></div></div><div className="monitor-list">{watchItems.map((item, index) => <article className="monitor-card" key={item.product}><div className={`monitor-icon ${item.accent}`}><Icon name={index === 0 ? 'headphones' as IconName : 'grid'} size={21} /></div><div className="monitor-info"><span className="monitor-status"><i /> {item.status}</span><h2>{item.product}</h2><p>目标价 <strong>{item.target}</strong> · 当前人民币价 <strong>{item.current}</strong></p></div><div className="monitor-chart"><div><span>30 日价格走势</span><strong className={index === 0 ? 'red' : 'neutral'}>{item.trend}</strong></div><MiniSparkline values={index === 0 ? [2350, 2280, 2200, 2149, 2190, 2149] : [8700, 8699, 8720, 8699, 8699, 8699]} /></div><button className="monitor-more" onClick={() => index === 0 && onDetail('sony-xm5')} aria-label="查看监控商品"><Icon name="chevron" size={17} /></button></article>)}</div><div className="watchlist-tip"><span><Icon name="spark" size={16} /></span><p><strong>一个小建议</strong>：Sony WH-1000XM5 最近在 ¥2,100 附近波动，如果不急着用，可以把目标价设为 ¥2,000。</p><button>设置目标价 <Icon name="arrow" size={14} /></button></div></main>
-}
-
-function ProductDrawer({ product, onClose, onSelect, selected }: { product: Product; onClose: () => void; onSelect: () => void; selected: boolean }) {
-  return <div className="drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><aside className="product-drawer" aria-label="商品详情"><div className="drawer-top"><span className="eyebrow">商品详情</span><button className="icon-button" onClick={onClose} aria-label="关闭详情"><Icon name="close" size={18} /></button></div><div className="drawer-image" style={{ background: product.gradient }}><img src={product.image} alt={product.title} /></div><div className="drawer-body"><div className="product-source"><span><PlatformMark product={product} small /> {product.platform}</span><span>{product.market}</span></div><h2>{product.title}</h2><p className="drawer-description">{product.description}</p><div className="drawer-price"><div><span>当前人民币参考价</span><strong>¥{product.rmbPrice.toLocaleString()}</strong></div><div><span>原站价格</span><b>{product.nativePrice}</b></div></div><div className="drawer-callout"><Icon name="trend" size={16} /><span><strong>{product.discount}</strong><small>价格数据更新于 {product.updated}</small></span></div><div className="drawer-section"><div className="section-title">核心规格</div><div className="spec-pills">{product.specs.map((spec) => <span key={spec}>{spec}</span>)}</div></div><div className="drawer-section"><div className="section-title">价格走势 <small>近 4 个月 · RMB</small></div><div className="drawer-chart"><MiniSparkline values={product.history.map((point) => point.value)} /><div>{product.history.map((point) => <span key={point.month}><i style={{ height: `${(point.value / Math.max(...product.history.map((item) => item.value))) * 64}%` }} />{point.month}</span>)}</div></div></div><div className="drawer-section delivery-section"><div className="section-title">到手路径</div><div className="delivery-row"><span className="delivery-check"><Icon name="check" size={14} /></span><span><strong>{product.availability.split(' · ')[0]}</strong><small>{product.delivery}</small></span></div><p><Icon name="info" size={13} /> 运费、关税和最终可配送范围需在平台结算页确认。</p></div></div><div className="drawer-footer"><Button variant="secondary" onClick={onSelect} icon={selected ? 'check' : 'plus'}>{selected ? '已加入候选' : '加入候选'}</Button><Button variant="primary" icon="external">前往 {product.platform}</Button></div></aside></div>
-}
-
+function Compare({ mission, selectedIds, back, detail, apply, messages, append, latestChange, undo }: { mission: Mission; selectedIds: string[]; back: () => void; detail: (product: Product) => void; apply: (delta: Partial<Mission>, summary: string) => void; messages: Message[]; append: (items: Message[]) => void; latestChange: ChangeRecord | null; undo: () => void }) { const items = products.filter((product) => selectedIds.includes(product.id)); if (items.length < 2) return <main className="workspace-view"><section className="empty-result"><Icon name="grid" size={24} /><h2>还需要至少 2 件候选</h2><p>先在候选页加入商品，再进行横向比较。</p><Button variant="primary" onClick={back}>返回候选页</Button></section></main>; const lead = [...items].sort((a, b) => mission.preference === 'battery' ? batteryHours(b) - batteryHours(a) : mission.preference === 'noise' ? Number(b.brand === 'Bose') - Number(a.brand === 'Bose') : a.rmbPrice - b.rmbPrice)[0]; return <main className="workspace-view compare-view"><div className="mission-header"><div><div className="breadcrumb"><button onClick={back}>推荐候选</button><Icon name="chevron" size={13} />对比选择</div><h1>在 {items.length} 个候选中做决定</h1><div className="mission-meta"><span>任务 V{mission.version}</span><span>继续提问可更新推荐</span></div></div><Button onClick={back} icon="plus">添加候选</Button></div><div className="workspace-layout"><Conversation mission={mission} apply={apply} compare={() => {}} canCompare messages={messages} append={append} latestChange={latestChange} undo={undo} /><section className="results-region"><section className="decision-card compare-decision"><div className="decision-icon"><Icon name="spark" size={20} /></div><div><span>当前推荐</span><h2>{lead.brand} {lead.model}</h2><p>{mission.preference === 'battery' ? `续航 ${batteryHours(lead)} 小时，是已选商品中最长的。` : mission.preference === 'noise' ? '降噪取向与当前偏好最一致。' : `商品参考价约 ¥${lead.rmbPrice.toLocaleString()}，是已选商品中更低的一件。`}</p></div></section><EvidenceStrip /><section className="comparison-table-wrap"><div className="table-toolbar"><span>已选商品对比</span><span>商品价以商户页面为准</span></div><div className="comparison-table revised-table"><div className="comparison-label-column"><div>候选</div><div>商品价</div><div>规格</div><div>库存</div><div>适合谁</div><div>操作</div></div>{items.map((product) => <div className="comparison-product" key={product.id}><div className="comparison-product-head"><Mark product={product} /><button onClick={() => detail(product)}>{product.title}<Icon name="external" size={13} /></button></div><div className="compare-cell"><PriceEvidence product={product} compact /></div><div className="compare-cell specs-cell">{product.specs.map((spec) => <span key={spec}>{spec}</span>)}</div><div className="compare-cell"><span className={product.stock === '有货' ? 'confirmed' : 'pending'}>{product.stock}</span></div><div className="compare-cell"><span>{product.tradeoff}</span></div><div className="compare-cell action-cell"><Button onClick={() => detail(product)}>查看详情</Button></div></div>)}</div></section></section></div></main> }
+function Drawer({ product, selected, close, toggle }: { product: Product; selected: boolean; close: () => void; toggle: () => void }) { const domain = new URL(product.url).hostname; return <div className="drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}><aside className="product-drawer" aria-label="商品详情"><div className="drawer-top"><span>商品详情</span><button className="icon-button" onClick={close} aria-label="关闭"><Icon name="close" size={18} /></button></div><div className="drawer-image" style={{ background: product.gradient }}><img src={product.image} alt={product.title} /></div><div className="drawer-body"><div className="product-source"><span><Mark product={product} /> {product.platform}</span><span>{product.market}</span></div><h2>{product.title}</h2><PriceEvidence product={product} /><section className="drawer-section"><div className="section-title">商品信息</div><div className="spec-pills">{product.specs.map((spec) => <span key={spec}>{spec}</span>)}</div><p className="drawer-description">评分 {product.rating} · {product.reviews.toLocaleString()} 条评价 · 库存：{product.stock} · {product.updated}</p></section><section className="purchase-check"><span>查看商户报价</span><p>本服务只负责比较；{domain} 将提供商品详情与交易。</p><a className="button button-primary merchant-link" href={product.url} target="_blank" rel="noreferrer">前往 {product.platform} 查看<Icon name="external" size={15} /></a><small>商品价以商户页面为准。</small></section></div><div className="drawer-footer"><Button variant={selected ? 'primary' : 'secondary'} onClick={toggle}>{selected ? '已加入候选' : '加入候选'}</Button><Button variant="quiet" onClick={close}>返回任务</Button></div></aside></div> }
+function TaskList({ tasks, activeId, open, create }: { tasks: ShoppingTask[]; activeId: number | null; open: (id: number) => void; create: () => void }) { return <main className="task-list-view"><div className="task-list-header"><div><h1>我的任务</h1><p>每个任务保留自己的对话、条件、候选与比较进度。</p></div><Button variant="primary" onClick={create} icon="plus">新建任务</Button></div>{tasks.length ? <section className="task-list" aria-label="已保存的选购任务">{tasks.map((task) => <button className={`task-list-item ${task.id === activeId ? 'is-current' : ''}`} key={task.id} onClick={() => open(task.id)}><div><strong>{task.mission.intent}</strong><p>{budgetText(task.mission)} · {preferenceText(task.mission.preference)}{task.mission.onlyInStock ? ' · 仅看有货' : ''}</p></div><div className="task-list-meta"><span>{task.id === activeId ? '当前处理' : phaseText(task.phase, task.selected)}</span><small>{task.updatedAt} 更新</small></div><Icon name="arrow" size={16} /></button>)}</section> : <section className="task-list-empty"><Icon name="spark" size={24} /><h2>还没有选购任务</h2><p>新建一个任务后，可以随时在这里继续对话和比较。</p><Button variant="primary" onClick={create}>新建任务</Button></section>}</main> }
+function QuickSwitcher({ tasks, activeId, open, close, allTasks, create }: { tasks: ShoppingTask[]; activeId: number | null; open: (id: number) => void; close: () => void; allTasks: () => void; create: () => void }) { const [query, setQuery] = useState(''); const items = [...tasks].sort((a, b) => b.updatedAtMs - a.updatedAtMs).filter((task) => `${task.mission.intent} ${budgetText(task.mission)} ${preferenceText(task.mission.preference)}`.includes(query.trim())); return <div className="switcher-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}><section className="task-switcher" role="dialog" aria-modal="true" aria-label="切换任务"><div className="switcher-heading"><div><strong>切换任务</strong><small>将恢复各任务上次的工作现场</small></div><button onClick={close} aria-label="关闭任务切换"><Icon name="close" size={16} /></button></div><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务名称、预算或偏好" aria-label="搜索任务" />{items.length ? <div className="switcher-list">{items.slice(0, 6).map((task) => <button className={task.id === activeId ? 'is-current' : ''} key={task.id} onClick={() => open(task.id)}><span><b>{task.mission.intent}</b><small>{phaseText(task.phase, task.selected)} · {task.updatedAt}</small></span>{task.id === activeId && <em>当前</em>}</button>)}</div> : <p className="switcher-empty">未找到匹配的任务</p>}<div className="switcher-footer"><button onClick={allTasks}>查看全部任务</button><button onClick={create}>新建任务</button></div></section></div> }
 export default function App() {
-  const [view, setView] = useState<View>('discover')
-  const [query, setQuery] = useState('帮我找一副适合通勤的降噪耳机，预算 2500 元以内')
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [detailId, setDetailId] = useState<string | null>(null)
-  const selectedProductIds = useMemo(() => new Set(selectedIds), [selectedIds])
-  const detailProduct = products.find((product) => product.id === detailId)
-
-  const toggleProduct = (id: string) => setSelectedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : current.length >= 3 ? current : [...current, id])
-  const startTask = () => setView('discover')
-  const resetTask = () => { setQuery(''); setSelectedIds([]); setView('home') }
-
-  return <div className="app-shell"><Header view={view} onNavigate={setView} />{view === 'home' && <HomeView query={query} setQuery={setQuery} onSubmit={startTask} />}{view === 'discover' && <DiscoverView onReset={resetTask} selectedIds={selectedIds} onSelect={toggleProduct} onDetail={setDetailId} onCompare={() => setView('compare')} />}{view === 'compare' && <CompareView onBack={() => setView('discover')} onDetail={setDetailId} />}{view === 'watchlist' && <WatchlistView onDetail={setDetailId} />}{detailProduct && <ProductDrawer product={detailProduct} selected={selectedProductIds.has(detailProduct.id)} onClose={() => setDetailId(null)} onSelect={() => toggleProduct(detailProduct.id)} />}</div>
+  const [view, setView] = useState<View>('home')
+  const [tasks, setTasks] = useState<ShoppingTask[]>(() => { try { const saved = localStorage.getItem('interecagent.tasks'); const parsed = saved ? JSON.parse(saved) : []; return Array.isArray(parsed) ? parsed.map((task) => ({ ...task, phase: task.phase ?? (task.selected?.length ? 'shortlisting' : 'collecting'), lastSurface: task.lastSurface ?? 'discover', createdAt: task.createdAt ?? task.updatedAt ?? nowText(), updatedAt: task.updatedAt ?? nowText(), updatedAtMs: task.updatedAtMs ?? task.id ?? Date.now() })) : [] } catch { return [] } })
+  const [activeTaskId, setActiveTaskId] = useState<number | null>(() => { try { const saved = localStorage.getItem('interecagent.active-task'); return saved ? Number(saved) : null } catch { return null } })
+  const [detail, setDetail] = useState<Product | null>(null)
+  const [switcherOpen, setSwitcherOpen] = useState(false)
+  const activeTask = activeTaskId === null ? undefined : tasks.find((task) => task.id === activeTaskId)
+  useEffect(() => { localStorage.setItem('interecagent.tasks', JSON.stringify(tasks)); if (activeTaskId !== null) localStorage.setItem('interecagent.active-task', String(activeTaskId)); else localStorage.removeItem('interecagent.active-task') }, [tasks, activeTaskId])
+  const updateActive = (update: (task: ShoppingTask) => ShoppingTask) => { if (!activeTask) return; setTasks((current) => current.map((task) => task.id === activeTask.id ? update(task) : task).sort((a, b) => b.updatedAtMs - a.updatedAtMs)) }
+  const append = (items: Message[]) => updateActive((task) => ({ ...task, messages: [...task.messages, ...items], updatedAt: nowText(), updatedAtMs: Date.now() }))
+  const apply = (delta: Partial<Mission>, summary: string) => updateActive((task) => { const before = task.mission; const next = { ...before, ...delta, version: before.version + 1 }; const selected = next.onlyInStock ? task.selected.filter((id) => products.find((product) => product.id === id)?.stock === '有货') : task.selected; return { ...task, mission: next, selected, phase: selected.length >= 2 && task.lastSurface === 'compare' ? 'comparing' : selected.length ? 'shortlisting' : 'collecting', updatedAt: nowText(), updatedAtMs: Date.now(), latestChange: { id: String(Date.now()), summary, before, selectedBefore: task.selected, resultBefore: candidatesFor(before).length, resultAfter: candidatesFor(next).length } } })
+  const undo = () => { if (!activeTask?.latestChange) return; const change = activeTask.latestChange; updateActive((task) => ({ ...task, mission: change.before, selected: change.selectedBefore, phase: change.selectedBefore.length >= 2 && task.lastSurface === 'compare' ? 'comparing' : change.selectedBefore.length ? 'shortlisting' : 'collecting', latestChange: null, updatedAt: nowText(), updatedAtMs: Date.now(), messages: [...task.messages, { id: `undo-${Date.now()}`, role: 'agent', text: `已撤销“${change.summary}”，恢复之前的条件。` }] })) }
+  const start = (query: string) => { const id = Date.now(); const mission = createMission(query, id); const time = nowText(); const task: ShoppingTask = { id, mission, selected: [], latestChange: null, phase: 'collecting', lastSurface: 'discover', createdAt: time, updatedAt: time, updatedAtMs: id, messages: [{ id: `start-${id}`, role: 'agent', text: `已创建“${mission.intent}”。${mission.budget ? `预算 ${budgetText(mission)}。` : '你可以继续补充预算。'}`, actions: ['优先降噪', '优先续航', '先看综合推荐'] }] }; setTasks((current) => [task, ...current]); setActiveTaskId(id); setView('discover') }
+  const openTask = (id: number) => { const task = tasks.find((item) => item.id === id); if (!task) return; setActiveTaskId(id); setSwitcherOpen(false); setView(task.lastSurface) }
+  const toggle = (id: string) => updateActive((task) => { const selected = task.selected.includes(id) ? task.selected.filter((item) => item !== id) : task.selected.length >= 5 ? task.selected : [...task.selected, id]; return { ...task, selected, phase: selected.length ? 'shortlisting' : 'collecting', lastSurface: 'discover', updatedAt: nowText(), updatedAtMs: Date.now() } })
+  const compare = () => { if (!activeTask || activeTask.selected.length < 2) return; updateActive((task) => ({ ...task, phase: 'comparing', lastSurface: 'compare', updatedAt: nowText(), updatedAtMs: Date.now() })); setView('compare') }
+  const backToCandidates = () => { updateActive((task) => ({ ...task, phase: task.selected.length ? 'shortlisting' : 'collecting', lastSurface: 'discover', updatedAt: nowText(), updatedAtMs: Date.now() })); setView('discover') }
+  return <div className="app-shell"><Header view={view} go={setView} />{activeTask && (view === 'discover' || view === 'compare') && <button className="quick-switch-trigger" onClick={() => setSwitcherOpen(true)}><span>当前任务</span><strong>{activeTask.mission.intent}</strong><Icon name="chevron" size={14} /></button>}{view === 'home' && <Home start={start} />}{view === 'tasks' && <TaskList tasks={[...tasks].sort((a, b) => b.updatedAtMs - a.updatedAtMs)} activeId={activeTaskId} open={openTask} create={() => setView('home')} />}{view === 'discover' && activeTask && <Discover mission={activeTask.mission} apply={apply} selectedIds={activeTask.selected} toggle={toggle} compare={compare} detail={setDetail} messages={activeTask.messages} append={append} latestChange={activeTask.latestChange} undo={undo} />}{view === 'compare' && activeTask && <Compare mission={activeTask.mission} selectedIds={activeTask.selected} back={backToCandidates} detail={setDetail} apply={apply} messages={activeTask.messages} append={append} latestChange={activeTask.latestChange} undo={undo} />}{detail && activeTask && <Drawer product={detail} selected={activeTask.selected.includes(detail.id)} close={() => setDetail(null)} toggle={() => toggle(detail.id)} />}{switcherOpen && <QuickSwitcher tasks={tasks} activeId={activeTaskId} open={openTask} close={() => setSwitcherOpen(false)} allTasks={() => { setSwitcherOpen(false); setView('tasks') }} create={() => { setSwitcherOpen(false); setView('home') }} />}</div>
 }

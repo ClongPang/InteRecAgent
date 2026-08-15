@@ -22,6 +22,7 @@ frontend/dist/
 
 # Test and tool caches
 .pytest_cache/
+.playwright-cli/
 frontend/.vite/
 frontend/coverage/
 frontend/test-results/
