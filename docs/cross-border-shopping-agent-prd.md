@@ -49,7 +49,7 @@ BuyWhere 的公开资料覆盖新加坡、美国及部分东南亚市场，但�
 
 BuyWhere 提供面向 AI Agent 的商品目录、结构化规格、商户信息、价格、库存、折扣和比较接口，能够替代 Agent 对网页抓取、页面解析和静态知识的依赖。
 
-BuyWhere 的核心 REST API 为 `https://api.buywhere.ai/v1`，同时提供 MCP 接入。搜索接口支持关键词、平台、区域、国家、价格区间、货币、分页和紧凑响应模式；商品结果包含 `structured_specs` 与 `comparison_attributes`，适合进一步进行程序化比较。[BuyWhere OpenAPI 规范](https://raw.githubusercontent.com/api-evangelist/buywhere/refs/heads/main/openapi/buywhere-openapi.yml)
+BuyWhere 的核心 REST API 为 `https://api.buywhere.ai/v1`，同时提供 MCP 接入。搜索接口支持关键词、平台、区域、国家、价格区间、货币、分页、紧凑响应模式和 `keyword` / `semantic` / `hybrid` 搜索模式；商品结果包含 `structured_specs` 与 `comparison_attributes`，适合进一步进行程序化比较。[BuyWhere 在线 OpenAPI](https://api.buywhere.ai/openapi.json)
 
 ## 3. 产品目标与非目标
 
@@ -434,6 +434,6 @@ InteRecAgent 的核心价值不是替 BuyWhere 做商品搜索，而是在 BuyWh
 - [BuyWhere API 首页](https://api.buywhere.ai/)
 - [BuyWhere MCP 集成指南](https://api.buywhere.ai/docs/guides/mcp)
 - [BuyWhere Developer Portal](https://buywhere.ai/developers)
-- [BuyWhere OpenAPI 规范](https://raw.githubusercontent.com/api-evangelist/buywhere/refs/heads/main/openapi/buywhere-openapi.yml)
+- [BuyWhere 在线 OpenAPI](https://api.buywhere.ai/openapi.json)
 - [BuyWhere 搜索接口示例](https://raw.githubusercontent.com/api-evangelist/buywhere/refs/heads/main/examples/buywhere-searchProducts-example.json)
 - [BuyWhere 服务条款](https://buywhere.ai/terms)
