@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+import pytest
+
+from backend.domain.filter_rank import (
+    apply_budget_filter,
+    convert_products,
+    dedupe_products,
+    rank_products,
+)
+from backend.domain.models import FxSnapshot, NormalizedProduct
+
+
+def _product(id: str, amount: float, currency: str = "USD", title: str = "x") -> NormalizedProduct:
+    return NormalizedProduct(
+        id=id, title=title, merchant="m", country_code="US",
+        native_price_amount=amount, native_currency=currency,
+    )
+
+
+def _snap(rate: float) -> FxSnapshot:
+    return FxSnapshot(base="USD", quote="CNY", rate=rate, date="2026-08-14", source="frankfurter-ecb")
+
+
+class TestConvert:
+    def test_converts_when_rate_available(self):
+        products = convert_products([_product("a", 100)], {"USD": _snap(6.7)})
+        assert products[0].rmb_price == pytest.approx(670.0)
+        assert products[0].fx_failed is False
+        assert products[0].fx_as_of == "2026-08-14"
+
+    def test_fails_when_currency_missing(self):
+        products = convert_products([_product("a", 100, currency="CAD")], {})
+        assert products[0].rmb_price is None
+        assert products[0].fx_failed is True
+
+
+class TestBudgetFilter:
+    def test_splits_into_three_buckets(self):
+        in_budget = _product("a", 100)  # 100*6.7=670
+        over = _product("b", 500)  # 3350
+        no_fx = _product("c", 100, currency="CAD")
+        in_budget, over, no_fx = convert_products(
+            [in_budget, over, no_fx], {"USD": _snap(6.7)}
+        )
+        kept, over_bucket, fx_failed = apply_budget_filter(
+            [in_budget, over, no_fx], budget_cny=1000.0
+        )
+        assert [p.id for p in kept] == ["a"]
+        assert [p.id for p in over_bucket] == ["b"]
+        # 换算失败的商品不因预算排除（部分成功原则）
+        assert [p.id for p in fx_failed] == ["c"]
+
+
+class TestDedupe:
+    def test_dedupes_same_merchant_and_normalized_title(self):
+        a = _product("a", 100, title="Sony - WH-1000XM5 (Black)")
+        b = _product("b", 100, title="Sony WH1000XM5 Black")  # 归一化后相同
+        c = _product("c", 100, title="Sony WH-1000XM5 (Blue)")
+        out = dedupe_products([a, b, c])
+        assert [p.id for p in out] == ["a", "c"]
+
+
+class TestRank:
+    def test_orders_by_rmb_price_asc(self):
+        a = convert_products([_product("cheap", 50), _product("mid", 200), _product("pricey", 400)], {"USD": _snap(6.7)})
+        assert [p.id for p in rank_products(a)] == ["cheap", "mid", "pricey"]
+
+    def test_fx_failed_last(self):
+        products = convert_products(
+            [_product("ok", 50), _product("no_fx", 50, currency="CAD")], {"USD": _snap(6.7)}
+        )
+        ranked = rank_products(products)
+        assert ranked[-1].id == "no_fx"
