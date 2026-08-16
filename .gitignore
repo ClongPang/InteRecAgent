@@ -6,28 +6,43 @@
 
 # Environment configuration
 .env
+*.env.local
 
 # Python virtual environments
 .venv/
 venv/
 
-# Python caches
+# Python caches & quality tooling
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
 
 # Node / frontend generated files
 node_modules/
 frontend/node_modules/
 frontend/dist/
-
-# Test and tool caches
-.pytest_cache/
-.playwright-cli/
-frontend/.vite/
 frontend/coverage/
-frontend/test-results/
 frontend/tsconfig.tsbuildinfo
 
-# Local/generated data
+# Test and tool caches
+.playwright-cli/
+playwright-report/
+frontend/playwright-report/
+frontend/test-results/
+frontend/.vite/
+
+# Local/generated data (not business facts)
 data/raw/
 data/catalog/
+data/games/
+*.sqlite3
+*.db
+
+# Local acceptance artifacts
+artifacts/
+.tmp/

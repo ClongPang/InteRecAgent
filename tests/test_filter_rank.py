@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from backend.domain.filter_rank import (
+from backend.domain.models import FxSnapshot, NormalizedProduct
+from backend.domain.policies import (
     apply_budget_filter,
     convert_products,
     dedupe_products,
     rank_products,
 )
-from backend.domain.models import FxSnapshot, NormalizedProduct
 
 
 def _product(id: str, amount: float, currency: str = "USD", title: str = "x") -> NormalizedProduct:

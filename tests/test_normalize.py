@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from backend.adapters.buywhere import BuyWherePrice, BuyWhereProduct
 from backend.domain.models import API_MISSING_FIELDS
-from backend.domain.normalize import normalize_buywhere_item
+from backend.domain.policies.normalize import normalize_item
+from backend.infrastructure.product_sources.buywhere import BuyWherePrice, BuyWhereProduct
 
 
 def _item(**overrides) -> BuyWhereProduct:
@@ -20,7 +20,7 @@ def _item(**overrides) -> BuyWhereProduct:
 
 
 def test_real_fields_mapped():
-    p = normalize_buywhere_item(_item())
+    p = normalize_item(_item())
     assert p.id == "p1"
     assert p.native_price_amount == 499.99
     assert p.native_currency == "USD"
@@ -31,7 +31,7 @@ def test_real_fields_mapped():
 
 
 def test_missing_fields_marked_unavailable():
-    p = normalize_buywhere_item(_item())
+    p = normalize_item(_item())
     # 文档/前端 mock 假设的 rating/specs/availability 等，真实 API 提供不了，显式标记
     assert set(p.unavailable) == set(API_MISSING_FIELDS)
     assert "rating" in p.unavailable
@@ -39,6 +39,6 @@ def test_missing_fields_marked_unavailable():
 
 
 def test_nullable_fields_stay_none():
-    p = normalize_buywhere_item(_item(region=None, image_url=None))
+    p = normalize_item(_item(region=None, image_url=None))
     assert p.region is None
     assert p.image_url is None
