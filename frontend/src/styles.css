@@ -104,17 +104,26 @@ button { border: 0; cursor: pointer; background: transparent; }
 .preview-fx b { color: var(--figure); font-weight: 600; }
 .preview-fx em { margin-left: auto; color: var(--muted); font-style: normal; font-size: 11px; }
 .preview-rows { display: grid; margin-top: 6px; }
-.preview-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 62px; border-bottom: 1px solid var(--rule); color: var(--ink-soft); }
+.preview-row { display: grid; grid-template-columns: 118px minmax(0, 1fr) auto auto; grid-template-areas: 'mark name amount total'; align-items: center; gap: 10px; min-height: 62px; border-bottom: 1px solid var(--rule); color: var(--ink-soft); }
 .preview-row:last-child { border-bottom: 0; }
-.preview-row b { color: var(--ink); font-size: 13px; font-weight: 600; }
-.preview-row strong { color: var(--muted); font: 500 12px var(--mono); white-space: nowrap; }
-.preview-row em { color: var(--figure); font: 600 14px var(--mono); font-style: normal; white-space: nowrap; }
+.preview-row .platform-mark { grid-area: mark; }
+.preview-row b { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-size: 13px; font-weight: 600; }
+.preview-row strong { grid-area: amount; color: var(--muted); font: 500 12px var(--mono); white-space: nowrap; }
+.preview-row em { grid-area: total; color: var(--figure); font: 600 14px var(--mono); font-style: normal; white-space: nowrap; }
 .preview-foot { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--rule); color: var(--muted); font-size: 12px; }
 .preview-foot span:last-child { color: var(--accent-deep); }
 
 /* ── Platform stamps ── */
-.platform-mark { flex: none; width: 80px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rule); border-radius: 5px; background: var(--surface); }
-.platform-mark img { height: 15px; width: auto; max-width: 70px; object-fit: contain; }
+/* 固定舞台解决不同 Logo 原始画布/比例造成的名称漂移，同时保留品牌比例。 */
+.platform-mark { box-sizing: border-box; flex: none; width: 104px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rule-strong); border-radius: 7px; background: var(--surface); overflow: hidden; }
+.platform-mark img { display: block; width: auto; height: auto; max-width: calc(100% - 14px); max-height: calc(100% - 8px); object-fit: contain; }
+.platform-mark--amazon img { width: 92px; }
+.platform-mark--lazada img { width: 54px; }
+.platform-mark--bestbuy img { width: 62px; }
+.platform-mark--shopee img { width: 24px; height: 24px; }
+.preview-row .platform-mark { width: 118px; height: 40px; border-radius: 9px; }
+.comparison-product-head .platform-mark { width: 100px; height: 30px; }
+.product-source .platform-mark { width: 82px; height: 24px; border-radius: 6px; }
 .product-image.tone-amazon, .drawer-image.tone-amazon { --tone: #20304a; }
 .product-image.tone-lazada, .drawer-image.tone-lazada { --tone: #4b3a7a; }
 .product-image.tone-bestbuy, .drawer-image.tone-bestbuy { --tone: #2b5a9e; }
@@ -379,15 +388,14 @@ button { border: 0; cursor: pointer; background: transparent; }
 .login-modal { position: relative; display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); width: min(760px, calc(100vw - 36px)); padding: 0; overflow: hidden; border: 1px solid var(--rule-strong); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-md); animation: rise .2s ease both; }
 .login-close { position: absolute; top: 16px; right: 16px; z-index: 3; }
 .login-brand { position: relative; display: flex; flex-direction: column; gap: 16px; padding: 30px 26px 26px; overflow: hidden; background: var(--nav); color: #fff; }
-.login-brand::before { content: ''; position: absolute; right: -60px; bottom: -80px; width: 220px; height: 220px; border-radius: 50%; background: radial-gradient(circle, rgba(9, 105, 218, .5), transparent 70%); }
 .login-brand-head { position: relative; display: flex; gap: 12px; align-items: center; }
-.login-brand-mark { width: 40px; height: 40px; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1.5px solid #fff; border-radius: 8px; background: #fff; color: var(--nav); font: 700 17px/1 var(--display); letter-spacing: -.06em; transform: rotate(-4deg); }
+.login-brand-mark { width: 40px; height: 40px; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1.5px solid #fff; border-radius: 6px; background: #fff; color: var(--nav); font: 700 17px/1 var(--display); letter-spacing: -.06em; }
 .login-brand-head strong { display: block; font-size: 16px; letter-spacing: -.01em; }
 .login-brand-head small { display: block; margin-top: 4px; color: #8b949e; font: 500 10px var(--display); letter-spacing: .16em; }
 .login-brand-slogan { position: relative; margin: 0; color: #c9d1d9; font-size: 13px; line-height: 1.75; }
 .login-brand-points { position: relative; margin: 0; padding: 0; list-style: none; display: grid; gap: 11px; }
 .login-brand-points li { display: flex; gap: 9px; color: #9aa4b0; font-size: 12px; line-height: 1.55; }
-.login-brand-points li::before { content: ''; flex: none; width: 6px; height: 6px; margin-top: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgba(9, 105, 218, .25); }
+.login-brand-points li::before { content: ''; flex: none; width: 6px; height: 6px; margin-top: 6px; border-radius: 2px; background: var(--accent); }
 .login-brand-foot { position: relative; margin: auto 0 0; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, .12); color: #8b949e; font-size: 11px; line-height: 1.6; }
 .login-form-panel { padding: 32px 34px 30px; }
 .login-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
@@ -448,7 +456,7 @@ button { border: 0; cursor: pointer; background: transparent; }
 .account-head > span { font: 600 13px var(--display); letter-spacing: -.01em; }
 .account-body { padding: 22px 24px 40px; }
 .account-profile { display: flex; gap: 14px; align-items: center; padding-bottom: 18px; border-bottom: 1px solid var(--rule); }
-.avatar-large { width: 44px; height: 44px; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; background: var(--accent); color: #fff; font: 600 18px var(--display); }
+.avatar-large { width: 44px; height: 44px; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--accent); color: #fff; font: 600 18px var(--display); }
 .account-profile b { display: block; font-size: 15px; }
 .account-profile p { margin: 3px 0 0; color: var(--muted); font: 400 11.5px var(--mono); }
 .account-section { margin-top: 22px; }
@@ -535,6 +543,9 @@ button { border: 0; cursor: pointer; background: transparent; }
   .task-list-meta { grid-column: 1; justify-items: start; grid-auto-flow: column; justify-content: start; gap: 10px; }
   .task-switcher { top: auto; right: 14px; bottom: 14px; }
   .tray-items { width: 100%; }
+  .preview-row { grid-template-columns: 92px minmax(0, 1fr) auto; grid-template-areas: 'mark name total' 'mark amount total'; gap: 6px 8px; min-height: 66px; }
+  .preview-row .platform-mark { width: 92px; height: 34px; }
+  .preview-row em { align-self: center; }
 }
 @media (max-width: 1100px) and (min-width: 721px) {
   .task-switcher { top: auto; right: 22px; bottom: 14px; }
