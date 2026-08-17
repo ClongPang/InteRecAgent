@@ -21,7 +21,9 @@ VALID_MARKETS = ("US", "SG", "VN", "TH", "MY")
 
 
 class FxSnapshot(BaseModel):
-    """一次汇率事实快照。date 为汇率源（ECB）的汇率日期，fetched_at 为本地抓取时间。"""
+    """
+    一次汇率事实快照。date 为汇率源（ECB）的汇率日期，fetched_at 为本地抓取时间。
+    """
 
     base: str
     quote: str

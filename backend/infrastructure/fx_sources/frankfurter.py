@@ -14,9 +14,9 @@ FX_SOURCE = "frankfurter-ecb"
 
 
 class FrankfurterFxSource:
-    """Frankfurter (ECB) 汇率源（实现 FxSource Port）。
+    """Frankfurter (ECB) 汇率源。
 
-    无 key、每日更新、带汇率日期；内存 TTL 缓存避免重复请求（MVP 不引入 Redis）。
+    无 key、每日更新、带汇率日期；内存 TTL 缓存避免重复请求。
     """
 
     def __init__(

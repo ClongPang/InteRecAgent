@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import (
 
 
 def create_engine(url: str, *, echo: bool = False) -> AsyncEngine:
-    """构造共享 AsyncEngine。URL 来自组合根 Settings，本模块不读环境。"""
+    """构造共享 AsyncEngine。URL 来自组合根 Settings"""
     return create_async_engine(url, echo=echo, pool_pre_ping=True)
 
 

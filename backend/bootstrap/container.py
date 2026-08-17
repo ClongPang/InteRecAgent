@@ -24,16 +24,21 @@ FIXTURES_DIR = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "buy
 class ConfigurationError(RuntimeError):
     """组合根配置错误（消息不含 Key 值）。"""
 
+'''
+async_sessionmaker[AsyncSession]它基于共享的 AsyncEngine（连接池）构造了一个工厂。
+关键：这台 engine 是全局共享单例（在 container 里缓存的 self._engine），
+但每次 session_factory() 产出的 session 是独立的——真正做到"共享连接池、独立会话"。
+'''
 
 class Container:
-    """组合根：根据 Settings 装配 Port 实现。Fixture/Live 切换只发生在这里（ARC-007）。
+    """组合根：根据 Settings 装配 Port 实现
 
     CLI 与 FastAPI 共享同一 container，不各自复制装配逻辑。
     """
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or Settings()
-        self._engine = None
+        self._engine = None # 数据库连接引擎
 
     def build_session_factory(self) -> async_sessionmaker[AsyncSession]:
         """共享 AsyncEngine 驱动的会话工厂（请求级会话）。"""
@@ -76,7 +81,7 @@ class Container:
         )
 
     def build_model_backend(self) -> ModelBackend:
-        """LLM 接缝（P3-W03）。骨架仅支持 unconfigured（确定性 fallback）；真实 Provider 后续加入。"""
+        """LLM 接缝。骨架仅支持 unconfigured（确定性 fallback）；真实 Provider 后续加入。"""
         if self.settings.llm_provider == "unconfigured":
             return UnconfiguredModelBackend()
         raise ConfigurationError(
@@ -84,16 +89,19 @@ class Container:
         )
 
     def build_mission_runner(
-        self, session_factory: async_sessionmaker[AsyncSession]
+        self, session_factory: async_sessionmaker[AsyncSession] # 专门用来创建 AsyncSession 实例的工厂对象
     ) -> LangGraphMissionRunner:
-        """装配 Agent 状态图 + 事务工厂。uow_factory 让每个节点使用独立事务边界。"""
+        """装配 Agent 状态图 + 事务工厂。uow_factory 让每个节点使用独立事务边界。
+        agent 图是"跨多次数据库事务"的，不是一个事务
+        一次完整的 agent 运行要走 多 个节点，每个节点都要读写数据库，但这些节点之间有大量时间间隔和副作用
+        """
         products = self.build_product_source()
         fx = self.build_fx_source()
         graph = build_graph(
             products=products,
             fx=fx,
             model_backend=self.build_model_backend(),
-            uow_factory=lambda: SqlAlchemyUnitOfWork(session_factory),
+            uow_factory=lambda: SqlAlchemyUnitOfWork(session_factory), # 惰性闭包——每个图节点在运行时各自打开独立事务，而不是共享 session
             max_concurrency=self.settings.search_max_concurrency,
         )
         return LangGraphMissionRunner(graph)

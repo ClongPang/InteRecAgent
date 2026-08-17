@@ -14,7 +14,7 @@ DEFAULT_RATES: dict[str, float] = {
 
 
 class FixedFxSource:
-    """确定性汇率源（实现 FxSource Port）。Fixture Mode 使用，不访问外网。"""
+    """确定性汇率源。Fixture Mode 使用，不访问外网。"""
 
     def __init__(
         self,

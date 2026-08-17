@@ -9,7 +9,7 @@ _ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
-    """环境配置唯一读取点（ARC-006）。业务模块不得读取 os.environ。
+    """环境配置唯一读取点, 业务模块不得读取 os.environ。
 
     变量名带 `INTEREC_` 前缀（见 .env.example）；BuyWhere Key 向后兼容旧名。
     """
