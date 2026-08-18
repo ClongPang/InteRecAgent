@@ -6,6 +6,7 @@ from .mission import (
     CreateMissionRequest,
     MessageRequest,
     RunAccepted,
+    TurnRequest,
     UndoRequest,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "CreateMissionRequest",
     "MessageRequest",
     "RunAccepted",
+    "TurnRequest",
     "UndoRequest",
 ]

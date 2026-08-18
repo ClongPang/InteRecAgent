@@ -124,6 +124,8 @@ def test_project_thread_maps_user_and_agent_events() -> None:
     )
     assert [m.kind for m in view.messages] == ["user", "agent"]
     assert view.messages[1].snapshot_ids == ["s1"]
+    assert view.messages[1].citations[0].snapshot_id == "s1"
+    assert view.messages[1].role == "agent"
 
 
 def test_preview_question_is_responding_not_research() -> None:
@@ -177,6 +179,55 @@ def test_summarize_and_project_constraint_change() -> None:
     assert view.messages[0].change_kind == "constraints"
     assert "2000" in view.messages[0].text
     assert view.messages[1].run_id == "r9"
+    assert view.messages[1].kind == "recommendation"
+
+
+def test_same_run_folds_constraint_change_into_user() -> None:
+    before = MissionConstraints(query="耳机", budget_cny=4000)
+    after = MissionConstraints(query="耳机", budget_cny=2000)
+    view = project_thread(
+        [
+            {
+                "sequence": 1,
+                "event_type": "message.received",
+                "payload": {"run_id": "r1", "text": "太贵了", "constraints_version": 2},
+            },
+            {
+                "sequence": 2,
+                "event_type": "constraints.updated",
+                "payload": {
+                    "run_id": "r1",
+                    "before": before.model_dump(mode="json"),
+                    "after": after.model_dump(mode="json"),
+                    "constraints_version": 3,
+                },
+            },
+            {
+                "sequence": 3,
+                "event_type": "agent.message",
+                "payload": {
+                    "run_id": "r1",
+                    "text": "已按更低预算重筛。",
+                    "citations": [
+                        {
+                            "snapshot_id": "s1",
+                            "role": "primary",
+                            "title": "Sony WH-1000XM5",
+                            "estimated_cny": 2100,
+                            "market": "US",
+                        }
+                    ],
+                },
+            },
+        ],
+        has_query=True,
+        has_candidates=True,
+    )
+    assert [m.kind for m in view.messages] == ["user", "agent"]
+    assert view.messages[0].change is not None
+    assert "2000" in view.messages[0].change.summary
+    assert view.messages[1].citations[0].title == "Sony WH-1000XM5"
+    assert any(move.text == "为什么推荐" for move in view.messages[1].next_moves)
 
 
 def test_leftover_does_not_overwrite_query() -> None:

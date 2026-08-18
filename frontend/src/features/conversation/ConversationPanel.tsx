@@ -1,123 +1,37 @@
 import { useEffect, useRef, useState } from 'react'
-import type { MissionView, ProductCandidate, RecommendationView, ThreadMessage } from '../../api/types'
+import type { Citation, MissionView, NextMove, ProductCandidate, ThreadMessage } from '../../api/types'
 import { Icon } from '../../components/ui/Icon'
-import { MissionBrief } from './MissionBrief'
-import { displayAmount, rmbAmount } from '../../lib/currency'
+import { BeliefBar } from './MissionBrief'
 import { timeLabel } from '../../lib/format'
 import { groupThread, lastUndoableChange } from '../../lib/thread'
 import type { Currency } from '../../lib/currency'
 
-function ChangeRow({ message, undoable, onUndo }: { message: ThreadMessage; undoable: boolean; onUndo: () => void }) {
-  const isUndo = message.change_kind === 'undo'
-  return (
-    <div className={`change-row${isUndo ? ' is-undo' : ''}`}>
-      <span className="change-source">系统</span>
-      <span className="change-text">{message.text}</span>
-      {message.created_at ? <span className="change-time">{timeLabel(message.created_at)}</span> : null}
-      {undoable ? <button className="change-undo-button" onClick={onUndo}>撤销</button> : null}
-    </div>
-  )
-}
-
-function ChangeGroup({
-  messages,
-  undoableId,
-  onUndo,
-}: {
-  messages: ThreadMessage[]
-  undoableId: number | null
-  onUndo: () => void
-}) {
-  const collapsible = messages.length > 2
-  const [open, setOpen] = useState(!collapsible)
-  const latest = messages[messages.length - 1]
-  return (
-    <div className="change-group">
-      {collapsible ? (
-        <button type="button" className="change-group-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
-          <Icon name="chevron" size={12} />
-          条件变更 {messages.length} 次{open ? ' · 收起' : ` · 最新：${latest.text}`}
-        </button>
-      ) : null}
-      {(open ? messages : [latest]).map((message) => (
-        <ChangeRow key={message.sequence} message={message} undoable={message.sequence === undoableId} onUndo={onUndo} />
-      ))}
-    </div>
-  )
-}
-
-function RecommendationCard({
-  message,
-  recommendation,
-  currency,
+function CitationChip({
+  citation,
   onOpen,
 }: {
-  message: ThreadMessage
-  recommendation: RecommendationView | null | undefined
-  currency: Currency
-  onOpen: (product: ProductCandidate) => void
+  citation: Citation
+  onOpen: (snapshotId: string) => void
 }) {
-  const stale = Boolean(message.run_id && recommendation?.run_id && message.run_id !== recommendation.run_id)
-  const primary = stale ? null : recommendation?.primary
-  const alternatives = stale ? [] : recommendation?.alternatives ?? []
-  const amount = primary ? displayAmount(rmbAmount(primary), currency) : null
+  const price = citation.estimated_cny != null ? `约 ¥${Math.round(citation.estimated_cny).toLocaleString()}` : null
   return (
-    <div className={`thread-recommendation${stale ? ' is-stale' : ''}`}>
-      <div className="thread-recommendation-head">
-        <span>{stale ? '推荐 · 历史轮次' : '推荐'}</span>
-        <small>
-          {message.constraints_version ? `基于 V${message.constraints_version}` : ''}
-          {message.created_at ? ` · ${timeLabel(message.created_at)}` : ''}
-        </small>
-      </div>
-      {primary ? (
-        <button type="button" className="rec-chip rec-chip-primary" onClick={() => onOpen(primary)}>
-          {primary.title}
-          <b>{amount ? `约 ¥${amount}` : '暂无人民币估算'}</b>
-        </button>
-      ) : (
-        <p>{message.text}</p>
-      )}
-      {recommendation?.rationale?.length ? (
-        <ul>
-          {recommendation.rationale.map((line) => (
-            <li key={line}>{line}</li>
-          ))}
-        </ul>
-      ) : null}
-      {alternatives.length > 0 ? (
-        <div className="rec-alternatives">
-          <span>备选</span>
-          {alternatives.map((product) => (
-            <button type="button" key={product.snapshot_id} className="rec-chip" onClick={() => onOpen(product)}>
-              {product.title}
-              <b>{displayAmount(rmbAmount(product), currency) ? `约 ¥${displayAmount(rmbAmount(product), currency)}` : '暂无估算'}</b>
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {recommendation?.tradeoffs?.length ? (
-        <p className="rec-tradeoffs">
-          <b>取舍</b>
-          {recommendation.tradeoffs.join('；')}
-        </p>
-      ) : null}
-    </div>
+    <button type="button" className="rec-chip" onClick={() => onOpen(citation.snapshot_id)}>
+      <span>{citation.title || '已引用商品'}</span>
+      <b>{price || citation.market || '查看'}</b>
+    </button>
   )
 }
 
 function ThreadItem({
   message,
-  recommendation,
-  currency,
   onOpen,
-  onClarify,
+  onMove,
+  onUndo,
 }: {
   message: ThreadMessage
-  recommendation: RecommendationView | null | undefined
-  currency: Currency
-  onOpen: (product: ProductCandidate) => void
-  onClarify: (text: string) => void
+  onOpen: (snapshotId: string) => void
+  onMove: (text: string) => void
+  onUndo: () => void
 }) {
   if (message.kind === 'warning') {
     return (
@@ -127,51 +41,57 @@ function ThreadItem({
       </div>
     )
   }
-  if (message.kind === 'recommendation') {
-    return <RecommendationCard message={message} recommendation={recommendation} currency={currency} onOpen={onOpen} />
-  }
-  if (message.kind === 'clarification') {
-    const options = ['通勤降噪耳机', '27 寸 4K 显示器', '轻便徒步鞋']
+  if (message.kind === 'change') {
     return (
-      <div className="conversation-message agent">
-        <div className="message-meta">选购助手{message.created_at ? ` · ${timeLabel(message.created_at)}` : ''}</div>
-        <p>{message.text}</p>
-        <div className="message-actions">
-          {options.map((option) => (
-            <button key={option} onClick={() => onClarify(option)}>{option}</button>
-          ))}
-        </div>
+      <div className={`change-row${message.change_kind === 'undo' ? ' is-undo' : ''}`}>
+        <span className="change-source">条件</span>
+        <span className="change-text">{message.change?.summary || message.text}</span>
+        {message.change_kind === 'constraints' ? (
+          <button className="change-undo-button" onClick={onUndo}>撤销</button>
+        ) : null}
       </div>
     )
   }
+  const citations = message.citations?.length ? message.citations : message.snapshot_ids.map((snapshot_id) => ({ snapshot_id }))
+  const isUser = message.kind === 'user' || message.role === 'user'
   return (
-    <div className={`conversation-message ${message.kind === 'user' ? 'user' : 'agent'}`}>
+    <div className={`conversation-message ${isUser ? 'user' : 'agent'}`}>
       <div className="message-meta">
-        {message.kind === 'user' ? '你' : '选购助手'}
+        {isUser ? '你' : '选购助手'}
         {message.created_at ? ` · ${timeLabel(message.created_at)}` : ''}
       </div>
       <p>{message.text}</p>
+      {message.change ? <small className="turn-change">{message.change.summary}</small> : null}
+      {!isUser && citations.length > 0 ? (
+        <div className="rec-alternatives">
+          {citations.map((citation) => (
+            <CitationChip key={citation.snapshot_id} citation={citation} onOpen={onOpen} />
+          ))}
+        </div>
+      ) : null}
+      {!isUser && message.next_moves?.length ? (
+        <div className="message-actions">
+          {message.next_moves.map((move: NextMove) => (
+            <button key={move.label} type="button" onClick={() => onMove(move.text)}>{move.label}</button>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }
 
 export function Thread({
   messages,
-  recommendation,
-  currency,
   onOpen,
-  onClarify,
+  onMove,
   onUndo,
 }: {
   messages: ThreadMessage[]
-  recommendation: RecommendationView | null | undefined
-  currency: Currency
-  onOpen: (product: ProductCandidate) => void
-  onClarify: (text: string) => void
+  onOpen: (snapshotId: string) => void
+  onMove: (text: string) => void
   onUndo: () => void
 }) {
   const blocks = groupThread(messages)
-  const undoable = lastUndoableChange(messages)
   const containerRef = useRef<HTMLDivElement>(null)
   const [stickToBottom, setStickToBottom] = useState(true)
   useEffect(() => {
@@ -190,21 +110,13 @@ export function Thread({
     >
       {blocks.map((block) =>
         block.kind === 'single' ? (
-          <ThreadItem
-            key={block.key}
-            message={block.message}
-            recommendation={recommendation}
-            currency={currency}
-            onOpen={onOpen}
-            onClarify={onClarify}
-          />
+          <ThreadItem key={block.key} message={block.message} onOpen={onOpen} onMove={onMove} onUndo={onUndo} />
         ) : (
-          <ChangeGroup
-            key={block.key}
-            messages={block.messages}
-            undoableId={undoable?.sequence ?? null}
-            onUndo={onUndo}
-          />
+          <div key={block.key} className="change-group">
+            {block.messages.map((message) => (
+              <ThreadItem key={message.sequence} message={message} onOpen={onOpen} onMove={onMove} onUndo={onUndo} />
+            ))}
+          </div>
         ),
       )}
     </div>
@@ -214,51 +126,38 @@ export function Thread({
 export function ConversationPanel({
   mission,
   messages,
-  recommendation,
-  selectedCount,
-  canCompare,
-  comparing,
+  pendingText,
+  focusTitle,
   busy,
-  currency,
   onSend,
   onUndo,
-  onCompare,
   onOpen,
-  onPreference,
+  onClearFocus,
 }: {
   mission: MissionView
   messages: ThreadMessage[]
-  recommendation: RecommendationView | null | undefined
-  selectedCount: number
-  canCompare: boolean
-  comparing?: boolean
+  pendingText?: string | null
+  focusTitle?: string | null
   busy: boolean
-  currency: Currency
   onSend: (text: string) => void
   onUndo: () => void
-  onCompare: () => void
-  onOpen: (product: ProductCandidate) => void
-  onPreference: (preference: MissionView['constraints']['preference']) => void
+  onOpen: (snapshotId: string) => void
+  onClearFocus?: () => void
 }) {
   const [draft, setDraft] = useState('')
   const undoable = lastUndoableChange(messages)
-  const suggestions: { label: string; run: () => void; primary?: boolean }[] = []
-  if (!comparing && canCompare) suggestions.push({ label: `对比所选（${selectedCount} 件）`, run: onCompare, primary: true })
-  const query = mission.constraints.query || ''
-  const audioLike = /耳机|降噪|头戴|入耳|耳塞/.test(query)
-  if (!comparing && audioLike) {
-    suggestions.push({ label: '优先降噪', run: () => onPreference('noise') })
-    suggestions.push({ label: '优先续航', run: () => onPreference('battery') })
-  }
-  const submit = (event?: { preventDefault(): void }) => {
+  const visible = pendingText
+    ? [...messages, { sequence: 0, kind: 'user' as const, role: 'user', text: pendingText, constraints_version: null, snapshot_ids: [], created_at: null }]
+    : messages
+  const submit = (event?: { preventDefault(): void }, text = draft) => {
     event?.preventDefault()
-    const text = draft.trim()
-    if (!text || busy) return
-    onSend(text)
+    const value = text.trim()
+    if (!value || busy) return
+    onSend(value)
     setDraft('')
   }
   return (
-    <aside className={`conversation-panel ${messages.length <= 1 ? 'is-brief' : ''}`}>
+    <aside className="conversation-panel is-primary">
       <div className="conversation-header">
         <div><span>选购助手</span></div>
         {undoable ? (
@@ -267,24 +166,15 @@ export function ConversationPanel({
           </div>
         ) : null}
       </div>
-      <MissionBrief mission={mission} />
-      <Thread
-        messages={messages}
-        recommendation={recommendation}
-        currency={currency}
-        onOpen={onOpen}
-        onClarify={onSend}
-        onUndo={onUndo}
-      />
-      {suggestions.length > 0 ? (
-        <div className="conversation-suggestions">
-          {suggestions.map((suggestion) => (
-            <button key={suggestion.label} className={suggestion.primary ? 'is-primary' : ''} onClick={suggestion.run} disabled={busy}>
-              {suggestion.label}
-            </button>
-          ))}
+      <BeliefBar mission={mission} onPrefill={setDraft} />
+      {focusTitle ? (
+        <div className="focus-bar">
+          <span>正在聊</span>
+          <strong>{focusTitle}</strong>
+          {onClearFocus ? <button type="button" onClick={onClearFocus}>取消</button> : null}
         </div>
       ) : null}
+      <Thread messages={visible} onOpen={onOpen} onMove={(text) => submit(undefined, text)} onUndo={onUndo} />
       <form className="conversation-composer" onSubmit={submit}>
         <textarea
           rows={2}
@@ -296,7 +186,7 @@ export function ConversationPanel({
               submit()
             }
           }}
-          placeholder="例如：预算改为 2000 元，或只看有货（Enter 发送）"
+          placeholder={focusTitle ? `问问「${focusTitle}」的保修、价格或为什么推荐` : '例如：预算改为 2000 元，或再便宜一点'}
           aria-label="选购对话输入"
           disabled={busy}
         />

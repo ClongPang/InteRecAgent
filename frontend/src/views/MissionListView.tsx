@@ -15,7 +15,6 @@ function TaskRow({ mission, isCurrent, open }: { mission: MissionView; isCurrent
           <strong>{mission.constraints.query || mission.title}</strong>
           <p>
             {budgetText(mission.constraints.budget_cny)} · {preferenceText(mission.constraints.preference)}
-            {mission.constraints.only_in_stock ? ' · 仅看有货' : ''} · V{mission.constraints_version}
           </p>
         </div>
         <div className="task-list-meta">

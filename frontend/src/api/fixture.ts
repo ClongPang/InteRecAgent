@@ -217,6 +217,13 @@ export function createFixtureApi(): MissionApi {
     async getMission(missionId) {
       return { ...find(missionId) }
     },
+    async submitTurn(missionId, body) {
+      if (body.command === 'undo') {
+        const current = find(missionId)
+        return { run_id: crypto.randomUUID(), constraints_version: current.constraints_version }
+      }
+      return this.sendMessage(missionId, body.text || '按当前条件继续', body.focusSnapshotId)
+    },
     async sendMessage(missionId, text, focusSnapshotId) {
       const current = find(missionId)
       push(store, missionId, 'user', text, current.constraints_version)

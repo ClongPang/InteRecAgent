@@ -22,7 +22,7 @@ from ..errors import (
     SnapshotNotFound,
 )
 from ..ports import RunDispatcher, UnitOfWork
-from .dialogue import preview_turn, project_thread, stage_for_phase
+from .dialogue import next_moves_for, preview_turn, project_thread, stage_for_phase
 from .policy import DialoguePolicy, TurnDecision, TurnInput
 from .present import product_candidate_from_record, product_candidate_from_snapshot
 from ..dto.dialogue import DialogueAct, DialogueActKind, ThreadView, TurnCommand
@@ -344,9 +344,52 @@ class MissionCommandService:
                 raise MissionNotFound(mission_id)
             return await uow.events.list_since(mission_id=mission_id, sequence=after)
 
+    async def submit_turn(
+        self,
+        *,
+        owner_id: str,
+        mission_id: str,
+        constraints_version: int,
+        command: TurnCommand = TurnCommand.MESSAGE,
+        text: str | None = None,
+        focus_snapshot_id: str | None = None,
+        patch: MissionConstraints | None = None,
+    ) -> str:
+        """用户可感知动作的唯一入口：说话、改约束或撤销。"""
+        if command == TurnCommand.UNDO:
+            run_id, _ = await self.undo(
+                owner_id=owner_id,
+                mission_id=mission_id,
+                constraints_version=constraints_version,
+            )
+            return run_id
+        if command == TurnCommand.PATCH:
+            mission = await self.get_mission(owner_id=owner_id, mission_id=mission_id)
+            spoken = (text or "").strip() or _spoken_patch(mission.constraints, patch)
+            return await self.submit_message(
+                owner_id=owner_id,
+                mission_id=mission_id,
+                text=spoken,
+                constraints_version=constraints_version,
+                focus_snapshot_id=focus_snapshot_id,
+            )
+        return await self.submit_message(
+            owner_id=owner_id,
+            mission_id=mission_id,
+            text=(text or "").strip(),
+            constraints_version=constraints_version,
+            focus_snapshot_id=focus_snapshot_id,
+        )
+
     async def get_thread(self, *, owner_id: str, mission_id: str) -> ThreadView:
         events = await self.list_events(owner_id=owner_id, mission_id=mission_id, after=0)
-        return project_thread(events)
+        mission = await self.get_mission(owner_id=owner_id, mission_id=mission_id)
+        candidates = await self.get_candidates(owner_id=owner_id, mission_id=mission_id)
+        return project_thread(
+            events,
+            has_query=bool(mission.constraints.query),
+            has_candidates=bool(candidates.ranked),
+        )
 
     async def _require_mission(
         self, uow: UnitOfWork, owner_id: str, mission_id: str, constraints_version: int
@@ -400,6 +443,8 @@ class MissionCommandService:
                 payload={
                     "run_id": run_id,
                     "text": user_text,
+                    "act": decision.act.kind.value,
+                    "topic": decision.act.topic.value if decision.act.topic else None,
                     "constraints_version": mission.constraints_version,
                     "turn_phase": updated.turn_phase.value,
                     "source": decision.act.source,
@@ -423,7 +468,18 @@ class MissionCommandService:
                 payload={
                     "run_id": run_id,
                     "text": decision.agent_message,
+                    "act": decision.act.kind.value,
+                    "topic": decision.act.topic.value if decision.act.topic else None,
                     "constraints_version": new_version,
+                    "next_moves": [
+                        item.model_dump()
+                        for item in next_moves_for(
+                            kind=decision.act.kind.value,
+                            topic=decision.act.topic.value if decision.act.topic else None,
+                            has_query=bool(after.query),
+                            has_candidates=False,
+                        )
+                    ],
                 },
             )
         return run_id, new_version
@@ -461,3 +517,16 @@ class MissionCommandService:
             for item in payload.get("ranked") or []
             if item.get("snapshot_id")
         }
+
+
+def _spoken_patch(current: MissionConstraints, patch: MissionConstraints | None) -> str:
+    if patch is None:
+        return "按当前条件继续"
+    if patch.preference and patch.preference != current.preference:
+        labels = {"lowest": "最低商品价", "noise": "优先降噪", "battery": "优先续航", "balanced": "综合推荐"}
+        return labels.get(patch.preference, patch.preference)
+    if patch.budget_cny is not None and patch.budget_cny != current.budget_cny:
+        return f"预算 {patch.budget_cny:.0f} 元"
+    if patch.query and patch.query != current.query:
+        return f"改找{patch.query}"
+    return "按当前条件继续"

@@ -1,6 +1,17 @@
 from __future__ import annotations
 
-from .dialogue import AskTopic, DialogueAct, DialogueActKind, ThreadMessage, ThreadView, TurnRoute
+from .dialogue import (
+    AskTopic,
+    Citation,
+    DialogueAct,
+    DialogueActKind,
+    NextMove,
+    ThreadChange,
+    ThreadMessage,
+    ThreadView,
+    TurnCommand,
+    TurnRoute,
+)
 from .mission import (
     DialogueState,
     MissionConstraints,
@@ -27,8 +38,11 @@ __all__ = [
     "CreateMissionResponse",
     "DialogueState",
     "AskTopic",
+    "Citation",
     "DialogueAct",
     "DialogueActKind",
+    "NextMove",
+    "ThreadChange",
     "IntentPatch",
     "MissionConstraints",
     "MissionListResponse",
@@ -45,6 +59,7 @@ __all__ = [
     "SSE_PUBLIC_EVENTS",
     "ThreadMessage",
     "ThreadView",
+    "TurnCommand",
     "TurnPhase",
     "TurnRoute",
     "mission_view",

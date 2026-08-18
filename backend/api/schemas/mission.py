@@ -36,6 +36,16 @@ class UndoRequest(BaseModel):
     constraints_version: int = Field(ge=1)
 
 
+class TurnRequest(BaseModel):
+    command: str = Field(default="message", pattern="^(message|patch|undo)$")
+    text: str | None = Field(default=None, max_length=2000)
+    focus_snapshot_id: str | None = Field(default=None, max_length=64)
+    constraints_version: int | None = Field(default=None, ge=1)
+    query: str | None = Field(default=None, max_length=200)
+    budget_cny: float | None = Field(default=None, ge=0, le=1_000_000)
+    preference: str | None = Field(default=None, pattern="^(balanced|battery|noise|lowest)$")
+
+
 class RunAccepted(BaseModel):
     run_id: str
     constraints_version: int

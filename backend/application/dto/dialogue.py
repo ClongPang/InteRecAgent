@@ -54,12 +54,36 @@ class DialogueAct(BaseModel):
     source: str = "deterministic"
 
 
+class Citation(BaseModel):
+    snapshot_id: str
+    role: str = "primary"
+    title: str | None = None
+    estimated_cny: float | None = None
+    market: str | None = None
+
+
+class NextMove(BaseModel):
+    label: str
+    text: str
+
+
+class ThreadChange(BaseModel):
+    kind: str
+    summary: str
+
+
 class ThreadMessage(BaseModel):
     sequence: int
     kind: str
+    role: str = "agent"
     text: str
+    act: str | None = None
+    topic: str | None = None
     constraints_version: int | None = None
     snapshot_ids: list[str] = Field(default_factory=list)
+    citations: list[Citation] = Field(default_factory=list)
+    next_moves: list[NextMove] = Field(default_factory=list)
+    change: ThreadChange | None = None
     run_id: str | None = None
     change_kind: str | None = None
     created_at: datetime | None = None

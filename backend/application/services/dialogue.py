@@ -7,7 +7,17 @@ from __future__ import annotations
 
 import re
 
-from ..dto.dialogue import AskTopic, DialogueAct, DialogueActKind, ThreadMessage, ThreadView, TurnRoute
+from ..dto.dialogue import (
+    AskTopic,
+    Citation,
+    DialogueAct,
+    DialogueActKind,
+    NextMove,
+    ThreadChange,
+    ThreadMessage,
+    ThreadView,
+    TurnRoute,
+)
 from ..dto.mission import MissionConstraints, MissionStage, TurnPhase
 from ..dto.runner import IntentPatch
 from .parse_intent import CLARIFYING_QUESTION, parse_intent
@@ -253,13 +263,96 @@ def snapshot_ids_for_ranks(ranked_records: list[dict], ranks: list[int]) -> list
     return out
 
 
-def project_thread(events: list[dict]) -> ThreadView:
-    messages: list[ThreadMessage] = []
-    for event in events:
-        mapped = _map_event(event)
-        if mapped is not None:
-            messages.append(mapped)
-    return ThreadView(messages=messages)
+def next_moves_for(
+    *,
+    kind: str | None,
+    topic: str | None,
+    has_query: bool,
+    has_candidates: bool,
+) -> list[NextMove]:
+    """上一轮结束后的可执行下一句。冷启动才给品类示例。"""
+    if not has_query:
+        return [
+            NextMove(label="通勤降噪耳机", text="通勤降噪耳机，预算 4000 元"),
+            NextMove(label="27 寸 4K 显示器", text="27 寸 4K 显示器，预算 3000 元"),
+            NextMove(label="轻便徒步鞋", text="轻便徒步鞋，预算 1000 元"),
+        ]
+    if topic == AskTopic.WARRANTY.value or topic == "warranty":
+        return [
+            NextMove(label="为什么选它", text="为什么推荐这款"),
+            NextMove(label="再便宜一点", text="再便宜一点"),
+            NextMove(label="换一款", text="不要这款，换一款看看"),
+        ]
+    if topic == AskTopic.STOCK.value or topic == "stock":
+        return [
+            NextMove(label="这款保修吗", text="这款保修吗"),
+            NextMove(label="为什么推荐", text="为什么推荐"),
+        ]
+    if topic == AskTopic.TRADEOFF.value or kind == DialogueActKind.COMPARE.value:
+        return [
+            NextMove(label="为什么推荐", text="为什么推荐"),
+            NextMove(label="再便宜一点", text="再便宜一点"),
+        ]
+    if kind == DialogueActKind.STANCE.value:
+        return [
+            NextMove(label="预算 2000 元", text="预算 2000 元"),
+            NextMove(label="对比前两件", text="帮我比前两个"),
+        ]
+    if has_candidates:
+        return [
+            NextMove(label="为什么推荐", text="为什么推荐"),
+            NextMove(label="这款保修吗", text="这款保修吗"),
+            NextMove(label="再便宜一点", text="再便宜一点"),
+            NextMove(label="对比前两件", text="帮我比前两个"),
+        ]
+    return []
+
+
+def project_thread(events: list[dict], *, has_query: bool = False, has_candidates: bool = False) -> ThreadView:
+    mapped = [item for item in (_map_event(event) for event in events) if item is not None]
+    return ThreadView(messages=_fold_thread(mapped, has_query=has_query, has_candidates=has_candidates))
+
+
+def _fold_thread(
+    messages: list[ThreadMessage], *, has_query: bool, has_candidates: bool
+) -> list[ThreadMessage]:
+    dialogue_runs = {item.run_id for item in messages if item.kind != "change" and item.run_id}
+    changes = {
+        item.run_id: item
+        for item in messages
+        if item.kind == "change" and item.run_id
+    }
+    out: list[ThreadMessage] = []
+    for item in messages:
+        if item.kind == "change" and item.run_id and item.run_id in dialogue_runs:
+            continue
+        updates: dict = {}
+        if item.run_id and item.run_id in changes and item.kind != "change":
+            change_msg = changes[item.run_id]
+            updates["change"] = ThreadChange(
+                kind=change_msg.change_kind or "constraints",
+                summary=change_msg.text,
+            )
+            updates["change_kind"] = change_msg.change_kind
+        if item.kind in {"agent", "clarification", "recommendation"}:
+            updates["role"] = "agent"
+            updates["next_moves"] = item.next_moves or next_moves_for(
+                kind=item.act or item.kind,
+                topic=item.topic,
+                has_query=False if item.kind == "clarification" and not has_query else has_query,
+                has_candidates=has_candidates or bool(item.citations or item.snapshot_ids),
+            )
+            if not item.citations and item.snapshot_ids:
+                updates["citations"] = [
+                    Citation(snapshot_id=sid, role="primary" if index == 0 else "compare")
+                    for index, sid in enumerate(item.snapshot_ids)
+                ]
+        elif item.kind == "user":
+            updates["role"] = "user"
+        elif item.kind in {"change", "warning"}:
+            updates["role"] = "system"
+        out.append(item.model_copy(update=updates) if updates else item)
+    return out
 
 
 def _referent_ranks(text: str, *, default: tuple[int, ...]) -> list[int]:
@@ -282,11 +375,20 @@ def _map_event(event: dict) -> ThreadMessage | None:
     snapshot_ids = list(payload.get("snapshot_ids") or [])
     run_id = payload.get("run_id")
     run_id = str(run_id) if run_id else None
+    citations = _citations_from_payload(payload, snapshot_ids)
+    next_moves = [
+        NextMove(label=str(item.get("label") or ""), text=str(item.get("text") or ""))
+        for item in payload.get("next_moves") or []
+        if isinstance(item, dict) and item.get("label") and item.get("text")
+    ]
     if event_type == "message.received":
         return ThreadMessage(
             sequence=sequence,
             kind="user",
+            role="user",
             text=str(payload.get("text") or ""),
+            act=payload.get("act"),
+            topic=payload.get("topic"),
             constraints_version=version,
             run_id=run_id,
             created_at=created,
@@ -295,9 +397,14 @@ def _map_event(event: dict) -> ThreadMessage | None:
         return ThreadMessage(
             sequence=sequence,
             kind="agent",
+            role="agent",
             text=str(payload.get("text") or ""),
+            act=payload.get("act"),
+            topic=payload.get("topic"),
             constraints_version=version,
             snapshot_ids=snapshot_ids,
+            citations=citations,
+            next_moves=next_moves,
             run_id=run_id,
             created_at=created,
         )
@@ -305,17 +412,31 @@ def _map_event(event: dict) -> ThreadMessage | None:
         return ThreadMessage(
             sequence=sequence,
             kind="clarification",
+            role="agent",
             text=str(payload.get("question") or CLARIFYING_QUESTION),
+            act=DialogueActKind.UNKNOWN.value,
             run_id=run_id,
             created_at=created,
         )
     if event_type == "recommendation.ready":
         count = payload.get("count")
+        title = (citations[0].title if citations else None) or payload.get("title")
+        text = str(payload.get("text") or "")
+        if not text:
+            text = (
+                f"推荐 {title}。"
+                if title
+                else (f"已根据当前约束给出推荐，候选 {count} 件。" if count is not None else "已给出推荐。")
+            )
         return ThreadMessage(
             sequence=sequence,
             kind="recommendation",
-            text=f"已根据当前约束给出推荐，候选 {count} 件。" if count is not None else "已给出推荐。",
+            role="agent",
+            text=text,
+            act=DialogueActKind.REFINE.value,
             constraints_version=version,
+            snapshot_ids=snapshot_ids or [item.snapshot_id for item in citations],
+            citations=citations,
             run_id=run_id,
             created_at=created,
         )
@@ -323,6 +444,7 @@ def _map_event(event: dict) -> ThreadMessage | None:
         return ThreadMessage(
             sequence=sequence,
             kind="warning",
+            role="system",
             text="本轮结果不完整，请查看任务警告。",
             constraints_version=version,
             run_id=run_id,
@@ -340,7 +462,9 @@ def _map_event(event: dict) -> ThreadMessage | None:
         return ThreadMessage(
             sequence=sequence,
             kind="change",
+            role="system",
             text=text,
+            change=ThreadChange(kind="constraints", summary=text),
             constraints_version=version,
             run_id=run_id,
             change_kind="constraints",
@@ -350,7 +474,9 @@ def _map_event(event: dict) -> ThreadMessage | None:
         return ThreadMessage(
             sequence=sequence,
             kind="change",
+            role="system",
             text="已撤销最近一次约束变更。",
+            change=ThreadChange(kind="undo", summary="已撤销最近一次约束变更。"),
             constraints_version=version,
             run_id=run_id,
             change_kind="undo",
@@ -360,10 +486,35 @@ def _map_event(event: dict) -> ThreadMessage | None:
         return ThreadMessage(
             sequence=sequence,
             kind="change",
+            role="system",
             text="已更新比较集合。",
+            change=ThreadChange(kind="comparison", summary="已更新比较集合。"),
             constraints_version=version,
             snapshot_ids=snapshot_ids,
+            citations=citations,
             change_kind="comparison",
             created_at=created,
         )
     return None
+
+
+def _citations_from_payload(payload: dict, snapshot_ids: list[str]) -> list[Citation]:
+    raw = payload.get("citations")
+    if isinstance(raw, list) and raw:
+        out: list[Citation] = []
+        for item in raw:
+            if not isinstance(item, dict) or not item.get("snapshot_id"):
+                continue
+            cny = item.get("estimated_cny")
+            out.append(
+                Citation(
+                    snapshot_id=str(item["snapshot_id"]),
+                    role=str(item.get("role") or "primary"),
+                    title=item.get("title"),
+                    estimated_cny=float(cny) if cny is not None else None,
+                    market=item.get("market"),
+                )
+            )
+        if out:
+            return out
+    return [Citation(snapshot_id=sid, role="primary" if index == 0 else "compare") for index, sid in enumerate(snapshot_ids)]

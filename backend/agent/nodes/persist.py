@@ -8,7 +8,7 @@ from ...application.dto.mission import next_constraints_version
 from ...application.errors import MissionVersionConflict
 from ...application.ports import UnitOfWork
 from ...application.services.dialogue import search_reuse_key
-from ...application.services.grounded import compose_ready_reply
+from ...application.services.grounded import citations_from_ranked, compose_ready_reply
 from ...application.services.present import candidate_record, remap_draft
 from ..state import MissionGraphState
 
@@ -154,6 +154,10 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 return {"status": RunnerStatus.SUPERSEDED, "warnings": ["运行基于旧版本约束，已标记 superseded"]}
 
             event_type = "recommendation.ready" if stage == MissionStage.READY else "run.degraded"
+            citations = citations_from_ranked(ranked_records)
+            agent_text = state.get("agent_message") or compose_ready_reply(
+                ranked_records, mission.constraints
+            )
             await uow.events.append(
                 mission_id=mission.id,
                 event_type=event_type,
@@ -163,10 +167,11 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                     "candidate_set_id": candidate_set_id,
                     "constraints_version": constraints_version,
                     "count": len(ranked_records),
+                    "text": agent_text,
+                    "snapshot_ids": [item["snapshot_id"] for item in citations],
+                    "citations": citations,
+                    "title": citations[0]["title"] if citations else None,
                 },
-            )
-            agent_text = state.get("agent_message") or compose_ready_reply(
-                ranked_records, mission.constraints
             )
             await uow.events.append(
                 mission_id=mission.id,
@@ -174,8 +179,10 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 payload={
                     "run_id": run_id,
                     "text": agent_text,
+                    "act": "refine_constraints",
                     "constraints_version": constraints_version,
-                    "snapshot_ids": [ranked_records[0]["snapshot_id"]] if ranked_records else [],
+                    "snapshot_ids": [item["snapshot_id"] for item in citations],
+                    "citations": citations,
                 },
             )
             await uow.commit()
@@ -224,14 +231,19 @@ async def _persist_talk(
         mission_id=mission.id, run_id=run_id, payload={"status": "completed"}
     )
     text = state.get("agent_message") or "已根据当前候选回答。"
+    snapshot_ids = list(state.get("agent_snapshot_ids") or [])
+    citations = list(state.get("agent_citations") or [])
     await uow.events.append(
         mission_id=mission.id,
         event_type="agent.message",
         payload={
             "run_id": run_id,
             "text": text,
+            "act": state.get("agent_act"),
+            "topic": state.get("agent_topic"),
             "constraints_version": constraints_version,
-            "snapshot_ids": list(state.get("agent_snapshot_ids") or []),
+            "snapshot_ids": snapshot_ids,
+            "citations": citations,
         },
     )
     if state.get("comparison_snapshot_ids"):

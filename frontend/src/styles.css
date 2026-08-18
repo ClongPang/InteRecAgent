@@ -184,11 +184,13 @@ input, textarea { caret-color: var(--accent); }
 
 /* ── Workspace layout ── */
 .workspace-layout { display: grid; grid-template-columns: 344px minmax(0, 1fr); gap: 22px; align-items: start; margin-top: 22px; }
+.workspace-layout.is-dialogue { grid-template-columns: minmax(0, 1fr) 320px; }
 .results-region { min-width: 0; }
 
 /* ── Conversation = margin notes ── */
 /* 高度跟随视口且设下限：短屏（如 640px 笔记本）下输入框必须可达，sticky 面板不能超出视口 */
 .conversation-panel { position: sticky; top: 92px; height: max(380px, calc(100vh - 116px)); overflow: hidden; display: flex; flex-direction: column; border: 1px solid var(--rule-strong); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }
+.conversation-panel.is-primary { position: static; height: auto; min-height: min(720px, calc(100vh - 160px)); }
 .conversation-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 16px 16px 13px; border-bottom: 1px solid var(--rule); }
 .conversation-header > div > span { font: 600 13px var(--display); letter-spacing: -.01em; }
 .conversation-header-actions { display: flex; gap: 6px; }
@@ -257,6 +259,24 @@ input, textarea { caret-color: var(--accent); }
 .conversation-message p { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-soft); }
 .conversation-message.user p { padding: 9px 12px; border-radius: 4px 6px 6px 6px; background: var(--ink); color: #fff; }
 .conversation-message.agent p { padding: 10px 12px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface-soft); }
+.turn-change { display: block; margin: 6px 2px 0; color: var(--muted); font-size: 11px; }
+.focus-bar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--rule); background: var(--accent-soft); color: var(--accent-deep); font-size: 12px; }
+.focus-bar strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.focus-bar button { padding: 2px 8px; border: 1px solid #9ec7ff; border-radius: 6px; background: var(--surface); color: var(--accent-deep); font-size: 11px; }
+.evidence-dock, .compare-strip { margin-top: 0; padding: 14px; border: 1px solid var(--rule-strong); border-radius: var(--radius); background: var(--surface); }
+.compare-strip { margin-top: 14px; }
+.evidence-dock p { margin: 10px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+.evidence-dock ul { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.evidence-dock li { display: flex; align-items: center; gap: 8px; }
+.evidence-dock li.is-focus { outline: 1px solid var(--accent); border-radius: 8px; }
+.dock-item { flex: 1; min-width: 0; display: flex; gap: 8px; align-items: flex-start; padding: 8px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface-soft); text-align: left; }
+.dock-item b { color: var(--faint); font: 600 11px var(--mono); }
+.dock-item span { display: grid; gap: 2px; color: var(--ink); font-size: 12.5px; font-weight: 600; }
+.dock-item small { color: var(--muted); font-size: 11px; font-weight: 400; }
+.compare-strip > div { display: grid; gap: 8px; margin-top: 10px; }
+.compare-strip button { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface-soft); text-align: left; }
+.compare-strip strong { font-size: 12.5px; }
+.compare-strip span { color: var(--muted); font-size: 11.5px; }
 .message-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .message-actions button, .conversation-suggestions button { display: inline-flex; gap: 5px; align-items: center; padding: 6px 9px; border: 1px solid var(--rule-strong); border-radius: 6px; background: var(--surface); color: var(--ink-soft); font-size: 11.5px; text-align: left; }
 .message-actions button:hover, .conversation-suggestions button:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-deep); }
@@ -638,6 +658,7 @@ input, textarea { caret-color: var(--accent); }
   .topbar { padding: 0 28px; gap: 24px; }
   .workspace-view { width: min(1180px, calc(100% - 48px)); }
   .workspace-layout { grid-template-columns: 320px minmax(0, 1fr); }
+  .workspace-layout.is-dialogue { grid-template-columns: minmax(0, 1fr) 280px; }
   .results-region .products-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   /* 弹层右缘与该断点下的工作区容器对齐（基础公式按 1400 容器计算会偏出 ~16px） */
   .task-switcher, .currency-popover { right: max(24px, calc((100vw - min(1180px, calc(100vw - 48px))) / 2)); }

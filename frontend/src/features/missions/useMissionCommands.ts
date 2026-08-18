@@ -52,7 +52,7 @@ export function useMissionCommands(missionId: string | undefined) {
   const sendMessage = useMutation({
     mutationFn: ({ text, focusSnapshotId }: { text: string; focusSnapshotId?: string | null }) => {
       if (!missionId) throw new Error('没有进行中的选购')
-      return api.sendMessage(missionId, text, focusSnapshotId)
+      return api.submitTurn(missionId, { command: 'message', text, focusSnapshotId })
     },
     onSuccess: invalidate,
   })
@@ -84,7 +84,7 @@ export function useMissionCommands(missionId: string | undefined) {
     mutationFn: async () => {
       if (!missionId) throw new Error('没有进行中的选购')
       const current = await api.getMission(missionId)
-      return api.undo(missionId, current.constraints_version)
+      return api.submitTurn(missionId, { command: 'undo', constraintsVersion: current.constraints_version })
     },
     onSuccess: invalidate,
   })

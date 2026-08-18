@@ -61,7 +61,7 @@ function Shell() {
         <Route path="/" element={<HomeView />} />
         <Route path="/missions" element={<MissionListView activeId={missionId} />} />
         <Route path="/missions/:missionId" element={<MissionView currency={currency} />} />
-        <Route path="/missions/:missionId/compare" element={<CompareView currency={currency} />} />
+        <Route path="/missions/:missionId/compare" element={<CompareView />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       {switcherOpen ? <TaskSwitcher activeId={missionId} onClose={() => setSwitcherOpen(false)} /> : null}

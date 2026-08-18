@@ -96,6 +96,9 @@ def make_compose_grounded_reply():
         result = {
             "agent_message": reply.text,
             "agent_snapshot_ids": reply.snapshot_ids,
+            "agent_citations": reply.citations,
+            "agent_act": act.kind.value,
+            "agent_topic": act.topic.value if act.topic else None,
         }
         if reply.requires_clarification:
             result["requires_clarification"] = True

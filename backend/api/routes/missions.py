@@ -11,6 +11,7 @@ from ...application.dto import (
     MissionView,
     RecommendationView,
     ThreadView,
+    TurnCommand,
     mission_view,
 )
 from ..dependencies import get_anonymous_user_id, get_command_service
@@ -20,6 +21,7 @@ from ..schemas import (
     CreateMissionRequest,
     MessageRequest,
     RunAccepted,
+    TurnRequest,
     UndoRequest,
 )
 
@@ -84,6 +86,39 @@ async def submit_message(
         text=body.text,
         constraints_version=mission.constraints_version,
         focus_snapshot_id=body.focus_snapshot_id,
+    )
+    loaded = await svc.get_mission(owner_id=owner_id, mission_id=mission_id)
+    return RunAccepted(run_id=run_id, constraints_version=loaded.constraints_version)
+
+
+@router.post("/{mission_id}/turns", status_code=202, response_model=RunAccepted)
+async def submit_turn(
+    mission_id: str,
+    body: TurnRequest,
+    svc=Depends(get_command_service),
+    owner_id: str = Depends(get_anonymous_user_id),
+) -> RunAccepted:
+    """对话轮次入口。聊天、约束和撤销走同一政策。"""
+    mission = await svc.get_mission(owner_id=owner_id, mission_id=mission_id)
+    version = body.constraints_version or mission.constraints_version
+    patch = None
+    if body.command == "patch":
+        patch = MissionConstraints(
+            query=body.query if body.query is not None else mission.constraints.query,
+            budget_cny=body.budget_cny if body.budget_cny is not None else mission.constraints.budget_cny,
+            markets=mission.constraints.markets,
+            preference=body.preference or mission.constraints.preference,
+            only_in_stock=mission.constraints.only_in_stock,
+            excluded_terms=list(mission.constraints.excluded_terms),
+        )
+    run_id = await svc.submit_turn(
+        owner_id=owner_id,
+        mission_id=mission_id,
+        constraints_version=version,
+        command=TurnCommand(body.command),
+        text=body.text,
+        focus_snapshot_id=body.focus_snapshot_id,
+        patch=patch,
     )
     loaded = await svc.get_mission(owner_id=owner_id, mission_id=mission_id)
     return RunAccepted(run_id=run_id, constraints_version=loaded.constraints_version)

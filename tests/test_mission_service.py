@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from backend.application.dto import MissionConstraints, MissionStage, ShoppingMission, TurnPhase
+from backend.application.dto.dialogue import TurnCommand
 from backend.application.errors import MissionNotFound, MissionVersionConflict
 from backend.application.services import MissionCommandService
 
@@ -314,4 +315,22 @@ async def test_submit_message_stores_focus_snapshot() -> None:
         constraints_version=1,
         focus_snapshot_id="snap-9",
     )
+    assert missions.missions["m1"].dialogue.focus_snapshot_id == "snap-9"
+
+
+@pytest.mark.asyncio
+async def test_submit_turn_message_matches_send() -> None:
+    mission = _mission(version=1).model_copy(
+        update={"constraints": MissionConstraints(query="降噪耳机", budget_cny=4000)}
+    )
+    svc, missions, _events, dispatcher = _make(mission=mission)
+    run_id = await svc.submit_turn(
+        owner_id="u1",
+        mission_id="m1",
+        constraints_version=1,
+        command=TurnCommand.MESSAGE,
+        text="这款保修吗",
+        focus_snapshot_id="snap-9",
+    )
+    assert dispatcher.calls[0][2] == run_id
     assert missions.missions["m1"].dialogue.focus_snapshot_id == "snap-9"

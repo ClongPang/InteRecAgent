@@ -105,12 +105,36 @@ export type RunAccepted = {
   constraints_version: number
 }
 
+export type Citation = {
+  snapshot_id: string
+  role?: string
+  title?: string | null
+  estimated_cny?: number | null
+  market?: string | null
+}
+
+export type NextMove = {
+  label: string
+  text: string
+}
+
+export type ThreadChange = {
+  kind: string
+  summary: string
+}
+
 export type ThreadMessage = {
   sequence: number
   kind: 'user' | 'agent' | 'clarification' | 'recommendation' | 'warning' | 'change' | string
+  role?: 'user' | 'agent' | 'system' | string
   text: string
+  act?: string | null
+  topic?: string | null
   constraints_version: number | null
   snapshot_ids: string[]
+  citations?: Citation[]
+  next_moves?: NextMove[]
+  change?: ThreadChange | null
   run_id?: string | null
   change_kind?: 'constraints' | 'undo' | 'comparison' | string | null
   created_at: string | null

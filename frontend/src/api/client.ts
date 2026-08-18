@@ -72,9 +72,21 @@ export const httpMissionApi: MissionApi = {
     }),
   getMission: (missionId) => request<MissionView>(`/missions/${missionId}`),
   sendMessage: (missionId, text, focusSnapshotId) =>
-    request<RunAccepted>(`/missions/${missionId}/messages`, {
+    request<RunAccepted>(`/missions/${missionId}/turns`, {
       method: 'POST',
-      body: JSON.stringify({ text, focus_snapshot_id: focusSnapshotId || undefined }),
+      body: JSON.stringify({ command: 'message', text, focus_snapshot_id: focusSnapshotId || undefined }),
+    }),
+  submitTurn: (missionId, body) =>
+    request<RunAccepted>(`/missions/${missionId}/turns`, {
+      method: 'POST',
+      body: JSON.stringify({
+        command: body.command ?? 'message',
+        text: body.text || undefined,
+        focus_snapshot_id: body.focusSnapshotId || undefined,
+        constraints_version: body.constraintsVersion,
+        preference: body.preference || undefined,
+        budget_cny: body.budgetCny,
+      }),
     }),
   updateConstraints: (missionId, patch: ConstraintsPatch) =>
     request<RunAccepted>(`/missions/${missionId}/constraints`, {

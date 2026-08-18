@@ -13,9 +13,29 @@ from .parse_intent import CLARIFYING_QUESTION
 class TalkReply:
     text: str
     snapshot_ids: list[str] = field(default_factory=list)
+    citations: list[dict] = field(default_factory=list)
     comparison_snapshot_ids: list[str] | None = None
     requires_clarification: bool = False
     clarification_question: str | None = None
+
+
+def cite_item(item: CitedFacts, *, role: str = "primary") -> dict:
+    return {
+        "snapshot_id": item.snapshot_id,
+        "role": role,
+        "title": item.title,
+        "estimated_cny": item.cny,
+        "market": item.market,
+    }
+
+
+def citations_from_ranked(ranked: list[dict], *, limit: int = 3) -> list[dict]:
+    out: list[dict] = []
+    for index, record in enumerate(ranked[:limit]):
+        item = cited_facts(record)
+        if item is not None:
+            out.append(cite_item(item, role="primary" if index == 0 else "alternative"))
+    return out
 
 
 @dataclass(frozen=True)
@@ -91,15 +111,16 @@ def compose_talk_reply(
         return TalkReply(text="当前候选里找不到你指的那一件，可以说「第一件」或先打开商品详情。")
     item = items[0]
     topic = _topic(act, text)
+    cited = [cite_item(item, role="focus")]
     if act.kind == DialogueActKind.ASK_ITEM and topic == AskTopic.WARRANTY:
-        return TalkReply(text=_warranty_reply(item), snapshot_ids=[item.snapshot_id])
+        return TalkReply(text=_warranty_reply(item), snapshot_ids=[item.snapshot_id], citations=cited)
     if act.kind == DialogueActKind.ASK_ITEM and topic == AskTopic.STOCK:
-        return TalkReply(text=_stock_reply(item), snapshot_ids=[item.snapshot_id])
+        return TalkReply(text=_stock_reply(item), snapshot_ids=[item.snapshot_id], citations=cited)
     if act.kind == DialogueActKind.ASK_ITEM and topic == AskTopic.WHY:
-        return TalkReply(text=_why_reply(item, constraints), snapshot_ids=[item.snapshot_id])
+        return TalkReply(text=_why_reply(item, constraints), snapshot_ids=[item.snapshot_id], citations=cited)
     if act.kind == DialogueActKind.ASK_ITEM:
-        return TalkReply(text=_overview_reply(item, constraints), snapshot_ids=[item.snapshot_id])
-    return TalkReply(text=_overview_reply(item, constraints), snapshot_ids=[item.snapshot_id])
+        return TalkReply(text=_overview_reply(item, constraints), snapshot_ids=[item.snapshot_id], citations=cited)
+    return TalkReply(text=_overview_reply(item, constraints), snapshot_ids=[item.snapshot_id], citations=cited)
 
 
 def compose_ready_reply(ranked: list[dict], constraints: MissionConstraints) -> str:
@@ -163,6 +184,7 @@ def _compare_reply(
     return TalkReply(
         text="按已记录事实对照：\n" + "\n".join(lines) + "\n" + tail,
         snapshot_ids=[item.snapshot_id for item in items],
+        citations=[cite_item(item, role="compare") for item in items],
         comparison_snapshot_ids=[item.snapshot_id for item in items],
     )
 

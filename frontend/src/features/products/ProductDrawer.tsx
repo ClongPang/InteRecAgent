@@ -78,7 +78,7 @@ export function ProductDrawer({
         </div>
         <div className="drawer-footer">
           <Button variant={selected ? 'primary' : 'secondary'} onClick={onToggle}>
-            {selected ? '已加入备选' : '加入备选'}
+            {selected ? '已加入比较' : '加入比较'}
           </Button>
           <Button variant="quiet" onClick={onClose}>返回选购</Button>
         </div>
