@@ -83,8 +83,10 @@ async def submit_message(
         mission_id=mission_id,
         text=body.text,
         constraints_version=mission.constraints_version,
+        focus_snapshot_id=body.focus_snapshot_id,
     )
-    return RunAccepted(run_id=run_id, constraints_version=mission.constraints_version)
+    loaded = await svc.get_mission(owner_id=owner_id, mission_id=mission_id)
+    return RunAccepted(run_id=run_id, constraints_version=loaded.constraints_version)
 
 
 @router.patch("/{mission_id}/constraints", status_code=202, response_model=RunAccepted)

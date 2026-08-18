@@ -34,8 +34,8 @@ export function MissionView({ currency }: { currency: Currency }) {
     return id
   }, null)
   const platformCount = new Set(ranked.map((item) => platformName(item.merchant))).size
-  const waiting = mission?.stage === 'clarifying' || (!ranked.length && mission?.stage === 'collecting')
-  const running = mission?.stage === 'searching' || mission?.stage === 'ranking'
+  const waiting = mission?.stage === 'clarifying' || (!ranked.length && mission?.stage === 'collecting' && mission.turn_phase !== 'researching')
+  const running = mission?.turn_phase === 'researching' || mission?.turn_phase === 'refiltering'
 
   const compare = async () => {
     if (workspace.selectedIds.length < 2) return
@@ -75,7 +75,7 @@ export function MissionView({ currency }: { currency: Currency }) {
           <div className="breadcrumb">我的选购 <Icon name="chevron" size={13} />推荐备选</div>
           <h1>{mission.constraints.query || mission.title}</h1>
           <div className="mission-subline">
-            <span>{stageText(mission.stage)}</span>
+            <span>{stageText(mission.stage, mission.turn_phase)}</span>
             {ranked.length > 0 ? <span>{ranked.length} 件备选{ranked.length === 1 ? '' : ` · ${platformCount} 个平台`}</span> : null}
           </div>
         </div>
@@ -91,12 +91,19 @@ export function MissionView({ currency }: { currency: Currency }) {
           canCompare={workspace.selected.length >= 2}
           busy={workspace.busy}
           currency={currency}
-          onSend={(text) => workspace.sendMessage.mutate(text)}
+          onSend={(text) =>
+            workspace.sendMessage.mutate({
+              text,
+              focusSnapshotId: workspace.focusSnapshotId ?? detail?.snapshot_id,
+            })
+          }
           onUndo={() => workspace.undo.mutate()}
           onCompare={() => void compare()}
-          onOpen={setDetail}
+          onOpen={(product) => {
+            workspace.setFocusSnapshotId(product.snapshot_id)
+            setDetail(product)
+          }}
           onPreference={workspace.setPreference}
-          onStock={workspace.setOnlyInStock}
         />
         <section className="results-region">
           <EvidenceStrip candidates={ranked} />
@@ -134,11 +141,10 @@ export function MissionView({ currency }: { currency: Currency }) {
               <FilterBar
                 count={ranked.length}
                 platformCount={platformCount}
+                query={mission.constraints.query}
                 preference={mission.constraints.preference}
-                onlyInStock={mission.constraints.only_in_stock}
                 onPreference={workspace.setPreference}
-                onStock={workspace.setOnlyInStock}
-                onReset={() => workspace.patchConstraints.mutate({ preference: 'balanced', only_in_stock: false })}
+                onReset={() => workspace.patchConstraints.mutate({ preference: 'balanced' })}
               />
               <section className="product-results">
                 <div className="products-grid">
@@ -149,7 +155,10 @@ export function MissionView({ currency }: { currency: Currency }) {
                       rank={product.rank ?? index + 1}
                       selected={workspace.selectedIds.includes(product.snapshot_id)}
                       toggle={() => workspace.toggleSelected(product.snapshot_id)}
-                      detail={() => setDetail(product)}
+                      detail={() => {
+                        workspace.setFocusSnapshotId(product.snapshot_id)
+                        setDetail(product)
+                      }}
                       budget={budget}
                       lowest={product.snapshot_id === lowestId}
                       currency={currency}

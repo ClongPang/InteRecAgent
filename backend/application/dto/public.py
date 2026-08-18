@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from .mission import MissionConstraints, MissionStage, ShoppingMission
+from .mission import DialogueState, MissionConstraints, MissionStage, ShoppingMission, TurnPhase
 
 SSE_PUBLIC_EVENTS = frozenset(
     {
@@ -20,6 +20,10 @@ SSE_PUBLIC_EVENTS = frozenset(
         "run.superseded",
         "run.failed",
         "agent.message",
+        "message.received",
+        "constraints.updated",
+        "constraints.undo",
+        "comparison.updated",
     }
 )
 
@@ -37,6 +41,8 @@ class MissionView(BaseModel):
     comparison_snapshot_ids: list[str] = Field(default_factory=list)
     recommendation_run_id: str | None = None
     warnings: list[str] = Field(default_factory=list)
+    turn_phase: TurnPhase = TurnPhase.IDLE
+    dialogue: DialogueState = Field(default_factory=DialogueState)
     created_at: datetime
     updated_at: datetime
 

@@ -71,10 +71,10 @@ export const httpMissionApi: MissionApi = {
       body: JSON.stringify({ text, title: title || undefined }),
     }),
   getMission: (missionId) => request<MissionView>(`/missions/${missionId}`),
-  sendMessage: (missionId, text) =>
+  sendMessage: (missionId, text, focusSnapshotId) =>
     request<RunAccepted>(`/missions/${missionId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, focus_snapshot_id: focusSnapshotId || undefined }),
     }),
   updateConstraints: (missionId, patch: ConstraintsPatch) =>
     request<RunAccepted>(`/missions/${missionId}/constraints`, {

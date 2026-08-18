@@ -26,9 +26,7 @@ export function groupThread(messages: ThreadMessage[]): ThreadBlock[] {
 export function lastUndoableChange(messages: ThreadMessage[]): ThreadMessage | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]
-    if (message.kind === 'change' && message.text.includes('撤销') === false && message.text.includes('比较') === false) {
-      return message
-    }
+    if (message.kind === 'change' && message.change_kind === 'constraints') return message
   }
   return null
 }

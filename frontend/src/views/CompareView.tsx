@@ -95,12 +95,19 @@ export function CompareView({ currency }: { currency: Currency }) {
           comparing
           busy={workspace.busy}
           currency={currency}
-          onSend={(text) => workspace.sendMessage.mutate(text)}
+          onSend={(text) =>
+            workspace.sendMessage.mutate({
+              text,
+              focusSnapshotId: workspace.focusSnapshotId ?? detail?.snapshot_id,
+            })
+          }
           onUndo={() => workspace.undo.mutate()}
           onCompare={() => undefined}
-          onOpen={setDetail}
+          onOpen={(product) => {
+            workspace.setFocusSnapshotId(product.snapshot_id)
+            setDetail(product)
+          }}
           onPreference={workspace.setPreference}
-          onStock={workspace.setOnlyInStock}
         />
         <section className="results-region">
           <DecisionOverview
@@ -161,7 +168,7 @@ export function CompareView({ currency }: { currency: Currency }) {
                         <Icon name="close" size={13} />
                       </button>
                       <PlatformMark merchant={product.merchant} />
-                      <button className="cmp-head-title" onClick={() => setDetail(product)}>
+                      <button className="cmp-head-title" onClick={() => { workspace.setFocusSnapshotId(product.snapshot_id); setDetail(product) }}>
                         {product.title}
                         <Icon name="external" size={13} />
                       </button>
@@ -184,7 +191,7 @@ export function CompareView({ currency }: { currency: Currency }) {
                       </div>
                     </div>
                     <div className="compare-cell action-cell">
-                      <Button onClick={() => setDetail(product)}>查看详情</Button>
+                      <Button onClick={() => { workspace.setFocusSnapshotId(product.snapshot_id); setDetail(product) }}>查看详情</Button>
                     </div>
                   </div>
                 )

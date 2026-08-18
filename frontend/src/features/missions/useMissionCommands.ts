@@ -50,9 +50,9 @@ export function useMissionCommands(missionId: string | undefined) {
   })
 
   const sendMessage = useMutation({
-    mutationFn: (text: string) => {
+    mutationFn: ({ text, focusSnapshotId }: { text: string; focusSnapshotId?: string | null }) => {
       if (!missionId) throw new Error('没有进行中的选购')
-      return api.sendMessage(missionId, text)
+      return api.sendMessage(missionId, text, focusSnapshotId)
     },
     onSuccess: invalidate,
   })

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useMissionApi } from '../../app/MissionApiContext'
+import { isBusyPhase, type TurnPhase } from '../../api/types'
 import { queryKeys } from '../../lib/queryKeys'
 
 const INVALIDATE_EVENTS = new Set([
@@ -12,11 +13,15 @@ const INVALIDATE_EVENTS = new Set([
   'run.degraded',
   'run.failed',
   'run.superseded',
+  'message.received',
+  'constraints.updated',
+  'constraints.undo',
 ])
 
-export function useMissionEvents(missionId: string | undefined) {
+export function useMissionEvents(missionId: string | undefined, turnPhase?: TurnPhase) {
   const api = useMissionApi()
   const queryClient = useQueryClient()
+  const shouldPoll = isBusyPhase(turnPhase)
 
   useEffect(() => {
     if (!missionId) return
@@ -35,12 +40,12 @@ export function useMissionEvents(missionId: string | undefined) {
       },
       controller.signal,
     ).catch(() => {
-      /* 连接中断后由 abort 结束；轮询兜底 */
+      /* 连接中断后由 abort 结束；忙时轮询兜底 */
     })
-    const poll = window.setInterval(refresh, 6_000)
+    const poll = shouldPoll ? window.setInterval(refresh, 4_000) : undefined
     return () => {
       controller.abort()
-      window.clearInterval(poll)
+      if (poll) window.clearInterval(poll)
     }
-  }, [api, missionId, queryClient])
+  }, [api, missionId, queryClient, shouldPoll])
 }

@@ -14,7 +14,10 @@ export function budgetText(budget: number | null | undefined): string {
   return budget ? `¥${budget.toLocaleString()} 内` : '未设置预算'
 }
 
-export function stageText(stage: string): string {
+export function stageText(stage: string, turnPhase?: string): string {
+  if (turnPhase === 'researching') return '正在检索'
+  if (turnPhase === 'refiltering') return '正在按条件重排'
+  if (turnPhase === 'responding') return '正在回答'
   switch (stage) {
     case 'clarifying':
       return '待补充'

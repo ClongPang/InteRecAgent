@@ -14,9 +14,24 @@ class DialogueActKind(StrEnum):
     ASK_ITEM = "ask_about_item"
     COMPARE = "compare_items"
     REJECT = "reject_item"
+    STANCE = "express_stance"
     UNDO = "undo"
     META = "meta"
     UNKNOWN = "unknown"
+
+
+class AskTopic(StrEnum):
+    WARRANTY = "warranty"
+    STOCK = "stock"
+    WHY = "why"
+    TRADEOFF = "tradeoff"
+    OVERVIEW = "overview"
+
+
+class TurnCommand(StrEnum):
+    MESSAGE = "message"
+    PATCH = "patch"
+    UNDO = "undo"
 
 
 class TurnRoute(StrEnum):
@@ -33,6 +48,8 @@ class DialogueAct(BaseModel):
     patch: IntentPatch | None = None
     referent_ranks: list[int] = Field(default_factory=list)
     exclude_terms: list[str] = Field(default_factory=list)
+    stance: str | None = None
+    topic: AskTopic | None = None
     confidence: float = 1.0
     source: str = "deterministic"
 
@@ -43,6 +60,8 @@ class ThreadMessage(BaseModel):
     text: str
     constraints_version: int | None = None
     snapshot_ids: list[str] = Field(default_factory=list)
+    run_id: str | None = None
+    change_kind: str | None = None
     created_at: datetime | None = None
 
 

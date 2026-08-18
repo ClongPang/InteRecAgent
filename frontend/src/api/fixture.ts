@@ -92,6 +92,7 @@ function newMission(id: string, title: string): MissionView {
     comparison_snapshot_ids: [],
     recommendation_run_id: null,
     warnings: [],
+    turn_phase: 'idle',
     created_at: ts,
     updated_at: ts,
   }
@@ -136,6 +137,7 @@ function applyRun(store: Store, mission: MissionView, text: string): MissionView
     const clarifying: MissionView = {
       ...mission,
       stage: 'clarifying',
+      turn_phase: 'idle',
       constraints,
       constraints_version: version,
       updated_at: nowIso(),
@@ -165,6 +167,7 @@ function applyRun(store: Store, mission: MissionView, text: string): MissionView
     ...mission,
     title: constraints.query || mission.title,
     stage: ranked.length ? 'ready' : 'degraded',
+    turn_phase: 'idle',
     constraints,
     constraints_version: version,
     candidate_set_id: ranked.length ? `cs-${mission.id}` : mission.candidate_set_id,
@@ -214,7 +217,7 @@ export function createFixtureApi(): MissionApi {
     async getMission(missionId) {
       return { ...find(missionId) }
     },
-    async sendMessage(missionId, text) {
+    async sendMessage(missionId, text, focusSnapshotId) {
       const current = find(missionId)
       push(store, missionId, 'user', text, current.constraints_version)
       const updated = applyRun(store, current, text)

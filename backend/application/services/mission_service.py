@@ -4,7 +4,7 @@ from collections.abc import Callable
 from uuid import uuid4
 
 from ...domain.models import utcnow
-from ..dto import MissionConstraints, MissionStage, ShoppingMission
+from ..dto import MissionConstraints, MissionStage, ShoppingMission, TurnPhase
 from ..dto.mission import next_constraints_version
 from ..dto.public import (
     CandidateSetView,
@@ -22,9 +22,10 @@ from ..errors import (
     SnapshotNotFound,
 )
 from ..ports import RunDispatcher, UnitOfWork
-from .dialogue import classify_turn, project_thread
+from .dialogue import preview_turn, project_thread, stage_for_phase
+from .policy import DialoguePolicy, TurnDecision, TurnInput
 from .present import product_candidate_from_record, product_candidate_from_snapshot
-from ..dto.dialogue import DialogueActKind, ThreadView
+from ..dto.dialogue import DialogueAct, DialogueActKind, ThreadView, TurnCommand
 
 
 class MissionCommandService:
@@ -72,49 +73,53 @@ class MissionCommandService:
         mission_id: str,
         text: str,
         constraints_version: int,
+        focus_snapshot_id: str | None = None,
     ) -> str:
-        """追加消息并调度新运行（返回 run_id）。版本不匹配时抛版本冲突，
-        不允许旧版本运行覆盖新版本任务（AGT-005）。事件先持久化再调度。"""
+        """追加消息。对话政策决定是否调度检索子图。"""
         async with self._uow_factory() as uow:
-            mission = await uow.missions.get(owner_id=owner_id, mission_id=mission_id)
-            if mission is None:
-                raise MissionNotFound(mission_id)
-            if mission.constraints_version != constraints_version:
-                raise MissionVersionConflict(
-                    f"expected constraints_version {constraints_version}, got {mission.constraints_version}"
+            mission = await self._require_mission(uow, owner_id, mission_id, constraints_version)
+            cache = await self._cache_payload(uow, mission)
+            decision = DialoguePolicy().decide(
+                mission=mission,
+                turn=TurnInput(
+                    command=TurnCommand.MESSAGE,
+                    source="chat",
+                    text=text,
+                    focus_snapshot_id=focus_snapshot_id,
+                ),
+                has_cache=bool(cache and cache.get("ranked")),
+                cache_reuse_key=(cache or {}).get("reuse_key"),
+            )
+            if decision.undo:
+                await uow.events.append(
+                    mission_id=mission_id,
+                    event_type="message.received",
+                    payload={"text": text, "constraints_version": constraints_version},
                 )
-            run_id = str(uuid4())
-            updated = mission.model_copy(
-                update={
-                    "stage": MissionStage.SEARCHING,
-                    "active_run_id": run_id,
-                    "updated_at": utcnow(),
-                }
-            )
-            await uow.missions.save(updated, expected_version=constraints_version)
-            await uow.events.append(
-                mission_id=mission_id,
-                event_type="message.received",
-                payload={
-                    "run_id": run_id,
-                    "text": text,
-                    "constraints_version": constraints_version,
-                },
-            )
-            await uow.commit()
-        if classify_turn(text).kind == DialogueActKind.UNDO:
+                await uow.commit()
+            else:
+                run_id, dispatch_version = await self._persist_decision(
+                    uow,
+                    mission=mission,
+                    decision=decision,
+                    expected_version=constraints_version,
+                    user_text=text,
+                )
+                await uow.commit()
+        if decision.undo:
             undo_run_id, _ = await self.undo(
                 owner_id=owner_id,
                 mission_id=mission_id,
                 constraints_version=constraints_version,
             )
             return undo_run_id
-        await self._dispatcher.dispatch(
-            owner_id=owner_id,
-            mission_id=mission_id,
-            run_id=run_id,
-            constraints_version=constraints_version,
-        )
+        if decision.dispatch:
+            await self._dispatcher.dispatch(
+                owner_id=owner_id,
+                mission_id=mission_id,
+                run_id=run_id,
+                constraints_version=dispatch_version,
+            )
         return run_id
 
     async def update_constraints(
@@ -134,38 +139,27 @@ class MissionCommandService:
                 raise MissionVersionConflict(
                     f"expected {constraints_version}, got {mission.constraints_version}"
                 )
-            before = mission.constraints
-            run_id = str(uuid4())
-            new_version = next_constraints_version(
-                mission.constraints_version, before, constraints
+            cache = await self._cache_payload(uow, mission)
+            decision = DialoguePolicy().decide(
+                mission=mission,
+                turn=TurnInput(command=TurnCommand.PATCH, source="filter", constraints=constraints),
+                has_cache=bool(cache and cache.get("ranked")),
+                cache_reuse_key=(cache or {}).get("reuse_key"),
             )
-            updated = mission.model_copy(
-                update={
-                    "constraints": constraints,
-                    "stage": MissionStage.SEARCHING,
-                    "constraints_version": new_version,
-                    "active_run_id": run_id,
-                    "updated_at": utcnow(),
-                }
-            )
-            await uow.missions.save(updated, expected_version=constraints_version)
-            await uow.events.append(
-                mission_id=mission_id,
-                event_type="constraints.updated",
-                payload={
-                    "run_id": run_id,
-                    "before": before.model_dump(mode="json"),
-                    "after": constraints.model_dump(mode="json"),
-                    "constraints_version": new_version,
-                },
+            run_id, new_version = await self._persist_decision(
+                uow,
+                mission=mission,
+                decision=decision,
+                expected_version=constraints_version,
             )
             await uow.commit()
-        await self._dispatcher.dispatch(
-            owner_id=owner_id,
-            mission_id=mission_id,
-            run_id=run_id,
-            constraints_version=new_version,
-        )
+        if decision.dispatch:
+            await self._dispatcher.dispatch(
+                owner_id=owner_id,
+                mission_id=mission_id,
+                run_id=run_id,
+                constraints_version=new_version,
+            )
         return run_id, new_version
 
     async def undo(self, *, owner_id: str, mission_id: str, constraints_version: int) -> tuple[str, int]:
@@ -187,11 +181,25 @@ class MissionCommandService:
                 new_version = next_constraints_version(
                     mission.constraints_version, mission.constraints, before
                 )
+                cache = await self._cache_payload(uow, mission)
+                _route, phase = preview_turn(
+                    act=DialogueAct(kind=DialogueActKind.REFINE, source="command"),
+                    constraints=before,
+                    has_cache=bool(cache and cache.get("ranked")),
+                    cache_reuse_key=(cache or {}).get("reuse_key"),
+                    skip_intent_patch=True,
+                )
+                if mission.constraints != before and phase == TurnPhase.RESPONDING:
+                    phase = TurnPhase.REFILTERING
                 updated = mission.model_copy(
                     update={
                         "constraints": before,
-                        "stage": MissionStage.SEARCHING,
+                        "stage": stage_for_phase(phase, mission.stage),
+                        "turn_phase": phase,
                         "constraints_version": new_version,
+                        "dialogue": mission.dialogue.model_copy(
+                            update={"last_act": DialogueActKind.UNDO.value}
+                        ),
                         "active_run_id": run_id,
                         "updated_at": utcnow(),
                     }
@@ -339,6 +347,92 @@ class MissionCommandService:
     async def get_thread(self, *, owner_id: str, mission_id: str) -> ThreadView:
         events = await self.list_events(owner_id=owner_id, mission_id=mission_id, after=0)
         return project_thread(events)
+
+    async def _require_mission(
+        self, uow: UnitOfWork, owner_id: str, mission_id: str, constraints_version: int
+    ) -> ShoppingMission:
+        mission = await uow.missions.get(owner_id=owner_id, mission_id=mission_id)
+        if mission is None:
+            raise MissionNotFound(mission_id)
+        if mission.constraints_version != constraints_version:
+            raise MissionVersionConflict(
+                f"expected constraints_version {constraints_version}, got {mission.constraints_version}"
+            )
+        return mission
+
+    async def _persist_decision(
+        self,
+        uow: UnitOfWork,
+        *,
+        mission: ShoppingMission,
+        decision: TurnDecision,
+        expected_version: int,
+        user_text: str | None = None,
+    ) -> tuple[str, int]:
+        run_id = str(uuid4())
+        before = mission.constraints
+        after = decision.constraints if decision.apply_constraints else mission.constraints
+        new_version = (
+            next_constraints_version(mission.constraints_version, before, after)
+            if decision.apply_constraints
+            else mission.constraints_version
+        )
+        warnings = list(dict.fromkeys([*mission.warnings, *decision.warnings]))
+        updated = mission.model_copy(
+            update={
+                "constraints": after,
+                "constraints_version": new_version,
+                "stage": stage_for_phase(decision.phase, mission.stage)
+                if decision.dispatch
+                else mission.stage,
+                "turn_phase": decision.phase if decision.dispatch else TurnPhase.IDLE,
+                "dialogue": decision.dialogue,
+                "warnings": warnings,
+                "active_run_id": run_id if decision.dispatch else mission.active_run_id,
+                "updated_at": utcnow(),
+            }
+        )
+        await uow.missions.save(updated, expected_version=expected_version)
+        if user_text:
+            await uow.events.append(
+                mission_id=mission.id,
+                event_type="message.received",
+                payload={
+                    "run_id": run_id,
+                    "text": user_text,
+                    "constraints_version": mission.constraints_version,
+                    "turn_phase": updated.turn_phase.value,
+                    "source": decision.act.source,
+                },
+            )
+        if decision.apply_constraints and after != before:
+            await uow.events.append(
+                mission_id=mission.id,
+                event_type="constraints.updated",
+                payload={
+                    "run_id": run_id,
+                    "before": before.model_dump(mode="json"),
+                    "after": after.model_dump(mode="json"),
+                    "constraints_version": new_version,
+                },
+            )
+        if decision.agent_message and not decision.dispatch:
+            await uow.events.append(
+                mission_id=mission.id,
+                event_type="agent.message",
+                payload={
+                    "run_id": run_id,
+                    "text": decision.agent_message,
+                    "constraints_version": new_version,
+                },
+            )
+        return run_id, new_version
+
+    @staticmethod
+    async def _cache_payload(uow: UnitOfWork, mission: ShoppingMission) -> dict | None:
+        if not mission.candidate_set_id or not hasattr(uow, "candidate_sets"):
+            return None
+        return await uow.candidate_sets.get(mission.candidate_set_id)
 
     @staticmethod
     def _candidate_set_view(payload: dict | None) -> CandidateSetView:

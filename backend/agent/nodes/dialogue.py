@@ -9,8 +9,8 @@ from ...application.services.dialogue import (
     classify_turn,
     plan_route,
     reuse_key_matches,
-    snapshot_ids_for_ranks,
 )
+from ...application.services.grounded import compose_talk_reply
 from ...application.services.parse_intent import CLARIFYING_QUESTION
 from ...application.services.present import hydrate_candidate_payload
 from ..state import MissionGraphState
@@ -24,7 +24,8 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
             act = DialogueAct(kind=DialogueActKind.REFINE, source="command")
             return {"dialogue_act": act, "intent_patch": IntentPatch()}
         text = state.get("text") or ""
-        act = classify_turn(text)
+        current_query = state["mission"].constraints.query
+        act = classify_turn(text, current_query=current_query)
         if act.kind == DialogueActKind.REFINE and model_backend.is_configured():
             try:
                 patch = await model_backend.parse_intent(text)
@@ -85,55 +86,25 @@ def make_compose_grounded_reply():
         payload = state.get("cache_payload") or {}
         ranked_records = list(payload.get("ranked") or [])
         mission = state["mission"]
-        if act.kind == DialogueActKind.META:
-            return {
-                "agent_message": "我可以根据品类、预算和市场帮你检索并比较跨境商品。价格来自已校验快照；保修、运费和库存未提供时不会编造。",
-                "agent_snapshot_ids": [],
-            }
-        if not ranked_records:
-            return {
-                "agent_message": "还没有可引用的候选。请先告诉我品类，例如「降噪耳机」。",
-                "agent_snapshot_ids": [],
-                "requires_clarification": not bool(mission.constraints.query),
-                "clarification_question": CLARIFYING_QUESTION,
-            }
-        if act.kind == DialogueActKind.COMPARE:
-            ranks = act.referent_ranks or [1, 2]
-            ids = snapshot_ids_for_ranks(ranked_records, ranks)
-            if not 2 <= len(ids) <= 4:
-                return {
-                    "agent_message": "比较需要 2–4 件当前候选。可以说「帮我比前两个」。",
-                    "agent_snapshot_ids": [],
-                }
-            lines = []
-            by_id = {str(item.get("snapshot_id")): item for item in ranked_records}
-            for sid in ids:
-                item = by_id.get(sid) or {}
-                price = (item.get("estimated_cny") or {}).get("amount")
-                price_text = f"{price:.0f} 元" if isinstance(price, (int, float)) else "价格待确认"
-                lines.append(f"{item.get('title') or sid}：约 {price_text}")
-            updated = mission.model_copy(update={"comparison_snapshot_ids": ids})
-            return {
-                "mission": updated,
-                "agent_message": "当前候选对照：\n" + "\n".join(lines),
-                "agent_snapshot_ids": ids,
-                "comparison_snapshot_ids": ids,
-            }
-        ranks = act.referent_ranks or [1]
-        ids = snapshot_ids_for_ranks(ranked_records, ranks)
-        item = next((r for r in ranked_records if str(r.get("snapshot_id")) in ids), ranked_records[0])
-        title = item.get("title") or "当前首选"
-        if act.kind == DialogueActKind.ASK_ITEM:
-            return {
-                "agent_message": (
-                    f"{title}：快照未提供保修、库存和完整规格，需要到商户页确认。"
-                    "我只能依据已记录的价格与市场事实回答。"
-                ),
-                "agent_snapshot_ids": ids or [str(item.get("snapshot_id") or "")],
-            }
-        return {
-            "agent_message": f"约束没有变化，仍使用当前候选。首选是 {title}。",
-            "agent_snapshot_ids": ids,
+        reply = compose_talk_reply(
+            act=act,
+            text=state.get("text") or "",
+            ranked=ranked_records,
+            constraints=mission.constraints,
+            focus_snapshot_id=getattr(mission.dialogue, "focus_snapshot_id", None),
+        )
+        result = {
+            "agent_message": reply.text,
+            "agent_snapshot_ids": reply.snapshot_ids,
         }
+        if reply.requires_clarification:
+            result["requires_clarification"] = True
+            result["clarification_question"] = reply.clarification_question or CLARIFYING_QUESTION
+        if reply.comparison_snapshot_ids:
+            result["mission"] = mission.model_copy(
+                update={"comparison_snapshot_ids": reply.comparison_snapshot_ids}
+            )
+            result["comparison_snapshot_ids"] = reply.comparison_snapshot_ids
+        return result
 
     return compose_grounded_reply

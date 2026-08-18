@@ -19,7 +19,7 @@ function TaskRow({ mission, isCurrent, open }: { mission: MissionView; isCurrent
           </p>
         </div>
         <div className="task-list-meta">
-          <span>{isCurrent ? '当前处理' : stageText(mission.stage)}</span>
+          <span>{isCurrent ? '当前处理' : stageText(mission.stage, mission.turn_phase)}</span>
           <small>{timeLabel(mission.updated_at)} 更新</small>
         </div>
         <Icon name="arrow" size={16} />

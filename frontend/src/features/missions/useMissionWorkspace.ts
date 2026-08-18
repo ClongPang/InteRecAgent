@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMissionCommands, useMissionQueries } from './useMissionCommands'
 import { useMissionEvents } from './useMissionEvents'
-import type { ProductCandidate } from '../../api/types'
+import { isBusyPhase, type ProductCandidate } from '../../api/types'
 
 export function useMissionWorkspace(missionId: string | undefined) {
   const queries = useMissionQueries(missionId)
   const commands = useMissionCommands(missionId)
-  useMissionEvents(missionId)
+  useMissionEvents(missionId, queries.mission.data?.turn_phase)
 
   const mission = queries.mission.data
   const ranked = queries.candidates.data?.ranked ?? []
   const serverSelected = mission?.comparison_snapshot_ids ?? []
   const [localSelected, setLocalSelected] = useState<string[] | null>(null)
+  const [focusSnapshotId, setFocusSnapshotId] = useState<string | null>(null)
 
   useEffect(() => {
     setLocalSelected(null)
@@ -41,8 +42,7 @@ export function useMissionWorkspace(missionId: string | undefined) {
     commands.sendMessage.isPending ||
     commands.patchConstraints.isPending ||
     commands.undo.isPending ||
-    mission?.stage === 'searching' ||
-    mission?.stage === 'ranking'
+    isBusyPhase(mission?.turn_phase)
 
   return {
     queries,
@@ -53,6 +53,8 @@ export function useMissionWorkspace(missionId: string | undefined) {
     selected,
     toggleSelected,
     persistComparison,
+    focusSnapshotId,
+    setFocusSnapshotId,
     busy,
     sendMessage: commands.sendMessage,
     undo: commands.undo,

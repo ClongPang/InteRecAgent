@@ -85,41 +85,36 @@ export function CandidateCard({
 export function FilterBar({
   count,
   platformCount,
+  query,
   preference,
-  onlyInStock,
   onPreference,
-  onStock,
   onReset,
 }: {
   count: number
   platformCount: number
+  query?: string | null
   preference: Preference
-  onlyInStock: boolean
   onPreference: (preference: Preference) => void
-  onStock: (onlyInStock: boolean) => void
   onReset: () => void
 }) {
-  const dirty = preference !== 'balanced' || onlyInStock
+  const audioLike = /耳机|降噪|头戴|入耳|耳塞|headphone|earbuds/i.test(query || '')
+  const dirty = preference !== 'balanced'
   return (
     <div className="filter-bar">
       <div className="result-count">
         <strong>{count}</strong> 件备选 {platformCount > 0 ? <span>· {platformCount} 个平台</span> : null}
       </div>
       <div className="filter-actions">
-        <button onClick={() => onStock(!onlyInStock)}>
-          <Icon name="filter" size={15} />
-          {onlyInStock ? '显示全部库存' : '只看有货'}
-        </button>
         <select value={preference} onChange={(event) => onPreference(event.target.value as Preference)} aria-label="备选排序">
           <option value="balanced">综合推荐</option>
           <option value="lowest">按商品价</option>
-          <option value="noise">优先降噪</option>
-          <option value="battery">优先续航</option>
+          {audioLike || preference === 'noise' ? <option value="noise">优先降噪</option> : null}
+          {audioLike || preference === 'battery' ? <option value="battery">优先续航</option> : null}
         </select>
         {dirty ? (
           <>
             <span className="filter-divider" aria-hidden="true" />
-            <button className="clear-filters-button" onClick={onReset} title="恢复为综合推荐，并显示全部库存">
+            <button className="clear-filters-button" onClick={onReset} title="恢复为综合推荐">
               清除筛选
             </button>
           </>

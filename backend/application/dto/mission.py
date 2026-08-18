@@ -10,7 +10,7 @@ from ...domain.models import utcnow
 
 
 class MissionStage(StrEnum):
-    """任务阶段（规格 §6.2 允许集合）。"""
+    """任务阶段（规格 §6.2 允许集合）。searching 只表示商品源在跑。"""
 
     COLLECTING = "collecting"
     CLARIFYING = "clarifying"
@@ -19,6 +19,23 @@ class MissionStage(StrEnum):
     READY = "ready"
     DEGRADED = "degraded"
     FAILED = "failed"
+
+
+class TurnPhase(StrEnum):
+    """本轮对话动作。前端只在 researching / refiltering 时锁输入。"""
+
+    IDLE = "idle"
+    RESPONDING = "responding"
+    REFILTERING = "refiltering"
+    RESEARCHING = "researching"
+
+
+class DialogueState(BaseModel):
+    """挂在 Mission 上的对话信念：指称、态度、上一行为。"""
+
+    focus_snapshot_id: str | None = None
+    last_act: str | None = None
+    stance: str | None = None
 
 
 class MissionConstraints(BaseModel):
@@ -54,5 +71,7 @@ class ShoppingMission(BaseModel):
     comparison_snapshot_ids: list[str] = Field(default_factory=list)
     recommendation_run_id: str | None = None
     warnings: list[str] = Field(default_factory=list)
+    turn_phase: TurnPhase = TurnPhase.IDLE
+    dialogue: DialogueState = Field(default_factory=DialogueState)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

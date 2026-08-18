@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.application.dto import MissionConstraints, ShoppingMission
+from backend.application.dto import MissionConstraints, MissionStage, ShoppingMission, TurnPhase
 from backend.application.errors import MissionNotFound, MissionVersionConflict
 from backend.application.services import MissionCommandService
 
@@ -112,7 +112,8 @@ async def test_submit_message_dispatches_and_returns_run_id() -> None:
     # 事件已持久化（先于调度，保证可追溯）
     assert events.events[0][1] == "message.received"
     assert events.events[0][2]["run_id"] == run_id
-    assert missions.missions["m1"].stage.value == "searching"
+    assert missions.missions["m1"].stage.value == "collecting"
+    assert missions.missions["m1"].turn_phase.value == "responding"
     assert missions.missions["m1"].active_run_id == run_id
 
 
@@ -161,26 +162,27 @@ async def test_update_constraints_dispatches_new_version() -> None:
     assert missions.missions["m1"].constraints_version == 3
     assert missions.missions["m1"].constraints.budget_cny == 3000
     assert events.events[0][1] == "constraints.updated"
+    assert missions.missions["m1"].turn_phase.value == "researching"
 
 
 @pytest.mark.asyncio
 async def test_update_constraints_unchanged_keeps_version() -> None:
-    """PATCH 内容与当前相同：不递增版本，仍调度重跑。"""
+    """PATCH 内容与当前相同：不递增版本，也不调度。"""
     current = MissionConstraints(query="降噪耳机", budget_cny=4000)
     svc, missions, events, dispatcher = _make(
         version=2,
         mission=_mission(version=2).model_copy(update={"constraints": current}),
     )
-    run_id, version = await svc.update_constraints(
+    _run_id, version = await svc.update_constraints(
         owner_id="u1",
         mission_id="m1",
         constraints_version=2,
         constraints=current,
     )
     assert version == 2
-    assert dispatcher.calls[0][2] == run_id
-    assert dispatcher.calls[0][3] == 2
+    assert dispatcher.calls == []
     assert missions.missions["m1"].constraints_version == 2
+    assert events.events[-1][1] == "agent.message"
 
 
 @pytest.mark.asyncio
@@ -193,3 +195,123 @@ async def test_get_thread_projects_user_message() -> None:
     assert len(view.messages) == 1
     assert view.messages[0].kind == "user"
     assert view.messages[0].text == "降噪耳机"
+
+
+@pytest.mark.asyncio
+async def test_submit_question_does_not_mark_searching() -> None:
+    mission = _mission(version=1).model_copy(
+        update={
+            "stage": MissionStage.READY,
+            "constraints": MissionConstraints(query="降噪耳机", budget_cny=4000),
+        }
+    )
+    svc, missions, events, dispatcher = _make(mission=mission)
+    run_id = await svc.submit_message(
+        owner_id="u1", mission_id="m1", text="这款保修吗", constraints_version=1
+    )
+    assert dispatcher.calls[0][2] == run_id
+    stored = missions.missions["m1"]
+    assert stored.stage == MissionStage.READY
+    assert stored.turn_phase == TurnPhase.RESPONDING
+
+
+@pytest.mark.asyncio
+async def test_chat_undo_does_not_dispatch_search_run() -> None:
+    mission = _mission(version=2).model_copy(
+        update={"constraints": MissionConstraints(query="降噪耳机", budget_cny=4000)}
+    )
+    svc, missions, events, dispatcher = _make(mission=mission, version=2)
+    await events.append(
+        mission_id="m1",
+        event_type="constraints.updated",
+        payload={
+            "before": MissionConstraints(query="降噪耳机", budget_cny=2000).model_dump(mode="json"),
+            "after": MissionConstraints(query="降噪耳机", budget_cny=4000).model_dump(mode="json"),
+        },
+    )
+    run_id = await svc.submit_message(
+        owner_id="u1", mission_id="m1", text="撤销刚才的条件", constraints_version=2
+    )
+    assert [item[1] for item in events.events] == ["constraints.updated", "message.received", "constraints.undo"]
+    assert len(dispatcher.calls) == 1
+    assert dispatcher.calls[0][2] == run_id
+    assert events.events[1][2].get("run_id") is None
+    assert missions.missions["m1"].constraints.budget_cny == 2000
+
+
+@pytest.mark.asyncio
+async def test_stance_keeps_query_and_tightens_budget() -> None:
+    mission = _mission(version=1).model_copy(
+        update={
+            "stage": MissionStage.READY,
+            "constraints": MissionConstraints(query="降噪耳机", budget_cny=4000),
+        }
+    )
+    svc, missions, events, dispatcher = _make(mission=mission)
+    run_id = await svc.submit_message(
+        owner_id="u1", mission_id="m1", text="太贵了", constraints_version=1
+    )
+    stored = missions.missions["m1"]
+    assert stored.constraints.query == "降噪耳机"
+    assert stored.constraints.budget_cny == 3200
+    assert stored.constraints_version == 2
+    assert stored.dialogue.stance == "too_expensive"
+    assert dispatcher.calls[0][2] == run_id
+    assert dispatcher.calls[0][3] == 2
+    assert events.events[1][1] == "constraints.updated"
+
+
+@pytest.mark.asyncio
+async def test_patch_unsupported_stock_does_not_dispatch() -> None:
+    mission = _mission(version=1).model_copy(
+        update={"constraints": MissionConstraints(query="降噪耳机", budget_cny=4000)}
+    )
+    svc, missions, events, dispatcher = _make(mission=mission)
+    _run_id, version = await svc.update_constraints(
+        owner_id="u1",
+        mission_id="m1",
+        constraints_version=1,
+        constraints=MissionConstraints(query="降噪耳机", budget_cny=4000, only_in_stock=True),
+    )
+    assert version == 1
+    assert dispatcher.calls == []
+    assert missions.missions["m1"].constraints.only_in_stock is False
+    assert events.events[-1][1] == "agent.message"
+    assert "库存" in events.events[-1][2]["text"]
+
+
+@pytest.mark.asyncio
+async def test_patch_noise_on_non_audio_does_not_dispatch() -> None:
+    mission = _mission(version=1).model_copy(
+        update={"constraints": MissionConstraints(query="4K 显示器", budget_cny=4000)}
+    )
+    svc, missions, events, dispatcher = _make(mission=mission)
+    _run_id, version = await svc.update_constraints(
+        owner_id="u1",
+        mission_id="m1",
+        constraints_version=1,
+        constraints=MissionConstraints(query="4K 显示器", budget_cny=4000, preference="noise"),
+    )
+    assert version == 1
+    assert dispatcher.calls == []
+    assert missions.missions["m1"].constraints.preference == "balanced"
+    assert events.events[-1][1] == "agent.message"
+
+
+@pytest.mark.asyncio
+async def test_submit_message_stores_focus_snapshot() -> None:
+    mission = _mission(version=1).model_copy(
+        update={
+            "stage": MissionStage.READY,
+            "constraints": MissionConstraints(query="降噪耳机", budget_cny=4000),
+        }
+    )
+    svc, missions, _events, _dispatcher = _make(mission=mission)
+    await svc.submit_message(
+        owner_id="u1",
+        mission_id="m1",
+        text="这款保修吗",
+        constraints_version=1,
+        focus_snapshot_id="snap-9",
+    )
+    assert missions.missions["m1"].dialogue.focus_snapshot_id == "snap-9"

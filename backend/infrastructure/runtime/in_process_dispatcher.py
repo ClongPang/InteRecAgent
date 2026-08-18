@@ -6,7 +6,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ...application.dto import MissionStage
+from ...application.dto import MissionStage, TurnPhase
 from ...application.errors import DispatcherNotAccepting
 from ...application.ports import MissionRunner
 from ...domain.models import utcnow
@@ -108,7 +108,11 @@ class InProcessRunDispatcher:
             if mission is None or mission.active_run_id != run_id:
                 return
             updated = mission.model_copy(
-                update={"stage": MissionStage.FAILED, "updated_at": utcnow()}
+                update={
+                    "stage": MissionStage.FAILED,
+                    "turn_phase": TurnPhase.IDLE,
+                    "updated_at": utcnow(),
+                }
             )
             await uow.missions.save(updated)
             await uow.events.append(

@@ -14,7 +14,7 @@ export type MissionApi = {
   listMissions(limit?: number, offset?: number): Promise<MissionListResponse>
   createMission(text: string, title?: string): Promise<CreateMissionResponse>
   getMission(missionId: string): Promise<MissionView>
-  sendMessage(missionId: string, text: string): Promise<RunAccepted>
+  sendMessage(missionId: string, text: string, focusSnapshotId?: string | null): Promise<RunAccepted>
   updateConstraints(missionId: string, patch: ConstraintsPatch): Promise<RunAccepted>
   undo(missionId: string, constraintsVersion: number): Promise<RunAccepted>
   setComparison(missionId: string, constraintsVersion: number, snapshotIds: string[]): Promise<MissionView>

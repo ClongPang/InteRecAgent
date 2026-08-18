@@ -8,7 +8,7 @@ import { groupThread, lastUndoableChange } from '../../lib/thread'
 import type { Currency } from '../../lib/currency'
 
 function ChangeRow({ message, undoable, onUndo }: { message: ThreadMessage; undoable: boolean; onUndo: () => void }) {
-  const isUndo = message.text.includes('撤销')
+  const isUndo = message.change_kind === 'undo'
   return (
     <div className={`change-row${isUndo ? ' is-undo' : ''}`}>
       <span className="change-source">系统</span>
@@ -57,13 +57,14 @@ function RecommendationCard({
   currency: Currency
   onOpen: (product: ProductCandidate) => void
 }) {
-  const primary = recommendation?.primary
-  const alternatives = recommendation?.alternatives ?? []
+  const stale = Boolean(message.run_id && recommendation?.run_id && message.run_id !== recommendation.run_id)
+  const primary = stale ? null : recommendation?.primary
+  const alternatives = stale ? [] : recommendation?.alternatives ?? []
   const amount = primary ? displayAmount(rmbAmount(primary), currency) : null
   return (
-    <div className="thread-recommendation">
+    <div className={`thread-recommendation${stale ? ' is-stale' : ''}`}>
       <div className="thread-recommendation-head">
-        <span>推荐</span>
+        <span>{stale ? '推荐 · 历史轮次' : '推荐'}</span>
         <small>
           {message.constraints_version ? `基于 V${message.constraints_version}` : ''}
           {message.created_at ? ` · ${timeLabel(message.created_at)}` : ''}
@@ -224,7 +225,6 @@ export function ConversationPanel({
   onCompare,
   onOpen,
   onPreference,
-  onStock,
 }: {
   mission: MissionView
   messages: ThreadMessage[]
@@ -239,19 +239,16 @@ export function ConversationPanel({
   onCompare: () => void
   onOpen: (product: ProductCandidate) => void
   onPreference: (preference: MissionView['constraints']['preference']) => void
-  onStock: (onlyInStock: boolean) => void
 }) {
   const [draft, setDraft] = useState('')
   const undoable = lastUndoableChange(messages)
   const suggestions: { label: string; run: () => void; primary?: boolean }[] = []
   if (!comparing && canCompare) suggestions.push({ label: `对比所选（${selectedCount} 件）`, run: onCompare, primary: true })
-  if (!comparing) {
+  const query = mission.constraints.query || ''
+  const audioLike = /耳机|降噪|头戴|入耳|耳塞/.test(query)
+  if (!comparing && audioLike) {
     suggestions.push({ label: '优先降噪', run: () => onPreference('noise') })
     suggestions.push({ label: '优先续航', run: () => onPreference('battery') })
-    suggestions.push({
-      label: mission.constraints.only_in_stock ? '显示全部库存' : '只看有货',
-      run: () => onStock(!mission.constraints.only_in_stock),
-    })
   }
   const submit = (event?: { preventDefault(): void }) => {
     event?.preventDefault()

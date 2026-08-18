@@ -1,7 +1,14 @@
 from __future__ import annotations
 
-from .dialogue import DialogueAct, DialogueActKind, ThreadMessage, ThreadView, TurnRoute
-from .mission import MissionConstraints, MissionStage, ShoppingMission, next_constraints_version
+from .dialogue import AskTopic, DialogueAct, DialogueActKind, ThreadMessage, ThreadView, TurnRoute
+from .mission import (
+    DialogueState,
+    MissionConstraints,
+    MissionStage,
+    ShoppingMission,
+    TurnPhase,
+    next_constraints_version,
+)
 from .public import (
     SSE_PUBLIC_EVENTS,
     CandidateSetView,
@@ -18,6 +25,8 @@ from .search import ProductSearchResult
 __all__ = [
     "CandidateSetView",
     "CreateMissionResponse",
+    "DialogueState",
+    "AskTopic",
     "DialogueAct",
     "DialogueActKind",
     "IntentPatch",
@@ -36,6 +45,7 @@ __all__ = [
     "SSE_PUBLIC_EVENTS",
     "ThreadMessage",
     "ThreadView",
+    "TurnPhase",
     "TurnRoute",
     "mission_view",
     "next_constraints_version",

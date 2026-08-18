@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...application.dto import MissionConstraints, MissionStage, ShoppingMission
+from ...application.dto import DialogueState, MissionConstraints, MissionStage, ShoppingMission, TurnPhase
 from ...application.errors import MissionVersionConflict
 from ...domain.models import FxSnapshot, NormalizedProduct
 from .orm import (
@@ -28,6 +28,8 @@ def _mission_payload(mission: ShoppingMission) -> dict:
         "comparison_snapshot_ids": mission.comparison_snapshot_ids,
         "recommendation_run_id": mission.recommendation_run_id,
         "warnings": mission.warnings,
+        "turn_phase": mission.turn_phase.value,
+        "dialogue": mission.dialogue.model_dump(mode="json"),
     }
 
 
@@ -45,6 +47,8 @@ def _row_to_mission(row: ShoppingMissionRow) -> ShoppingMission:
         comparison_snapshot_ids=data.get("comparison_snapshot_ids") or [],
         recommendation_run_id=data.get("recommendation_run_id"),
         warnings=data.get("warnings") or [],
+        turn_phase=TurnPhase(data["turn_phase"]) if data.get("turn_phase") else TurnPhase.IDLE,
+        dialogue=DialogueState(**(data.get("dialogue") or {})),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

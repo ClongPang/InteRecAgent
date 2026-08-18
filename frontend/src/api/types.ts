@@ -8,6 +8,12 @@ export type MissionStage =
   | 'degraded'
   | 'failed'
 
+export type TurnPhase = 'idle' | 'responding' | 'refiltering' | 'researching'
+
+export function isBusyPhase(phase: TurnPhase | undefined): boolean {
+  return phase === 'researching' || phase === 'refiltering'
+}
+
 export type MissionConstraints = {
   query: string | null
   budget_cny: number | null
@@ -28,6 +34,8 @@ export type MissionView = {
   comparison_snapshot_ids: string[]
   recommendation_run_id: string | null
   warnings: string[]
+  turn_phase: TurnPhase
+  dialogue?: { focus_snapshot_id?: string | null; last_act?: string | null; stance?: string | null }
   created_at: string
   updated_at: string
 }
@@ -103,6 +111,8 @@ export type ThreadMessage = {
   text: string
   constraints_version: number | null
   snapshot_ids: string[]
+  run_id?: string | null
+  change_kind?: 'constraints' | 'undo' | 'comparison' | string | null
   created_at: string | null
 }
 

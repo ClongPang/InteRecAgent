@@ -3,11 +3,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ...application.dto import MissionStage, RunnerStatus
+from ...application.dto import MissionStage, RunnerStatus, TurnPhase
 from ...application.dto.mission import next_constraints_version
 from ...application.errors import MissionVersionConflict
 from ...application.ports import UnitOfWork
 from ...application.services.dialogue import search_reuse_key
+from ...application.services.grounded import compose_ready_reply
 from ...application.services.present import candidate_record, remap_draft
 from ..state import MissionGraphState
 
@@ -24,7 +25,9 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
 
         async with uow_factory() as uow:
             if state.get("requires_clarification") or turn_route == "clarify":
-                updated = mission.model_copy(update={"stage": MissionStage.CLARIFYING})
+                updated = mission.model_copy(
+                    update={"stage": MissionStage.CLARIFYING, "turn_phase": TurnPhase.IDLE}
+                )
                 try:
                     await uow.missions.save(updated, expected_version=run_version)
                 except MissionVersionConflict:
@@ -134,10 +137,12 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
             comparison_ids = state.get("comparison_snapshot_ids")
             updates = {
                 "stage": stage,
+                "turn_phase": TurnPhase.IDLE,
                 "constraints_version": constraints_version,
                 "candidate_set_id": candidate_set_id,
                 "recommendation_run_id": run_id,
                 "warnings": warnings,
+                "dialogue": current.dialogue,
             }
             if comparison_ids:
                 updates["comparison_snapshot_ids"] = comparison_ids
@@ -160,9 +165,8 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                     "count": len(ranked_records),
                 },
             )
-            title = ranked_records[0]["title"] if ranked_records else None
-            agent_text = state.get("agent_message") or (
-                f"根据当前约束，首选是 {title}。" if title else "当前检索没有可用候选。"
+            agent_text = state.get("agent_message") or compose_ready_reply(
+                ranked_records, mission.constraints
             )
             await uow.events.append(
                 mission_id=mission.id,
@@ -201,11 +205,13 @@ async def _persist_talk(
     updated = mission.model_copy(
         update={
             "stage": current.stage,
+            "turn_phase": TurnPhase.IDLE,
             "constraints_version": constraints_version,
             "candidate_set_id": current.candidate_set_id,
             "recommendation_run_id": current.recommendation_run_id,
             "comparison_snapshot_ids": comparison_ids,
             "warnings": warnings or current.warnings,
+            "dialogue": current.dialogue,
             "active_run_id": run_id,
         }
     )
