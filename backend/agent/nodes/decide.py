@@ -9,7 +9,8 @@ from .parse_intent import CLARIFYING_QUESTION
 
 
 def make_merge_mission_state():
-    """将 IntentPatch 合并进任务约束；需要追问且无既有查询时置 requires_clarification。"""
+    """将 IntentPatch 合并进任务约束，不递增 constraints_version。
+    版本只在约束内容变化时推进：PATCH/undo 由命令层、消息路径由 persist。"""
 
     async def merge_mission_state(state: MissionGraphState) -> dict:
         mission = state["mission"]
@@ -57,7 +58,6 @@ def make_merge_mission_state():
             update={
                 "constraints": merged,
                 "stage": MissionStage.SEARCHING,
-                "constraints_version": mission.constraints_version + 1,
                 "active_run_id": state["run_id"],
             }
         )

@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from ...application.dto import MissionStage, RunnerStatus
+from ...application.dto.mission import next_constraints_version
 from ...application.errors import MissionVersionConflict
 from ...application.ports import UnitOfWork
 from ...application.services.present import candidate_record, remap_draft
@@ -56,6 +57,11 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 await uow.commit()
                 return {"status": RunnerStatus.SUPERSEDED, "warnings": ["运行基于旧版本约束，已标记 superseded"]}
 
+            # 约束内容变化才递增。PATCH 路径已在命令层递增，此处 before==after 则保持。
+            constraints_version = next_constraints_version(
+                current.constraints_version, current.constraints, mission.constraints
+            )
+
             ranked = state.get("ranked", [])
             rates = state.get("rates") or {}
             snapshot_map: dict[str, str] = {}
@@ -87,7 +93,7 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
             candidate_set_id = await uow.candidate_sets.save(
                 mission_id=mission.id,
                 run_id=run_id,
-                constraints_version=mission.constraints_version,
+                constraints_version=constraints_version,
                 payload=candidate_payload,
             )
 
@@ -110,6 +116,7 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
             updated = mission.model_copy(
                 update={
                     "stage": stage,
+                    "constraints_version": constraints_version,
                     "candidate_set_id": candidate_set_id,
                     "recommendation_run_id": run_id,
                     "warnings": warnings,
@@ -129,7 +136,7 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                     "mission_id": mission.id,
                     "run_id": run_id,
                     "candidate_set_id": candidate_set_id,
-                    "constraints_version": mission.constraints_version,
+                    "constraints_version": constraints_version,
                     "count": len(ranked_records),
                 },
             )

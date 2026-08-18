@@ -93,7 +93,7 @@ async def update_constraints(
     svc=Depends(get_command_service),
     owner_id: str = Depends(get_anonymous_user_id),
 ) -> RunAccepted:
-    """显式修改约束，产生新版本并启动运行。版本冲突返回 409。"""
+    """显式修改约束并启动运行。仅约束内容变化时递增版本；版本冲突返回 409。"""
     mission = await svc.get_mission(owner_id=owner_id, mission_id=mission_id)
     constraints = MissionConstraints(
         query=body.query,
@@ -104,13 +104,13 @@ async def update_constraints(
         if body.only_in_stock is not None
         else mission.constraints.only_in_stock,
     )
-    run_id = await svc.update_constraints(
+    run_id, version = await svc.update_constraints(
         owner_id=owner_id,
         mission_id=mission_id,
         constraints_version=body.constraints_version,
         constraints=constraints,
     )
-    return RunAccepted(run_id=run_id, constraints_version=body.constraints_version + 1)
+    return RunAccepted(run_id=run_id, constraints_version=version)
 
 
 @router.post("/{mission_id}/undo", status_code=202, response_model=RunAccepted)
@@ -120,13 +120,13 @@ async def undo(
     svc=Depends(get_command_service),
     owner_id: str = Depends(get_anonymous_user_id),
 ) -> RunAccepted:
-    """撤销最近一次可撤销条件变更。"""
-    run_id = await svc.undo(
+    """撤销最近一次可撤销条件变更。仅恢复后的约束与当前不同时递增版本。"""
+    run_id, version = await svc.undo(
         owner_id=owner_id,
         mission_id=mission_id,
         constraints_version=body.constraints_version,
     )
-    return RunAccepted(run_id=run_id, constraints_version=body.constraints_version + 1)
+    return RunAccepted(run_id=run_id, constraints_version=version)
 
 
 @router.put("/{mission_id}/comparison", response_model=MissionView)

@@ -142,7 +142,7 @@ async def test_update_constraints_dispatches_new_version() -> None:
     missions.missions["m1"] = missions.missions["m1"].model_copy(
         update={"constraints": MissionConstraints(query="降噪耳机", budget_cny=4000)}
     )
-    run_id = await svc.update_constraints(
+    run_id, version = await svc.update_constraints(
         owner_id="u1",
         mission_id="m1",
         constraints_version=2,
@@ -150,6 +150,27 @@ async def test_update_constraints_dispatches_new_version() -> None:
     )
     assert dispatcher.calls[0][2] == run_id
     assert dispatcher.calls[0][3] == 3
+    assert version == 3
     assert missions.missions["m1"].constraints_version == 3
     assert missions.missions["m1"].constraints.budget_cny == 3000
     assert events.events[0][1] == "constraints.updated"
+
+
+@pytest.mark.asyncio
+async def test_update_constraints_unchanged_keeps_version() -> None:
+    """PATCH 内容与当前相同：不递增版本，仍调度重跑。"""
+    current = MissionConstraints(query="降噪耳机", budget_cny=4000)
+    svc, missions, events, dispatcher = _make(
+        version=2,
+        mission=_mission(version=2).model_copy(update={"constraints": current}),
+    )
+    run_id, version = await svc.update_constraints(
+        owner_id="u1",
+        mission_id="m1",
+        constraints_version=2,
+        constraints=current,
+    )
+    assert version == 2
+    assert dispatcher.calls[0][2] == run_id
+    assert dispatcher.calls[0][3] == 2
+    assert missions.missions["m1"].constraints_version == 2

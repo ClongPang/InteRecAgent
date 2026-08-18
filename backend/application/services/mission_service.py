@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from ...domain.models import utcnow
 from ..dto import MissionConstraints, MissionStage, ShoppingMission
+from ..dto.mission import next_constraints_version
 from ..dto.public import (
     CandidateSetView,
     MissionView,
@@ -114,8 +115,8 @@ class MissionCommandService:
         mission_id: str,
         constraints_version: int,
         constraints: MissionConstraints,
-    ) -> str:
-        """显式修改约束（PATCH）。产生新版本并调度运行；旧版本冲突时拒绝（AGT-005）。"""
+    ) -> tuple[str, int]:
+        """显式修改约束（PATCH）。仅当约束内容变化时递增版本；调度带着写回后的版本。"""
         async with self._uow_factory() as uow:
             mission = await uow.missions.get(owner_id=owner_id, mission_id=mission_id)
             if mission is None:
@@ -126,11 +127,14 @@ class MissionCommandService:
                 )
             before = mission.constraints
             run_id = str(uuid4())
+            new_version = next_constraints_version(
+                mission.constraints_version, before, constraints
+            )
             updated = mission.model_copy(
                 update={
                     "constraints": constraints,
                     "stage": MissionStage.SEARCHING,
-                    "constraints_version": mission.constraints_version + 1,
+                    "constraints_version": new_version,
                     "active_run_id": run_id,
                     "updated_at": utcnow(),
                 }
@@ -143,7 +147,7 @@ class MissionCommandService:
                     "run_id": run_id,
                     "before": before.model_dump(mode="json"),
                     "after": constraints.model_dump(mode="json"),
-                    "constraints_version": updated.constraints_version,
+                    "constraints_version": new_version,
                 },
             )
             await uow.commit()
@@ -151,12 +155,12 @@ class MissionCommandService:
             owner_id=owner_id,
             mission_id=mission_id,
             run_id=run_id,
-            constraints_version=updated.constraints_version,
+            constraints_version=new_version,
         )
-        return run_id
+        return run_id, new_version
 
-    async def undo(self, *, owner_id: str, mission_id: str, constraints_version: int) -> str:
-        """撤销最近一次可撤销条件变更，产生新版本（AC-015/BUS-008）。"""
+    async def undo(self, *, owner_id: str, mission_id: str, constraints_version: int) -> tuple[str, int]:
+        """撤销最近一次可撤销条件变更。仅当恢复后的约束与当前不同时递增版本。"""
         async with self._uow_factory() as uow:
             mission = await uow.missions.get(owner_id=owner_id, mission_id=mission_id)
             if mission is None:
@@ -171,11 +175,14 @@ class MissionCommandService:
                     continue
                 before = MissionConstraints(**event["payload"]["before"])
                 run_id = str(uuid4())
+                new_version = next_constraints_version(
+                    mission.constraints_version, mission.constraints, before
+                )
                 updated = mission.model_copy(
                     update={
                         "constraints": before,
                         "stage": MissionStage.SEARCHING,
-                        "constraints_version": mission.constraints_version + 1,
+                        "constraints_version": new_version,
                         "active_run_id": run_id,
                         "updated_at": utcnow(),
                     }
@@ -200,7 +207,7 @@ class MissionCommandService:
             run_id=run_id,
             constraints_version=updated.constraints_version,
         )
-        return run_id
+        return run_id, updated.constraints_version
 
     async def set_comparison(
         self,

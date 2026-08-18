@@ -31,6 +31,11 @@ class MissionConstraints(BaseModel):
     only_in_stock: bool = False
 
 
+def next_constraints_version(current: int, before: MissionConstraints, after: MissionConstraints) -> int:
+    """约束内容变化才递增。PATCH/undo 由命令层递增；消息合并由 persist 调用本函数。"""
+    return current if before == after else current + 1
+
+
 class ShoppingMission(BaseModel):
     """任务业务聚合根（跨层表示；P2 持久化时 ORM 映射到 shopping_missions 表）。"""
 
@@ -38,7 +43,10 @@ class ShoppingMission(BaseModel):
     owner_id: str
     title: str
     stage: MissionStage = MissionStage.COLLECTING
-    constraints_version: int = 1
+    constraints_version: int = Field(
+        default=1,
+        description="仅约束内容变化时递增；不是每次检索/运行的序号",
+    )
     constraints: MissionConstraints = Field(default_factory=MissionConstraints)
     active_run_id: str | None = None
     candidate_set_id: str | None = None

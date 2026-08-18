@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .mission import MissionConstraints, MissionStage, ShoppingMission
+from .mission import MissionConstraints, MissionStage, ShoppingMission, next_constraints_version
 from .public import (
     SSE_PUBLIC_EVENTS,
     CandidateSetView,
@@ -32,4 +32,5 @@ __all__ = [
     "ShoppingMission",
     "SSE_PUBLIC_EVENTS",
     "mission_view",
+    "next_constraints_version",
 ]

@@ -164,7 +164,7 @@ tags: [architecture, process, agent, ecommerce, backend, frontend, testing]
 
 ### 4.3 Agent 要求
 
-- **AGT-001**：Agent 必须围绕 `MissionGraphState` 运行，并实现显式节点：接收输入、解析 Patch、合并版本、判断追问、规划搜索、获取商品、获取汇率、归一化、过滤、排序、证据校验、生成解释、持久化结果。
+- **AGT-001**：Agent 必须围绕 `MissionGraphState` 运行，并实现显式节点：接收输入、解析 Patch、合并约束、判断追问、规划搜索、获取商品、获取汇率、归一化、过滤、排序、证据校验、生成解释、持久化结果。`merge_mission_state` 只合并 IntentPatch，不递增 `constraints_version`。
 - **AGT-002**：每个节点必须声明输入字段、输出字段和可失败类别；节点输出不得隐式修改未声明状态。
 - **AGT-003**：LLM 只允许输出 `IntentPatch`、`SearchPlan` 或 `RecommendationDraft`；不得直接输出最终价格、库存或链接。
 - **AGT-004**：最终响应必须从已持久化的 Product/Fx Snapshot 重新组装事实字段。
@@ -201,7 +201,7 @@ tags: [architecture, process, agent, ecommerce, backend, frontend, testing]
 - **DAT-002**：`product_snapshots` 必须保存供应商、供应商商品 ID、原始 payload、标准化字段、契约版本和抓取时间。
 - **DAT-003**：标准化商品允许品牌、评分、评价数、库存和规格为空，并列出 `unavailable_fields`。
 - **DAT-004**：CandidateSet 必须保存每个候选的保留/排除原因、排序位置和确定性评分输入。
-- **DAT-005**：数据库事务必须保证 Mission Event 与 `constraints_version` 更新原子提交。
+- **DAT-005**：数据库事务必须保证 Mission Event 与 `constraints_version` 更新原子提交。`constraints_version` 仅在约束内容实际变化时递增：PATCH/undo 由命令层立即递增（GET 在 Agent 完成前可见新版本）；用户消息由 persist 按合并前后约束是否相等决定。比较集合不推进版本。
 - **DAT-006**：原始 payload 不直接返回前端，不写入普通 INFO 日志。
 
 ### 4.7 安全与可观测性要求

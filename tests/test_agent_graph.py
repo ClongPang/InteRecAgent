@@ -173,6 +173,7 @@ async def test_normal_path_reaches_ready(db) -> None:
 
     loaded = await _load_mission(db, mission.id)
     assert loaded.stage.value == "ready"
+    # 首次合并把空约束写成查询+预算，1→2；不是「每次 run +1」
     assert loaded.constraints_version == 2
     assert loaded.candidate_set_id == result.candidate_set_id
     assert loaded.constraints.query == "通勤降噪耳机"
@@ -253,7 +254,7 @@ async def test_partial_market_failure_keeps_other_results(db) -> None:
 async def test_stale_run_is_superseded(db) -> None:
     """AGT-005：旧版本运行（run_version=1）在新版本任务后完成 → 标记 superseded，不提交候选。"""
     mission = await _create_mission_with_message(db, "通勤降噪耳机，预算 4000 元")
-    # 第一次运行：version 1 → 2，正常完成
+    # 第一次运行：首次合并约束 1→2，正常完成
     first = await _runner(db).run(
         owner_id=OWNER, mission_id=mission.id, run_id="00000000-0000-0000-0000-000000000006", constraints_version=1
     )
@@ -270,6 +271,40 @@ async def test_stale_run_is_superseded(db) -> None:
     reloaded = await _load_mission(db, mission.id)
     assert reloaded.constraints_version == 2
     assert reloaded.candidate_set_id == first.candidate_set_id
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_repeat_message_does_not_bump_version(db) -> None:
+    """同一句话再次检索：约束未变，constraints_version 保持。"""
+    text = "通勤降噪耳机，预算 4000 元"
+    mission = await _create_mission_with_message(db, text)
+    first = await _runner(db).run(
+        owner_id=OWNER,
+        mission_id=mission.id,
+        run_id="00000000-0000-0000-0000-000000000008",
+        constraints_version=1,
+    )
+    assert first.status.value == "completed"
+    loaded = await _load_mission(db, mission.id)
+    assert loaded.constraints_version == 2
+
+    run_id = "00000000-0000-0000-0000-00000000000a"
+    async with SqlAlchemyUnitOfWork(db) as uow:
+        await uow.events.append(
+            mission_id=mission.id,
+            event_type="message.received",
+            payload={"text": text, "constraints_version": 2, "run_id": run_id},
+        )
+        await uow.commit()
+
+    second = await _runner(db).run(
+        owner_id=OWNER, mission_id=mission.id, run_id=run_id, constraints_version=2
+    )
+    assert second.status.value == "completed"
+    reloaded = await _load_mission(db, mission.id)
+    assert reloaded.constraints_version == 2
+    assert reloaded.candidate_set_id == second.candidate_set_id
 
 
 # ── 完整链路：MissionCommandService → Dispatcher → Runner ─────
