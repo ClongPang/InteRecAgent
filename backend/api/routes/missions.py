@@ -1,9 +1,17 @@
-"""Mission 命令与查询路由（P4-W02）。Route 只调用 Application Service。"""
+"""Mission 命令与查询路由（P4-W02）。Route 只调用 Application Service，对外返回 ViewModel。"""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 
-from ...application.dto import MissionConstraints
+from ...application.dto import (
+    CandidateSetView,
+    CreateMissionResponse,
+    MissionConstraints,
+    MissionListResponse,
+    MissionView,
+    RecommendationView,
+    mission_view,
+)
 from ..dependencies import get_anonymous_user_id, get_command_service
 from ..schemas import (
     ComparisonRequest,
@@ -17,50 +25,47 @@ from ..schemas import (
 router = APIRouter(tags=["missions"])
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, response_model=CreateMissionResponse)
 async def create_mission(
     body: CreateMissionRequest,
     svc=Depends(get_command_service),
     owner_id: str = Depends(get_anonymous_user_id),
-) -> dict:
+) -> CreateMissionResponse:
     """创建任务并提交第一条消息"""
     mission = await svc.create_mission(owner_id=owner_id, title=body.title or "新选购")
     run_id = await svc.submit_message(
         owner_id=owner_id, mission_id=mission.id, text=body.text, constraints_version=1
     )
-    loaded = await svc.get_mission(owner_id=owner_id, mission_id=mission.id)
-    return {
-        "mission": loaded.model_dump(mode="json"),
-        "run_id": run_id,
-        "constraints_version": loaded.constraints_version,
-    }
+    loaded = await svc.get_mission_view(owner_id=owner_id, mission_id=mission.id)
+    return CreateMissionResponse(
+        mission=loaded, run_id=run_id, constraints_version=loaded.constraints_version
+    )
 
 
-@router.get("")
+@router.get("", response_model=MissionListResponse)
 async def list_missions(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     svc=Depends(get_command_service),
     owner_id: str = Depends(get_anonymous_user_id),
-) -> dict:
+) -> MissionListResponse:
     """分页获取当前匿名用户的任务列表（按 updated_at DESC, id ASC 稳定排序）。"""
     missions = await svc.list_missions(owner_id=owner_id, limit=limit, offset=offset)
-    return {
-        "missions": [m.model_dump(mode="json") for m in missions],
-        "limit": limit,
-        "offset": offset,
-    }
+    return MissionListResponse(
+        missions=[mission_view(m) for m in missions],
+        limit=limit,
+        offset=offset,
+    )
 
 
-@router.get("/{mission_id}")
+@router.get("/{mission_id}", response_model=MissionView)
 async def get_mission(
     mission_id: str,
     svc=Depends(get_command_service),
     owner_id: str = Depends(get_anonymous_user_id),
-) -> dict:
+) -> MissionView:
     """当前任务投影。"""
-    mission = await svc.get_mission(owner_id=owner_id, mission_id=mission_id)
-    return mission.model_dump(mode="json")
+    return await svc.get_mission_view(owner_id=owner_id, mission_id=mission_id)
 
 
 @router.post("/{mission_id}/messages", status_code=202, response_model=RunAccepted)
@@ -124,41 +129,38 @@ async def undo(
     return RunAccepted(run_id=run_id, constraints_version=body.constraints_version + 1)
 
 
-@router.put("/{mission_id}/comparison")
+@router.put("/{mission_id}/comparison", response_model=MissionView)
 async def set_comparison(
     mission_id: str,
     body: ComparisonRequest,
     svc=Depends(get_command_service),
     owner_id: str = Depends(get_anonymous_user_id),
-) -> dict:
-    """替换 2–4 件比较集合（BUS-005）。数量校验失败返回 400。"""
+) -> MissionView:
+    """替换 2–4 件比较集合。snapshot_ids 必须是当前候选快照 UUID。"""
     updated = await svc.set_comparison(
         owner_id=owner_id,
         mission_id=mission_id,
         constraints_version=body.constraints_version,
         snapshot_ids=body.snapshot_ids,
     )
-    return updated.model_dump(mode="json")
+    return mission_view(updated)
 
 
-@router.get("/{mission_id}/candidates")
+@router.get("/{mission_id}/candidates", response_model=CandidateSetView)
 async def get_candidates(
     mission_id: str,
     svc=Depends(get_command_service),
     owner_id: str = Depends(get_anonymous_user_id),
-) -> dict:
+) -> CandidateSetView:
     """当前版本候选集。无候选集时返回空结构。"""
-    payload = await svc.get_candidates(owner_id=owner_id, mission_id=mission_id)
-    if payload is None:
-        return {"ranked": [], "snapshot_map": {}, "fx_snapshot_ids": []}
-    return payload
+    return await svc.get_candidates(owner_id=owner_id, mission_id=mission_id)
 
 
-@router.get("/{mission_id}/recommendation")
+@router.get("/{mission_id}/recommendation", response_model=RecommendationView)
 async def get_recommendation(
     mission_id: str,
     svc=Depends(get_command_service),
     owner_id: str = Depends(get_anonymous_user_id),
-) -> dict:
-    """当前已验证推荐。"""
+) -> RecommendationView:
+    """当前已验证推荐：从快照回填价格事实。"""
     return await svc.get_recommendation(owner_id=owner_id, mission_id=mission_id)

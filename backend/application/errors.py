@@ -27,6 +27,10 @@ class RecommendationNotFound(ApplicationError):
     """当前任务尚无已验证推荐。"""
 
 
+class SnapshotNotFound(ApplicationError):
+    """商品快照不存在。"""
+
+
 class InvalidAnonymousUser(ApplicationError):
     """匿名用户标识不是合法 UUID。"""
 

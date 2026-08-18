@@ -110,7 +110,11 @@ async def test_create_mission_runs_agent_to_ready(client) -> None:
 
     cands = await client.get(f"/api/v1/missions/{mission['id']}/candidates", headers=_headers())
     assert cands.status_code == 200
-    assert cands.json()["ranked"]
+    ranked = cands.json()["ranked"]
+    assert ranked
+    assert ranked[0]["snapshot_id"]
+    assert ranked[0]["source_product_id"]
+    assert "owner_id" not in mission
 
 
 async def test_mission_list_pagination_stable(client) -> None:
@@ -142,7 +146,7 @@ async def test_comparison_two_to_four_boundary(client) -> None:
     mission_id = mission["id"]
     version = mission["constraints_version"]
     cands = (await client.get(f"/api/v1/missions/{mission_id}/candidates", headers=_headers())).json()
-    ids = [p["id"] for p in cands["ranked"]]
+    ids = [p["snapshot_id"] for p in cands["ranked"]]
 
     # 1 件 → 校验错误（schema 422 或路由 400）
     bad = await client.put(
@@ -247,3 +251,33 @@ async def test_recommendation_missing_uses_error_contract(client) -> None:
     )
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "recommendation_not_found"
+
+
+async def test_validation_error_uses_error_contract(client) -> None:
+    resp = await client.post("/api/v1/missions", json={"text": ""}, headers=_headers())
+    assert resp.status_code == 422
+    body = resp.json()["error"]
+    assert body["code"] == "validation_error"
+    assert body["category"] == "user"
+    assert body["details"]["errors"]
+
+
+async def test_product_snapshot_and_recommendation_use_snapshot_ids(client) -> None:
+    data = await _create_mission(client, "通勤降噪耳机，预算 4000 元")
+    mission = await _wait_terminal(client, data["mission"]["id"])
+    ranked = (await client.get(f"/api/v1/missions/{mission['id']}/candidates", headers=_headers())).json()[
+        "ranked"
+    ]
+    snap_id = ranked[0]["snapshot_id"]
+    snap = await client.get(f"/api/v1/product-snapshots/{snap_id}", headers=_headers())
+    assert snap.status_code == 200
+    assert snap.json()["snapshot_id"] == snap_id
+    rec = await client.get(f"/api/v1/missions/{mission['id']}/recommendation", headers=_headers())
+    assert rec.status_code == 200
+    body = rec.json()
+    assert body["primary"]["snapshot_id"] == snap_id
+    missing = await client.get(
+        "/api/v1/product-snapshots/00000000-0000-0000-0000-00000000dead", headers=_headers()
+    )
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "snapshot_not_found"

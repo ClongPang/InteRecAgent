@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from ..application.errors import (
+    ApplicationError,
     DispatcherNotAccepting,
     InvalidAnonymousUser,
     InvalidComparison,
@@ -13,6 +15,7 @@ from ..application.errors import (
     ModelUnavailableError,
     NothingToUndo,
     RecommendationNotFound,
+    SnapshotNotFound,
     UpstreamUnavailableError,
 )
 
@@ -129,6 +132,55 @@ def register_exception_handlers(app: FastAPI) -> None:
                 category="system",
                 message="服务正在关闭，请稍后重试",
                 retryable=True,
+            ),
+        )
+
+    @app.exception_handler(SnapshotNotFound)
+    async def _snapshot_not_found(request: Request, exc: SnapshotNotFound):
+        return JSONResponse(
+            status_code=404,
+            content=_payload(
+                request,
+                code="snapshot_not_found",
+                category="user",
+                message="商品快照不存在",
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation(request: Request, exc: RequestValidationError):
+        details = []
+        for err in exc.errors():
+            details.append(
+                {
+                    "loc": [str(part) for part in err.get("loc", ())],
+                    "msg": err.get("msg"),
+                    "type": err.get("type"),
+                }
+            )
+        return JSONResponse(
+            status_code=422,
+            content=_payload(
+                request,
+                code="validation_error",
+                category="user",
+                message="请求参数不合法",
+                retryable=False,
+                details={"errors": details},
+            ),
+        )
+
+    @app.exception_handler(ApplicationError)
+    async def _application(request: Request, exc: ApplicationError):
+        return JSONResponse(
+            status_code=400,
+            content=_payload(
+                request,
+                code="application_error",
+                category="user",
+                message=str(exc) or "请求无法处理",
+                retryable=False,
             ),
         )
 

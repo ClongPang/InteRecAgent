@@ -24,7 +24,11 @@ class ConstraintsUpdateRequest(BaseModel):
 
 class ComparisonRequest(BaseModel):
     constraints_version: int = Field(ge=1)
-    snapshot_ids: list[str] = Field(min_length=2, max_length=4)
+    snapshot_ids: list[str] = Field(
+        min_length=2,
+        max_length=4,
+        description="当前候选集中的 snapshot_id（商品快照 UUID）",
+    )
 
 
 class UndoRequest(BaseModel):

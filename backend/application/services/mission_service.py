@@ -5,14 +5,23 @@ from uuid import uuid4
 
 from ...domain.models import utcnow
 from ..dto import MissionConstraints, MissionStage, ShoppingMission
+from ..dto.public import (
+    CandidateSetView,
+    MissionView,
+    ProductCandidate,
+    RecommendationView,
+    mission_view,
+)
 from ..errors import (
     InvalidComparison,
     MissionNotFound,
     MissionVersionConflict,
     NothingToUndo,
     RecommendationNotFound,
+    SnapshotNotFound,
 )
 from ..ports import RunDispatcher, UnitOfWork
+from .present import product_candidate_from_record, product_candidate_from_snapshot
 
 
 class MissionCommandService:
@@ -37,6 +46,9 @@ class MissionCommandService:
         if mission is None:
             raise MissionNotFound(mission_id)
         return mission
+
+    async def get_mission_view(self, *, owner_id: str, mission_id: str) -> MissionView:
+        return mission_view(await self.get_mission(owner_id=owner_id, mission_id=mission_id))
 
     async def list_missions(
         self, *, owner_id: str, limit: int = 20, offset: int = 0
@@ -214,7 +226,7 @@ class MissionCommandService:
             valid_ids = await self._comparison_id_universe(uow, mission)
             unknown = [sid for sid in snapshot_ids if sid not in valid_ids]
             if unknown:
-                raise InvalidComparison("比较集合必须来自当前候选")
+                raise InvalidComparison("比较集合必须来自当前候选快照")
             updated = mission.model_copy(
                 update={"comparison_snapshot_ids": snapshot_ids, "updated_at": utcnow()}
             )
@@ -230,31 +242,73 @@ class MissionCommandService:
             await uow.commit()
             return updated
 
-    async def get_candidates(self, *, owner_id: str, mission_id: str) -> dict | None:
-        """读取当前候选集（DAT-004 展示数据）。跨 owner 一律 404。"""
+    async def get_candidates(self, *, owner_id: str, mission_id: str) -> CandidateSetView:
         async with self._uow_factory() as uow:
             mission = await uow.missions.get(owner_id=owner_id, mission_id=mission_id)
             if mission is None:
                 raise MissionNotFound(mission_id)
             if mission.candidate_set_id is None:
-                return None
-            return await uow.candidate_sets.get(mission.candidate_set_id)
+                return CandidateSetView()
+            payload = await uow.candidate_sets.get(mission.candidate_set_id)
+        return self._candidate_set_view(payload)
 
-    async def get_recommendation(self, *, owner_id: str, mission_id: str) -> dict:
+    async def get_recommendation(self, *, owner_id: str, mission_id: str) -> RecommendationView:
         async with self._uow_factory() as uow:
             mission = await uow.missions.get(owner_id=owner_id, mission_id=mission_id)
             if mission is None:
                 raise MissionNotFound(mission_id)
             if mission.recommendation_run_id is None:
                 raise RecommendationNotFound(mission_id)
-            payload = await uow.recommendation_runs.get(mission.recommendation_run_id)
-        if payload is None:
-            raise RecommendationNotFound(mission_id)
-        return payload
+            run = await uow.recommendation_runs.get(mission.recommendation_run_id)
+            if run is None or not run.get("draft_json"):
+                raise RecommendationNotFound(mission_id)
+            draft = run["draft_json"]
+            snapshot_map: dict[str, str] = {}
+            if run.get("candidate_set_id"):
+                candidates = await uow.candidate_sets.get(run["candidate_set_id"])
+                snapshot_map = (candidates or {}).get("snapshot_map") or {}
 
-    async def get_snapshot(self, *, snapshot_id: str) -> dict | None:
+            async def _load(eid: str | None) -> ProductCandidate | None:
+                if not eid:
+                    return None
+                sid = snapshot_map.get(eid, eid)
+                snap = await uow.products.get(sid)
+                if snap is None:
+                    return None
+                return product_candidate_from_snapshot(snap)
+
+            primary = await _load(draft.get("primary_snapshot_id"))
+            alternatives: list[ProductCandidate] = []
+            for alt_id in draft.get("alternative_snapshot_ids") or []:
+                item = await _load(alt_id)
+                if item is not None:
+                    alternatives.append(item)
+            cited = []
+            for eid in draft.get("cited_evidence_ids") or []:
+                sid = snapshot_map.get(eid, eid)
+                if await uow.products.get(sid):
+                    cited.append(sid)
+        if primary is None:
+            raise RecommendationNotFound(mission_id)
+        return RecommendationView(
+            run_id=mission.recommendation_run_id,
+            status=run["status"],
+            primary=primary,
+            alternatives=alternatives,
+            rationale=list(draft.get("rationale") or []),
+            tradeoffs=list(draft.get("tradeoffs") or []),
+            cited_evidence_ids=cited,
+        )
+
+    async def get_snapshot(self, *, snapshot_id: str) -> ProductCandidate:
         async with self._uow_factory() as uow:
-            return await uow.products.get(snapshot_id)
+            snap = await uow.products.get(snapshot_id)
+        if snap is None:
+            raise SnapshotNotFound(snapshot_id)
+        candidate = product_candidate_from_snapshot(snap)
+        if candidate is None:
+            raise SnapshotNotFound(snapshot_id)
+        return candidate
 
     async def list_events(
         self, *, owner_id: str, mission_id: str, after: int = 0
@@ -267,17 +321,29 @@ class MissionCommandService:
             return await uow.events.list_since(mission_id=mission_id, sequence=after)
 
     @staticmethod
+    def _candidate_set_view(payload: dict | None) -> CandidateSetView:
+        if not payload:
+            return CandidateSetView()
+        ranked: list[ProductCandidate] = []
+        for index, item in enumerate(payload.get("ranked") or [], start=1):
+            candidate = product_candidate_from_record(item, rank=index)
+            if candidate is not None:
+                ranked.append(candidate)
+        return CandidateSetView(
+            ranked=ranked,
+            fx_snapshot_ids=list(payload.get("fx_snapshot_ids") or []),
+        )
+
+    @staticmethod
     async def _comparison_id_universe(uow: UnitOfWork, mission: ShoppingMission) -> set[str]:
-        """当前候选里允许进入比较集的 ID：供应商商品 id 与快照 UUID。"""
+        """比较集只接受当前候选的 snapshot_id。"""
         if mission.candidate_set_id is None:
             return set()
         payload = await uow.candidate_sets.get(mission.candidate_set_id)
         if not payload:
             return set()
-        valid: set[str] = set()
-        for item in payload.get("ranked") or []:
-            for key in ("id", "snapshot_id"):
-                value = item.get(key)
-                if value:
-                    valid.add(value)
-        return valid
+        return {
+            str(item["snapshot_id"])
+            for item in payload.get("ranked") or []
+            if item.get("snapshot_id")
+        }

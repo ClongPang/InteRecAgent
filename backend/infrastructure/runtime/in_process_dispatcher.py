@@ -55,6 +55,15 @@ class InProcessRunDispatcher:
             await uow.recommendation_runs.save(
                 mission_id=mission_id, run_id=run_id, payload={"status": "accepted"}
             )
+            await uow.events.append(
+                mission_id=mission_id,
+                event_type="run.accepted",
+                payload={
+                    "mission_id": mission_id,
+                    "run_id": run_id,
+                    "constraints_version": constraints_version,
+                },
+            )
             await uow.commit()
         task = asyncio.create_task(
             self._execute(

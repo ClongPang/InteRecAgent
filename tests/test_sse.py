@@ -97,7 +97,7 @@ async def test_sse_delivers_incremental_events(live_server) -> None:
                     elif line.startswith("event: "):
                         seen_ids.append(cur)
                         types.append(line.split(": ", 1)[1])
-                        if len(types) >= 3:
+                        if len(types) >= 2:
                             return
             done.set()
 
@@ -106,7 +106,7 @@ async def test_sse_delivers_incremental_events(live_server) -> None:
         except TimeoutError:
             done.set()
 
-    assert "message.received" in types
+    assert "run.accepted" in types
     assert "recommendation.ready" in types
     # 序号递增且无重复
     assert seen_ids == sorted(seen_ids)

@@ -6,6 +6,7 @@ from collections.abc import Callable
 from ...application.dto import MissionStage, RunnerStatus
 from ...application.errors import MissionVersionConflict
 from ...application.ports import UnitOfWork
+from ...application.services.present import candidate_record, remap_draft
 from ..state import MissionGraphState
 
 CONTRACT_VERSION = "1.0"
@@ -56,7 +57,7 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 return {"status": RunnerStatus.SUPERSEDED, "warnings": ["运行基于旧版本约束，已标记 superseded"]}
 
             ranked = state.get("ranked", [])
-            # 商品快照（DAT-002）；raw 不可得时存归一化事实并标注契约版本
+            rates = state.get("rates") or {}
             snapshot_map: dict[str, str] = {}
             for product in ranked:
                 snap_id = await uow.products.save(
@@ -67,13 +68,20 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 snapshot_map[product.id] = snap_id
             fx_ids = [await uow.fx_snapshots.save(snapshot=s) for s in state.get("fx", [])]
 
-            # 候选集（DAT-004）
+            budget = mission.constraints.budget_cny
+            ranked_records = [
+                candidate_record(
+                    product,
+                    snapshot_id=snapshot_map[product.id],
+                    fx=rates.get(product.native_currency),
+                    rank=index + 1,
+                    budget_cny=budget,
+                )
+                for index, product in enumerate(ranked)
+            ]
             candidate_payload = {
                 "snapshot_map": snapshot_map,
-                "ranked": [
-                    {**product.model_dump(mode="json"), "snapshot_id": snapshot_map.get(product.id)}
-                    for product in ranked
-                ],
+                "ranked": ranked_records,
                 "fx_snapshot_ids": fx_ids,
             }
             candidate_set_id = await uow.candidate_sets.save(
@@ -83,15 +91,15 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 payload=candidate_payload,
             )
 
-            # 推荐运行
             draft = state.get("recommendation")
+            stored_draft = remap_draft(draft, snapshot_map) if draft else None
             await uow.recommendation_runs.save(
                 mission_id=mission.id,
                 run_id=run_id,
                 payload={
                     "status": "completed",
                     "candidate_set_id": candidate_set_id,
-                    "draft_json": draft.model_dump(mode="json") if draft else None,
+                    "draft_json": stored_draft.model_dump(mode="json") if stored_draft else None,
                 },
             )
 
@@ -118,9 +126,11 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 mission_id=mission.id,
                 event_type=event_type,
                 payload={
+                    "mission_id": mission.id,
                     "run_id": run_id,
                     "candidate_set_id": candidate_set_id,
                     "constraints_version": mission.constraints_version,
+                    "count": len(ranked_records),
                 },
             )
             await uow.commit()

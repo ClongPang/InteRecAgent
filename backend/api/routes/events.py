@@ -8,6 +8,7 @@ import time
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
+from ...application.dto import SSE_PUBLIC_EVENTS
 from ..dependencies import get_anonymous_user_id, get_command_service
 
 router = APIRouter(tags=["events"])
@@ -65,6 +66,8 @@ async def stream_events(
             events = await svc.list_events(owner_id=owner_id, mission_id=mission_id, after=last_seq)
             for event in events:
                 last_seq = event["sequence"]
+                if event["event_type"] not in SSE_PUBLIC_EVENTS:
+                    continue
                 data = json.dumps(event["payload"], ensure_ascii=False)
                 yield f"id: {event['sequence']}\nevent: {event['event_type']}\ndata: {data}\n\n"
             if time.monotonic() - last_beat >= HEARTBEAT_INTERVAL:

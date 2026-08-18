@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .errors import register_exception_handlers
 from .middleware import TraceMiddleware
-from .routes import events, health, missions
+from .routes import events, health, missions, snapshots
 
 
 def create_app(container) -> FastAPI:
@@ -44,4 +44,5 @@ def create_app(container) -> FastAPI:
     app.include_router(health.router, prefix="/api/v1")
     app.include_router(missions.router, prefix="/api/v1/missions")
     app.include_router(events.router, prefix="/api/v1/missions")
+    app.include_router(snapshots.router, prefix="/api/v1")
     return app

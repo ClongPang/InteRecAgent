@@ -178,8 +178,20 @@ class PostgresProductSnapshotRepository:
         return str(row.id)
 
     async def get(self, snapshot_id: str) -> dict | None:
-        row = await self._session.get(ProductSnapshotRow, uuid.UUID(snapshot_id))
-        return row.normalized_json if row else None
+        try:
+            uid = uuid.UUID(snapshot_id)
+        except ValueError:
+            return None
+        row = await self._session.get(ProductSnapshotRow, uid)
+        if row is None:
+            return None
+        return {
+            "id": str(row.id),
+            "source": row.source,
+            "source_product_id": row.source_product_id,
+            "normalized": row.normalized_json,
+            "fetched_at": row.fetched_at,
+        }
 
 
 class PostgresFxSnapshotRepository:
