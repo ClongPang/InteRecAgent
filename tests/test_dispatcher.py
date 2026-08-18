@@ -10,6 +10,7 @@ import asyncio
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from backend.application.errors import DispatcherNotAccepting
 from backend.infrastructure.persistence.orm import ShoppingMissionRow
 from backend.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from backend.infrastructure.runtime.in_process_dispatcher import InProcessRunDispatcher
@@ -97,3 +98,15 @@ async def test_graceful_stop_cancels_slow_run_and_marks_interrupted(db) -> None:
     await dispatcher.stop(grace_seconds=0.2)
     # 慢任务未能在 grace 内完成 → 取消并标记 interrupted
     assert await _get_run_status(db) == "interrupted"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_after_stop_is_rejected(db) -> None:
+    await _insert_mission(db)
+    dispatcher = InProcessRunDispatcher(SlowRunner(delay=0), db)
+    await dispatcher.start()
+    await dispatcher.stop(grace_seconds=0.1)
+    with pytest.raises(DispatcherNotAccepting):
+        await dispatcher.dispatch(
+            owner_id=OWNER, mission_id=MISSION, run_id=RUN, constraints_version=1
+        )

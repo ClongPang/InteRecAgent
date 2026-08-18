@@ -95,6 +95,7 @@ async def test_error_contract_and_trace_id(client) -> None:
 async def test_invalid_user_id_header_rejected(client) -> None:
     resp = await client.get("/api/v1/missions", headers={"X-Anonymous-User-ID": "not-a-uuid"})
     assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "invalid_anonymous_user"
 
 
 # ── P4-W02：Mission Commands ────────────────────────────────
@@ -202,6 +203,11 @@ async def test_undo_restores_constraints(client) -> None:
 
     after_patch = await client.get(f"/api/v1/missions/{mission_id}", headers=_headers())
     assert after_patch.json()["constraints"]["budget_cny"] == 3000
+    patched = await _wait_terminal(client, mission_id)
+    assert patched["stage"] in {"ready", "degraded"}
+    assert patched["constraints"]["budget_cny"] == 3000
+    assert patched["candidate_set_id"]
+    assert patched["constraints_version"] == new_version
 
     # 撤销 → 恢复到 4000，版本继续单调递增
     undo = await client.post(
@@ -214,3 +220,30 @@ async def test_undo_restores_constraints(client) -> None:
 
     after_undo = await client.get(f"/api/v1/missions/{mission_id}", headers=_headers())
     assert after_undo.json()["constraints"]["budget_cny"] == 4000
+    restored = await _wait_terminal(client, mission_id)
+    assert restored["stage"] in {"ready", "degraded"}
+    assert restored["constraints"]["budget_cny"] == 4000
+    assert restored["candidate_set_id"]
+
+
+async def test_undo_without_constraint_change_returns_409(client) -> None:
+    data = await _create_mission(client, "通勤降噪耳机，预算 4000 元")
+    mission = await _wait_terminal(client, data["mission"]["id"])
+    resp = await client.post(
+        f"/api/v1/missions/{mission['id']}/undo",
+        json={"constraints_version": mission["constraints_version"]},
+        headers=_headers(),
+    )
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "nothing_to_undo"
+
+
+async def test_recommendation_missing_uses_error_contract(client) -> None:
+    data = await _create_mission(client, "预算 2000 元")
+    mission = await _wait_terminal(client, data["mission"]["id"])
+    assert mission["stage"] == "clarifying"
+    resp = await client.get(
+        f"/api/v1/missions/{mission['id']}/recommendation", headers=_headers()
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "recommendation_not_found"

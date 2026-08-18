@@ -19,6 +19,7 @@ def create_app(container) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         session_factory = container.build_session_factory()
+        # Command Service 必须与 lifespan 共用同一 dispatcher，否则 start/stop 管不到后台任务。
         dispatcher = container.build_run_dispatcher(session_factory)
         command_service = container.build_command_service(session_factory)
         app.state.container = container

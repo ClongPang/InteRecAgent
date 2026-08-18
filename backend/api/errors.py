@@ -5,9 +5,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from ..application.errors import (
+    DispatcherNotAccepting,
+    InvalidAnonymousUser,
+    InvalidComparison,
     MissionNotFound,
     MissionVersionConflict,
     ModelUnavailableError,
+    NothingToUndo,
+    RecommendationNotFound,
     UpstreamUnavailableError,
 )
 
@@ -40,16 +45,91 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def _mission_not_found(request: Request, exc: MissionNotFound):
         return JSONResponse(
             status_code=404,
-            content=_payload(request, code="mission_not_found", category="user",
-                             message="任务不存在", retryable=False),
+            content=_payload(
+                request,
+                code="mission_not_found",
+                category="user",
+                message="任务不存在",
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(RecommendationNotFound)
+    async def _recommendation_not_found(request: Request, exc: RecommendationNotFound):
+        return JSONResponse(
+            status_code=404,
+            content=_payload(
+                request,
+                code="recommendation_not_found",
+                category="user",
+                message="尚无推荐结果",
+                retryable=False,
+            ),
         )
 
     @app.exception_handler(MissionVersionConflict)
     async def _version_conflict(request: Request, exc: MissionVersionConflict):
         return JSONResponse(
             status_code=409,
-            content=_payload(request, code="mission_version_conflict", category="user",
-                             message="任务约束版本已变化，请刷新后重试", retryable=False),
+            content=_payload(
+                request,
+                code="mission_version_conflict",
+                category="user",
+                message="任务约束版本已变化，请刷新后重试",
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(NothingToUndo)
+    async def _nothing_to_undo(request: Request, exc: NothingToUndo):
+        return JSONResponse(
+            status_code=409,
+            content=_payload(
+                request,
+                code="nothing_to_undo",
+                category="user",
+                message="没有可撤销的条件变更",
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(InvalidComparison)
+    async def _invalid_comparison(request: Request, exc: InvalidComparison):
+        return JSONResponse(
+            status_code=400,
+            content=_payload(
+                request,
+                code="invalid_comparison",
+                category="user",
+                message=str(exc) or "比较集合不合法",
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(InvalidAnonymousUser)
+    async def _invalid_user(request: Request, exc: InvalidAnonymousUser):
+        return JSONResponse(
+            status_code=400,
+            content=_payload(
+                request,
+                code="invalid_anonymous_user",
+                category="user",
+                message="X-Anonymous-User-ID 必须是 UUID",
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(DispatcherNotAccepting)
+    async def _dispatcher_stopped(request: Request, exc: DispatcherNotAccepting):
+        return JSONResponse(
+            status_code=503,
+            content=_payload(
+                request,
+                code="dispatcher_not_accepting",
+                category="system",
+                message="服务正在关闭，请稍后重试",
+                retryable=True,
+            ),
         )
 
     @app.exception_handler(UpstreamUnavailableError)
@@ -70,15 +150,24 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def _model(request: Request, exc: ModelUnavailableError):
         return JSONResponse(
             status_code=503,
-            content=_payload(request, code="model_unavailable", category="model",
-                             message=str(exc), retryable=False),
+            content=_payload(
+                request,
+                code="model_unavailable",
+                category="model",
+                message=str(exc),
+                retryable=False,
+            ),
         )
 
     @app.exception_handler(Exception)
     async def _internal(request: Request, exc: Exception):
-        # 不暴露堆栈或密钥；trace_id 关联日志
         return JSONResponse(
             status_code=500,
-            content=_payload(request, code="internal_error", category="system",
-                             message="服务器内部错误", retryable=False),
+            content=_payload(
+                request,
+                code="internal_error",
+                category="system",
+                message="服务器内部错误",
+                retryable=False,
+            ),
         )

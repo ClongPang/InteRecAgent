@@ -18,7 +18,9 @@ class MissionRepository(Protocol):
 
     async def create(self, *, owner_id: str, title: str) -> ShoppingMission: ...
 
-    async def save(self, mission: ShoppingMission) -> None: ...
+    async def save(
+        self, mission: ShoppingMission, *, expected_version: int | None = None
+    ) -> None: ...
 
 
 @runtime_checkable

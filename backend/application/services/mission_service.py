@@ -10,6 +10,7 @@ from ..errors import (
     MissionNotFound,
     MissionVersionConflict,
     NothingToUndo,
+    RecommendationNotFound,
 )
 from ..ports import RunDispatcher, UnitOfWork
 
@@ -68,6 +69,14 @@ class MissionCommandService:
                     f"expected constraints_version {constraints_version}, got {mission.constraints_version}"
                 )
             run_id = str(uuid4())
+            updated = mission.model_copy(
+                update={
+                    "stage": MissionStage.SEARCHING,
+                    "active_run_id": run_id,
+                    "updated_at": utcnow(),
+                }
+            )
+            await uow.missions.save(updated, expected_version=constraints_version)
             await uow.events.append(
                 mission_id=mission_id,
                 event_type="message.received",
@@ -130,7 +139,7 @@ class MissionCommandService:
             owner_id=owner_id,
             mission_id=mission_id,
             run_id=run_id,
-            constraints_version=constraints_version,
+            constraints_version=updated.constraints_version,
         )
         return run_id
 
@@ -177,7 +186,7 @@ class MissionCommandService:
             owner_id=owner_id,
             mission_id=mission_id,
             run_id=run_id,
-            constraints_version=constraints_version,
+            constraints_version=updated.constraints_version,
         )
         return run_id
 
@@ -192,6 +201,8 @@ class MissionCommandService:
         """保存 2–4 件比较集合（BUS-005/FE-007）。比较不推进约束版本，但做乐观版本校验。"""
         if not 2 <= len(snapshot_ids) <= 4:
             raise InvalidComparison(f"比较集合必须是 2–4 件，收到 {len(snapshot_ids)}")
+        if len(set(snapshot_ids)) != len(snapshot_ids):
+            raise InvalidComparison("比较集合不能包含重复商品")
         async with self._uow_factory() as uow:
             mission = await uow.missions.get(owner_id=owner_id, mission_id=mission_id)
             if mission is None:
@@ -200,6 +211,10 @@ class MissionCommandService:
                 raise MissionVersionConflict(
                     f"expected {constraints_version}, got {mission.constraints_version}"
                 )
+            valid_ids = await self._comparison_id_universe(uow, mission)
+            unknown = [sid for sid in snapshot_ids if sid not in valid_ids]
+            if unknown:
+                raise InvalidComparison("比较集合必须来自当前候选")
             updated = mission.model_copy(
                 update={"comparison_snapshot_ids": snapshot_ids, "updated_at": utcnow()}
             )
@@ -225,14 +240,17 @@ class MissionCommandService:
                 return None
             return await uow.candidate_sets.get(mission.candidate_set_id)
 
-    async def get_recommendation(self, *, owner_id: str, mission_id: str) -> dict | None:
+    async def get_recommendation(self, *, owner_id: str, mission_id: str) -> dict:
         async with self._uow_factory() as uow:
             mission = await uow.missions.get(owner_id=owner_id, mission_id=mission_id)
             if mission is None:
                 raise MissionNotFound(mission_id)
             if mission.recommendation_run_id is None:
-                return None
-            return await uow.recommendation_runs.get(mission.recommendation_run_id)
+                raise RecommendationNotFound(mission_id)
+            payload = await uow.recommendation_runs.get(mission.recommendation_run_id)
+        if payload is None:
+            raise RecommendationNotFound(mission_id)
+        return payload
 
     async def get_snapshot(self, *, snapshot_id: str) -> dict | None:
         async with self._uow_factory() as uow:
@@ -247,3 +265,19 @@ class MissionCommandService:
             if mission is None:
                 raise MissionNotFound(mission_id)
             return await uow.events.list_since(mission_id=mission_id, sequence=after)
+
+    @staticmethod
+    async def _comparison_id_universe(uow: UnitOfWork, mission: ShoppingMission) -> set[str]:
+        """当前候选里允许进入比较集的 ID：供应商商品 id 与快照 UUID。"""
+        if mission.candidate_set_id is None:
+            return set()
+        payload = await uow.candidate_sets.get(mission.candidate_set_id)
+        if not payload:
+            return set()
+        valid: set[str] = set()
+        for item in payload.get("ranked") or []:
+            for key in ("id", "snapshot_id"):
+                value = item.get(key)
+                if value:
+                    valid.add(value)
+        return valid

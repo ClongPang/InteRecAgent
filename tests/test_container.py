@@ -52,6 +52,15 @@ def test_live_mode_with_key_builds_real_source() -> None:
     assert isinstance(c.build_fx_source(), FrankfurterFxSource)
 
 
+def test_dispatcher_is_shared_with_command_service() -> None:
+    c = Container(_settings(data_source="fixture"))
+    sf = c.build_session_factory()
+    first = c.build_run_dispatcher(sf)
+    service = c.build_command_service(sf)
+    assert c.build_run_dispatcher(sf) is first
+    assert service._dispatcher is first
+
+
 def test_settings_reads_interec_env_vars() -> None:
     os.environ["INTEREC_DATA_SOURCE"] = "live"
     os.environ["INTEREC_BUYWHERE_API_KEY"] = "env-key"

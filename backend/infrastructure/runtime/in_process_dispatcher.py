@@ -2,19 +2,24 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ...application.dto import MissionStage
+from ...application.errors import DispatcherNotAccepting
 from ...application.ports import MissionRunner
+from ...domain.models import utcnow
 from ..persistence.unit_of_work import SqlAlchemyUnitOfWork
+
+logger = logging.getLogger(__name__)
 
 
 class InProcessRunDispatcher:
     """进程内调度：后台任务执行注入的 MissionRunner，运行状态持久化到推荐运行表。
 
-    - dispatch 先持久化 accepted，再创建后台任务；不阻塞 HTTP 请求。
-    - 优雅关闭 stop() 停止接收新 Run，在 grace 内 drain；剩余取消并标记 interrupted。
-    - 启动 start() 恢复遗留 accepted/running → interrupted（前端可显式重试）。
+    单进程假设：start() 将遗留 accepted/running 标为 interrupted（崩溃恢复）。
+    多 worker 需换成外部队列，不可共享这套 interrupt_stale。
     """
 
     def __init__(
@@ -28,11 +33,10 @@ class InProcessRunDispatcher:
         self._session_factory = session_factory
         self._grace = grace_seconds
         self._tasks: set[asyncio.Task] = set()
-        self._accepting = False
+        self._accepting = True
 
     async def start(self) -> None:
         self._accepting = True
-        # 启动恢复：遗留 accepted/running → interrupted
         async with SqlAlchemyUnitOfWork(self._session_factory) as uow:
             await uow.recommendation_runs.interrupt_stale()
             await uow.commit()
@@ -45,7 +49,8 @@ class InProcessRunDispatcher:
         run_id: str,
         constraints_version: int,
     ) -> None:
-        # 先持久化 accepted（事件已由 Command Service 写入）
+        if not self._accepting:
+            raise DispatcherNotAccepting("调度器已停止接收新运行")
         async with SqlAlchemyUnitOfWork(self._session_factory) as uow:
             await uow.recommendation_runs.save(
                 mission_id=mission_id, run_id=run_id, payload={"status": "accepted"}
@@ -74,14 +79,33 @@ class InProcessRunDispatcher:
                 constraints_version=constraints_version,
             )
         except Exception:
-            # 终态由 persist 节点写入；异常时标记 failed，不吞掉
+            logger.exception(
+                "mission run failed",
+                extra={"mission_id": mission_id, "run_id": run_id},
+            )
             await self._mark_run(mission_id, run_id, "failed")
-            raise
+            await self._mark_mission_failed(owner_id, mission_id, run_id)
 
     async def _mark_run(self, mission_id: str, run_id: str, status: str) -> None:
         async with SqlAlchemyUnitOfWork(self._session_factory) as uow:
             await uow.recommendation_runs.save(
                 mission_id=mission_id, run_id=run_id, payload={"status": status}
+            )
+            await uow.commit()
+
+    async def _mark_mission_failed(self, owner_id: str, mission_id: str, run_id: str) -> None:
+        async with SqlAlchemyUnitOfWork(self._session_factory) as uow:
+            mission = await uow.missions.get(owner_id=owner_id, mission_id=mission_id)
+            if mission is None or mission.active_run_id != run_id:
+                return
+            updated = mission.model_copy(
+                update={"stage": MissionStage.FAILED, "updated_at": utcnow()}
+            )
+            await uow.missions.save(updated)
+            await uow.events.append(
+                mission_id=mission_id,
+                event_type="run.failed",
+                payload={"run_id": run_id},
             )
             await uow.commit()
 
@@ -92,7 +116,8 @@ class InProcessRunDispatcher:
             _done, pending = await asyncio.wait(self._tasks, timeout=grace)
             for task in pending:
                 task.cancel()
-        # 未完成的 accepted/running → interrupted
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
         async with SqlAlchemyUnitOfWork(self._session_factory) as uow:
             await uow.recommendation_runs.interrupt_stale()
             await uow.commit()

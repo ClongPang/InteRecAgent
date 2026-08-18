@@ -5,14 +5,37 @@ from ...application.dto import MissionConstraints, MissionStage
 from ...domain.models import NormalizedProduct
 from ...domain.policies import apply_budget_filter, convert_products, dedupe_products, rank_products
 from ..state import MissionGraphState
+from .parse_intent import CLARIFYING_QUESTION
 
 
 def make_merge_mission_state():
     """将 IntentPatch 合并进任务约束；需要追问且无既有查询时置 requires_clarification。"""
 
     async def merge_mission_state(state: MissionGraphState) -> dict:
-        patch = state["intent_patch"]
         mission = state["mission"]
+        if state.get("skip_intent_patch"):
+            if not mission.constraints.query:
+                return {
+                    "requires_clarification": True,
+                    "clarification_question": CLARIFYING_QUESTION,
+                    "mission": mission.model_copy(
+                        update={
+                            "stage": MissionStage.CLARIFYING,
+                            "active_run_id": state["run_id"],
+                        }
+                    ),
+                }
+            return {
+                "mission": mission.model_copy(
+                    update={
+                        "stage": MissionStage.SEARCHING,
+                        "active_run_id": state["run_id"],
+                    }
+                ),
+                "requires_clarification": False,
+            }
+
+        patch = state["intent_patch"]
         constraints = mission.constraints
 
         if patch.requires_clarification and not constraints.query:

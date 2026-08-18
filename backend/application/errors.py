@@ -23,6 +23,18 @@ class NothingToUndo(ApplicationError):
     """没有可撤销的条件变更。"""
 
 
+class RecommendationNotFound(ApplicationError):
+    """当前任务尚无已验证推荐。"""
+
+
+class InvalidAnonymousUser(ApplicationError):
+    """匿名用户标识不是合法 UUID。"""
+
+
+class DispatcherNotAccepting(ApplicationError):
+    """调度器已停止接收新运行（进程正在关闭）。"""
+
+
 class ModelUnavailableError(ApplicationError):
     """模型后端未配置或能力不可用。Agent 捕获后走确定性 fallback。"""
 

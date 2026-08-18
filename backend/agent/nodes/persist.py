@@ -22,7 +22,14 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
             # 澄清路径：只保存 stage=clarifying + 事件，不推进版本
             if state.get("requires_clarification"):
                 updated = mission.model_copy(update={"stage": MissionStage.CLARIFYING})
-                await uow.missions.save(updated)
+                try:
+                    await uow.missions.save(updated, expected_version=run_version)
+                except MissionVersionConflict:
+                    await uow.rollback()
+                    return {
+                        "status": RunnerStatus.SUPERSEDED,
+                        "warnings": ["运行基于旧版本约束，已标记 superseded"],
+                    }
                 await uow.events.append(
                     mission_id=mission.id,
                     event_type="clarification.required",

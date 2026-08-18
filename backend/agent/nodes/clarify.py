@@ -12,6 +12,8 @@ def make_parse_intent_patch(model_backend: ModelBackend):
     """解析用户输入为结构化条件增量。模型可用时优先模型，否则确定性解析（P3-W03）。"""
 
     async def parse_intent_patch(state: MissionGraphState) -> dict:
+        if state.get("skip_intent_patch"):
+            return {}
         text = state.get("text", "")
         if model_backend.is_configured():
             try:

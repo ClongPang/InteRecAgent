@@ -33,6 +33,7 @@ class MissionGraphState(TypedDict, total=False):
     # 运行中产物
     mission: ShoppingMission
     text: NotRequired[str]
+    skip_intent_patch: NotRequired[bool]
     intent_patch: NotRequired[IntentPatch]
     requires_clarification: NotRequired[bool]
     clarification_question: NotRequired[str | None]

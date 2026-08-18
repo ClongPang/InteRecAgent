@@ -1,18 +1,20 @@
 """接收输入与抓取商品/汇率节点。只依赖注入的 Port/UnitOfWork 工厂，不 import Infrastructure。"""
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 
 from ...application.dto import RunnerStatus, SearchPlan
 from ...application.errors import UpstreamUnavailableError
 from ...application.ports import FxSource, ProductSource, UnitOfWork
-from ...domain.models import VALID_MARKETS, FxSnapshot, NormalizedProduct
+from ...application.services.market_search import gather_market_products
+from ...domain.models import VALID_MARKETS, FxSnapshot
 from ..state import MissionGraphState
+
+_CONSTRAINT_TRIGGERS = frozenset({"constraints.updated", "constraints.undo"})
 
 
 def make_receive_message(uow_factory: Callable[[], UnitOfWork]):
-    """接收输入：加载任务投影与最新用户消息（读事务）。"""
+    """接收输入：加载任务，并绑定到本次 run_id 对应的触发事件。"""
 
     async def receive_message(state: MissionGraphState) -> dict:
         async with uow_factory() as uow:
@@ -22,14 +24,32 @@ def make_receive_message(uow_factory: Callable[[], UnitOfWork]):
             if mission is None:
                 return {"status": RunnerStatus.FAILED, "warnings": ["任务不存在"]}
             events = await uow.events.list_since(mission_id=state["mission_id"])
-        text = ""
-        for event in reversed(events):
-            if event["event_type"] == "message.received":
-                text = event["payload"].get("text", "")
-                break
-        return {"mission": mission, "text": text}
+        return _bind_trigger(mission, events, state["run_id"])
 
     return receive_message
+
+
+def _bind_trigger(mission, events: list[dict], run_id: str) -> dict:
+    matched = None
+    latest_message = None
+    for event in events:
+        if event["event_type"] == "message.received":
+            latest_message = event
+        if event.get("payload", {}).get("run_id") == run_id:
+            matched = event
+    if matched is not None:
+        if matched["event_type"] == "message.received":
+            return {
+                "mission": mission,
+                "text": matched["payload"].get("text", ""),
+                "skip_intent_patch": False,
+            }
+        if matched["event_type"] in _CONSTRAINT_TRIGGERS:
+            return {"mission": mission, "text": "", "skip_intent_patch": True}
+    text = ""
+    if latest_message is not None:
+        text = latest_message.get("payload", {}).get("text", "")
+    return {"mission": mission, "text": text, "skip_intent_patch": False}
 
 
 def make_build_search_plan():
@@ -40,7 +60,7 @@ def make_build_search_plan():
         markets = [m for m in constraints.markets if m in VALID_MARKETS] or ["US"]
         return {
             "search_plan": SearchPlan(
-                query=constraints.query,
+                query=constraints.query or "",
                 markets=markets,
                 mode="keyword",
                 budget_cny=constraints.budget_cny,
@@ -55,33 +75,19 @@ def make_fetch_products(products: ProductSource, max_concurrency: int = 3):
 
     async def fetch_products(state: MissionGraphState) -> dict:
         plan = state["search_plan"]
-        sem = asyncio.Semaphore(max_concurrency)
-
-        async def _one(market: str):
-            async with sem:
-                try:
-                    return market, await products.search(
-                        plan.query, country_code=market, mode=plan.mode, limit=plan.limit
-                    )
-                except UpstreamUnavailableError as exc:
-                    return market, exc
-
-        gathered = await asyncio.gather(*[_one(m) for m in plan.markets])
-        all_products: list[NormalizedProduct] = []
-        failed_markets: list[str] = []
-        warnings: list[str] = []
-        for market, outcome in gathered:
-            if isinstance(outcome, UpstreamUnavailableError):
-                if outcome.category == "system":
-                    raise outcome  # 鉴权/配置错误不静默降级
-                failed_markets.append(market)
-                warnings.append(f"{market} 搜索失败: {outcome.code}")
-                continue
-            if outcome.skipped_no_price:
-                warnings.append(f"{market} 跳过 {outcome.skipped_no_price} 件无价格商品")
-            warnings.extend(outcome.warnings)
-            all_products.extend(outcome.products)
-        return {"products": all_products, "failed_markets": failed_markets, "warnings": warnings}
+        outcome = await gather_market_products(
+            products,
+            query=plan.query or "",
+            markets=plan.markets,
+            mode=plan.mode,
+            limit=plan.limit,
+            max_concurrency=max_concurrency,
+        )
+        return {
+            "products": outcome.products,
+            "failed_markets": outcome.failed_markets,
+            "warnings": outcome.warnings,
+        }
 
     return fetch_products
 

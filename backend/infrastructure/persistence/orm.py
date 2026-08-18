@@ -56,7 +56,7 @@ class MissionEventRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     __table_args__ = (
-        Index("ix_mission_events_mission_sequence", "mission_id", "sequence"),
+        UniqueConstraint("mission_id", "sequence", name="uq_mission_events_mission_sequence"),
     )
 
 

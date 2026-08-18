@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.application.dto import ShoppingMission
+from backend.application.dto import MissionConstraints, ShoppingMission
 from backend.application.errors import MissionNotFound, MissionVersionConflict
 from backend.application.services import MissionCommandService
 
@@ -28,7 +28,13 @@ class FakeMissions:
         self.missions[m.id] = m
         return m
 
-    async def save(self, mission: ShoppingMission) -> None:
+    async def save(
+        self, mission: ShoppingMission, *, expected_version: int | None = None
+    ) -> None:
+        current = self.missions.get(mission.id)
+        if expected_version is not None and current is not None:
+            if current.constraints_version != expected_version:
+                raise MissionVersionConflict("version mismatch")
         self.missions[mission.id] = mission
 
 
@@ -99,6 +105,8 @@ async def test_submit_message_dispatches_and_returns_run_id() -> None:
     # 事件已持久化（先于调度，保证可追溯）
     assert events.events[0][1] == "message.received"
     assert events.events[0][2]["run_id"] == run_id
+    assert missions.missions["m1"].stage.value == "searching"
+    assert missions.missions["m1"].active_run_id == run_id
 
 
 @pytest.mark.asyncio
@@ -125,3 +133,23 @@ async def test_create_mission_persists() -> None:
     assert mission.owner_id == "u1"
     assert mission.constraints_version == 1
     assert missions.missions["new-1"].title == "通勤降噪耳机"
+
+
+@pytest.mark.asyncio
+async def test_update_constraints_dispatches_new_version() -> None:
+    """命令层先写入新版本，调度必须带着新版本，否则 persist 会误判 superseded。"""
+    svc, missions, events, dispatcher = _make(version=2)
+    missions.missions["m1"] = missions.missions["m1"].model_copy(
+        update={"constraints": MissionConstraints(query="降噪耳机", budget_cny=4000)}
+    )
+    run_id = await svc.update_constraints(
+        owner_id="u1",
+        mission_id="m1",
+        constraints_version=2,
+        constraints=MissionConstraints(query="降噪耳机", budget_cny=3000),
+    )
+    assert dispatcher.calls[0][2] == run_id
+    assert dispatcher.calls[0][3] == 3
+    assert missions.missions["m1"].constraints_version == 3
+    assert missions.missions["m1"].constraints.budget_cny == 3000
+    assert events.events[0][1] == "constraints.updated"

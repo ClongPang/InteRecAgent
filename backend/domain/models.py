@@ -16,7 +16,7 @@ class SearchMode(StrEnum):
     SEMANTIC = "semantic"
 
 
-# 经真实 API 实测可用于搜索的市场（country_code 不等于配送目的地）。
+# 经真实 API 实测可用于搜索的市场（country_code 不等于配送目的地）
 VALID_MARKETS = ("US", "SG", "VN", "TH", "MY")
 
 

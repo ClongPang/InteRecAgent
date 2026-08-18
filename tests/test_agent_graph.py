@@ -96,6 +96,23 @@ def test_node_names_match_spec() -> None:
     )
 
 
+def test_bind_trigger_uses_this_run_event() -> None:
+    from backend.agent.nodes.fetch import _bind_trigger
+
+    mission = ShoppingMission(id="m", owner_id=OWNER, title="t")
+    events = [
+        {"event_type": "message.received", "payload": {"run_id": "r1", "text": "first"}},
+        {"event_type": "constraints.updated", "payload": {"run_id": "r2"}},
+        {"event_type": "message.received", "payload": {"run_id": "r3", "text": "latest"}},
+    ]
+    constraint_run = _bind_trigger(mission, events, "r2")
+    assert constraint_run["skip_intent_patch"] is True
+    assert constraint_run["text"] == ""
+    first_msg = _bind_trigger(mission, events, "r1")
+    assert first_msg["text"] == "first"
+    assert first_msg["skip_intent_patch"] is False
+
+
 # ── P3-W02：确定性基础路径（integration） ─────────────────────
 
 @pytest.fixture

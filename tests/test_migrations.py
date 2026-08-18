@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -36,7 +37,7 @@ EXPECTED_TABLES = {
 def _alembic(*args: str) -> subprocess.CompletedProcess:
     env = dict(os.environ, INTEREC_DATABASE_URL=TEST_DB_URL)
     return subprocess.run(
-        [str(ROOT / ".venv" / "bin" / "python"), "-m", "alembic", *args],
+        [sys.executable, "-m", "alembic", *args],
         cwd=ROOT,
         env=env,
         capture_output=True,
@@ -65,7 +66,7 @@ def _collect_schema(sync_conn) -> dict:
         "tables": set(inspector.get_table_names()),
         "idempotency_uq": [c["name"] for c in inspector.get_unique_constraints("idempotency_records")],
         "mission_idx": {i["name"] for i in inspector.get_indexes("shopping_missions")},
-        "event_idx": {i["name"] for i in inspector.get_indexes("mission_events")},
+        "event_uq": [c["name"] for c in inspector.get_unique_constraints("mission_events")],
     }
 
 
@@ -79,6 +80,6 @@ async def test_seven_tables_and_constraints_exist() -> None:
         assert EXPECTED_TABLES <= schema["tables"], f"缺少表: {EXPECTED_TABLES - schema['tables']}"
         assert "uq_idempotency_owner_key" in schema["idempotency_uq"]
         assert "ix_shopping_missions_owner_updated_id" in schema["mission_idx"]
-        assert "ix_mission_events_mission_sequence" in schema["event_idx"]
+        assert "uq_mission_events_mission_sequence" in schema["event_uq"]
     finally:
         await engine.dispose()

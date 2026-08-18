@@ -117,10 +117,13 @@ class PostgresMissionEventRepository:
         self._session = session
 
     async def append(self, *, mission_id: str, event_type: str, payload: dict) -> int:
+        mid = uuid.UUID(mission_id)
+        # 锁住任务行，使同一 mission 的 sequence 分配串行化（配合唯一约束）。
+        await self._session.execute(
+            select(ShoppingMissionRow.id).where(ShoppingMissionRow.id == mid).with_for_update()
+        )
         max_seq = await self._session.scalar(
-            select(func.max(MissionEventRow.sequence)).where(
-                MissionEventRow.mission_id == uuid.UUID(mission_id)
-            )
+            select(func.max(MissionEventRow.sequence)).where(MissionEventRow.mission_id == mid)
         )
         sequence = (max_seq or 0) + 1
         row = MissionEventRow(
@@ -225,18 +228,35 @@ class PostgresRecommendationRunRepository:
         self._session = session
 
     async def save(self, *, mission_id: str, run_id: str, payload: dict) -> None:
-        row = RecommendationRunRow(
-            id=uuid.UUID(run_id),
-            mission_id=uuid.UUID(mission_id),
-            status=payload.get("status", "accepted"),
-            candidate_set_id=(
-                uuid.UUID(payload["candidate_set_id"]) if payload.get("candidate_set_id") else None
-            ),
-            draft_json=payload.get("draft_json"),
-            final_json=payload.get("final_json"),
-            completed_at=payload.get("completed_at"),
+        """按字段合并。标记 running/failed 时不得把已写入的 draft/candidate 抹成 None。"""
+        rid = uuid.UUID(run_id)
+        row = await self._session.get(RecommendationRunRow, rid)
+        candidate_set_id = (
+            uuid.UUID(payload["candidate_set_id"]) if payload.get("candidate_set_id") else None
         )
-        await self._session.merge(row)
+        if row is None:
+            self._session.add(
+                RecommendationRunRow(
+                    id=rid,
+                    mission_id=uuid.UUID(mission_id),
+                    status=payload.get("status", "accepted"),
+                    candidate_set_id=candidate_set_id,
+                    draft_json=payload.get("draft_json"),
+                    final_json=payload.get("final_json"),
+                    completed_at=payload.get("completed_at"),
+                )
+            )
+            return
+        if "status" in payload:
+            row.status = payload["status"]
+        if "candidate_set_id" in payload:
+            row.candidate_set_id = candidate_set_id
+        if "draft_json" in payload:
+            row.draft_json = payload["draft_json"]
+        if "final_json" in payload:
+            row.final_json = payload["final_json"]
+        if "completed_at" in payload:
+            row.completed_at = payload["completed_at"]
 
     async def mark_superseded(self, *, mission_id: str, run_id: str) -> None:
         await self._session.execute(

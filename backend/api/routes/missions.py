@@ -1,7 +1,7 @@
 """Mission 命令与查询路由（P4-W02）。Route 只调用 Application Service。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from ...application.dto import MissionConstraints
 from ..dependencies import get_anonymous_user_id, get_command_service
@@ -23,7 +23,7 @@ async def create_mission(
     svc=Depends(get_command_service),
     owner_id: str = Depends(get_anonymous_user_id),
 ) -> dict:
-    """创建任务并提交第一条消息（AC-001）。"""
+    """创建任务并提交第一条消息"""
     mission = await svc.create_mission(owner_id=owner_id, title=body.title or "新选购")
     run_id = await svc.submit_message(
         owner_id=owner_id, mission_id=mission.id, text=body.text, constraints_version=1
@@ -161,7 +161,4 @@ async def get_recommendation(
     owner_id: str = Depends(get_anonymous_user_id),
 ) -> dict:
     """当前已验证推荐。"""
-    payload = await svc.get_recommendation(owner_id=owner_id, mission_id=mission_id)
-    if payload is None:
-        raise HTTPException(status_code=404, detail="尚无推荐结果")
-    return payload
+    return await svc.get_recommendation(owner_id=owner_id, mission_id=mission_id)
