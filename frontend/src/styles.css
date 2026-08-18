@@ -70,10 +70,10 @@ input, textarea { caret-color: var(--accent); }
 .brand-lockup strong { display: block; font-size: 14px; letter-spacing: -.01em; }
 .brand-lockup small { display: block; margin-top: 2px; color: #8b949e; font: 500 9px/1 var(--display); letter-spacing: .16em; }
 .main-nav { display: flex; align-items: center; gap: 4px; align-self: stretch; }
-.main-nav button { position: relative; display: flex; align-items: center; gap: 6px; height: 100%; padding: 0 13px; color: #8b949e; font-size: 13px; }
-.main-nav button:hover { color: #fff; }
-.main-nav button.is-active { color: #fff; font-weight: 600; }
-.main-nav button.is-active::after { content: ''; position: absolute; left: 13px; right: 13px; bottom: -1px; height: 2px; background: var(--accent); }
+.main-nav button, .main-nav a { position: relative; display: flex; align-items: center; gap: 6px; height: 100%; padding: 0 13px; color: #8b949e; font-size: 13px; text-decoration: none; }
+.main-nav button:hover, .main-nav a:hover { color: #fff; }
+.main-nav button.is-active, .main-nav a.is-active { color: #fff; font-weight: 600; }
+.main-nav button.is-active::after, .main-nav a.is-active::after { content: ''; position: absolute; left: 13px; right: 13px; bottom: -1px; height: 2px; background: var(--accent); }
 .nav-divider { width: 1px; height: 20px; flex: none; margin: 0 6px; background: rgba(255, 255, 255, .18); }
 .topbar-actions { display: flex; align-items: center; margin-left: auto; }
 .currency-link { display: inline-flex; align-items: center; gap: 5px; padding: 5px 4px; color: #8b949e; font: 500 12px var(--mono); }

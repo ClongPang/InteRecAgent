@@ -27,6 +27,24 @@ def convert_products(
     return out
 
 
+def apply_exclusion_filter(
+    products: Iterable[NormalizedProduct], terms: list[str]
+) -> tuple[list[NormalizedProduct], list[NormalizedProduct]]:
+    """标题包含排除词则去掉。无品牌字段时只能用标题子串，不得编造品牌。"""
+    needles = [t.lower() for t in terms if t and t.strip()]
+    if not needles:
+        return list(products), []
+    kept: list[NormalizedProduct] = []
+    dropped: list[NormalizedProduct] = []
+    for p in products:
+        title = p.title.lower()
+        if any(term in title for term in needles):
+            dropped.append(p)
+        else:
+            kept.append(p)
+    return kept, dropped
+
+
 def apply_budget_filter(
     products: Iterable[NormalizedProduct], budget_cny: float
 ) -> tuple[list[NormalizedProduct], list[NormalizedProduct], list[NormalizedProduct]]:

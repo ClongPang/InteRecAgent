@@ -128,6 +128,55 @@ def product_candidate_from_snapshot(snapshot: dict, *, rank: int | None = None) 
     return product_candidate_from_record(record, rank=rank)
 
 
+def hydrate_candidate_payload(payload: dict | None) -> tuple[list[NormalizedProduct], dict[str, str], dict[str, FxSnapshot], list[str]]:
+    """从已持久化候选集重建过滤/排序输入，避免预算变化时重复抓取。"""
+    if not payload:
+        return [], {}, {}, []
+    snapshot_map = {str(k): str(v) for k, v in (payload.get("snapshot_map") or {}).items()}
+    rates: dict[str, FxSnapshot] = {}
+    products: list[NormalizedProduct] = []
+    for item in payload.get("ranked") or []:
+        native = item.get("native_price") if isinstance(item.get("native_price"), dict) else {}
+        amount = native.get("amount", item.get("native_price_amount"))
+        currency = str(native.get("currency") or item.get("native_currency") or "")
+        source_id = str(item.get("source_product_id") or item.get("id") or "")
+        snapshot_id = item.get("snapshot_id")
+        if amount is None or not source_id:
+            continue
+        if snapshot_id:
+            snapshot_map.setdefault(source_id, str(snapshot_id))
+        estimated = item.get("estimated_cny") if isinstance(item.get("estimated_cny"), dict) else {}
+        rmb = estimated.get("amount", item.get("rmb_price"))
+        fx_failed = bool(item.get("fx_failed"))
+        if currency and estimated.get("rate") is not None:
+            rates[currency] = FxSnapshot(
+                base=currency,
+                quote="CNY",
+                rate=float(estimated["rate"]),
+                date=str(estimated.get("rate_date") or item.get("fx_as_of") or ""),
+                source=str(estimated.get("source") or "cached"),
+            )
+        products.append(
+            NormalizedProduct(
+                id=source_id,
+                title=str(item.get("title") or ""),
+                merchant=item.get("merchant"),
+                country_code=item.get("market") or item.get("country_code"),
+                url=item.get("merchant_url") or item.get("url"),
+                click_url=item.get("merchant_url") or item.get("click_url"),
+                native_price_amount=float(amount),
+                native_currency=currency,
+                rmb_price=float(rmb) if rmb is not None else None,
+                fx_as_of=str(estimated.get("rate_date") or item.get("fx_as_of") or "") or None,
+                fx_failed=fx_failed,
+                unavailable=list(item.get("unavailable_fields") or item.get("unavailable") or []),
+                updated_at=_parse_dt(item.get("source_updated_at") or item.get("updated_at")),
+            )
+        )
+    fx_ids = [str(i) for i in (payload.get("fx_snapshot_ids") or [])]
+    return products, snapshot_map, rates, fx_ids
+
+
 def _estimated_cny(item: dict) -> EstimatedCny | None:
     raw = item.get("estimated_cny")
     if isinstance(raw, dict) and raw.get("amount") is not None and raw.get("rate") is not None:

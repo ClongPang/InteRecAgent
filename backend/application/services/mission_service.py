@@ -22,7 +22,9 @@ from ..errors import (
     SnapshotNotFound,
 )
 from ..ports import RunDispatcher, UnitOfWork
+from .dialogue import classify_turn, project_thread
 from .present import product_candidate_from_record, product_candidate_from_snapshot
+from ..dto.dialogue import DialogueActKind, ThreadView
 
 
 class MissionCommandService:
@@ -100,6 +102,13 @@ class MissionCommandService:
                 },
             )
             await uow.commit()
+        if classify_turn(text).kind == DialogueActKind.UNDO:
+            undo_run_id, _ = await self.undo(
+                owner_id=owner_id,
+                mission_id=mission_id,
+                constraints_version=constraints_version,
+            )
+            return undo_run_id
         await self._dispatcher.dispatch(
             owner_id=owner_id,
             mission_id=mission_id,
@@ -326,6 +335,10 @@ class MissionCommandService:
             if mission is None:
                 raise MissionNotFound(mission_id)
             return await uow.events.list_since(mission_id=mission_id, sequence=after)
+
+    async def get_thread(self, *, owner_id: str, mission_id: str) -> ThreadView:
+        events = await self.list_events(owner_id=owner_id, mission_id=mission_id, after=0)
+        return project_thread(events)
 
     @staticmethod
     def _candidate_set_view(payload: dict | None) -> CandidateSetView:

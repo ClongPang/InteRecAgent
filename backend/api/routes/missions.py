@@ -10,6 +10,7 @@ from ...application.dto import (
     MissionListResponse,
     MissionView,
     RecommendationView,
+    ThreadView,
     mission_view,
 )
 from ..dependencies import get_anonymous_user_id, get_command_service
@@ -96,13 +97,14 @@ async def update_constraints(
     """显式修改约束并启动运行。仅约束内容变化时递增版本；版本冲突返回 409。"""
     mission = await svc.get_mission(owner_id=owner_id, mission_id=mission_id)
     constraints = MissionConstraints(
-        query=body.query,
-        budget_cny=body.budget_cny,
+        query=body.query if body.query is not None else mission.constraints.query,
+        budget_cny=body.budget_cny if body.budget_cny is not None else mission.constraints.budget_cny,
         markets=body.markets or mission.constraints.markets,
         preference=body.preference or mission.constraints.preference,
         only_in_stock=body.only_in_stock
         if body.only_in_stock is not None
         else mission.constraints.only_in_stock,
+        excluded_terms=list(mission.constraints.excluded_terms),
     )
     run_id, version = await svc.update_constraints(
         owner_id=owner_id,
@@ -164,3 +166,13 @@ async def get_recommendation(
 ) -> RecommendationView:
     """当前已验证推荐：从快照回填价格事实。"""
     return await svc.get_recommendation(owner_id=owner_id, mission_id=mission_id)
+
+
+@router.get("/{mission_id}/thread", response_model=ThreadView)
+async def get_thread(
+    mission_id: str,
+    svc=Depends(get_command_service),
+    owner_id: str = Depends(get_anonymous_user_id),
+) -> ThreadView:
+    """对话线程：由任务事件投影，不是独立聊天表。"""
+    return await svc.get_thread(owner_id=owner_id, mission_id=mission_id)

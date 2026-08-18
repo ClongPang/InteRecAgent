@@ -13,6 +13,7 @@ class IntentPatch(BaseModel):
     markets: list[str] | None = None
     preference: str | None = None  # balanced | battery | noise | lowest
     only_in_stock: bool | None = None
+    exclude_terms: list[str] | None = None
     confidence: float = 1.0
     source: str = "deterministic"  # deterministic | model
     requires_clarification: bool = False

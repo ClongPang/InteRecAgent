@@ -164,9 +164,9 @@ tags: [architecture, process, agent, ecommerce, backend, frontend, testing]
 
 ### 4.3 Agent 要求
 
-- **AGT-001**：Agent 必须围绕 `MissionGraphState` 运行，并实现显式节点：接收输入、解析 Patch、合并约束、判断追问、规划搜索、获取商品、获取汇率、归一化、过滤、排序、证据校验、生成解释、持久化结果。`merge_mission_state` 只合并 IntentPatch，不递增 `constraints_version`。
+- **AGT-001**：Agent 必须围绕 `MissionGraphState` 运行。显式节点包括：接收输入、分类对话行为、合并约束、路由话轮、复用候选、按快照回答、规划搜索、获取商品、获取汇率、归一化、过滤、排序、证据校验、生成解释、持久化结果。`merge_mission_state` 只合并 IntentPatch，不递增 `constraints_version`。检索（`research`）是条件子图，不是每句用户话的默认路径。
 - **AGT-002**：每个节点必须声明输入字段、输出字段和可失败类别；节点输出不得隐式修改未声明状态。
-- **AGT-003**：LLM 只允许输出 `IntentPatch`、`SearchPlan` 或 `RecommendationDraft`；不得直接输出最终价格、库存或链接。
+- **AGT-003**：LLM 只允许输出 `IntentPatch`、`SearchPlan` 或 `RecommendationDraft`；不得直接输出最终价格、库存或链接。对话行为分类默认由确定性规则完成。
 - **AGT-004**：最终响应必须从已持久化的 Product/Fx Snapshot 重新组装事实字段。
 - **AGT-005**：当 `constraints_version` 变化时，旧运行必须标记 `superseded`，不得提交候选或推荐。
 - **AGT-006**：没有 LLM 配置时，确定性解析器和模板解释器必须支撑基础验收场景。
@@ -451,6 +451,7 @@ frontend/src/
 | GET | `/api/v1/missions/{mission_id}` | 获取当前任务投影 | 200 |
 | GET | `/api/v1/missions/{mission_id}/candidates` | 获取当前版本候选集 | 200 |
 | GET | `/api/v1/missions/{mission_id}/recommendation` | 获取当前已验证推荐 | 200/404 |
+| GET | `/api/v1/missions/{mission_id}/thread` | 获取由事件投影的对话线程 | 200 |
 | POST | `/api/v1/missions/{mission_id}/messages` | 追加消息并启动新运行 | 202 |
 | PATCH | `/api/v1/missions/{mission_id}/constraints` | 显式修改预算、市场、偏好或库存条件 | 202 |
 | POST | `/api/v1/missions/{mission_id}/undo` | 撤销最近一次可撤销条件变更并产生新版本 | 202/409 |
@@ -537,12 +538,15 @@ frontend/src/
   "markets": null,
   "preference": "battery",
   "only_in_stock": null,
+  "exclude_terms": null,
   "confidence": 0.98,
   "source": "deterministic",
   "requires_clarification": false,
   "clarification_question": null
 }
 ```
+
+用户话轮先分类为 `DialogueAct`（`refine_constraints` / `ask_about_item` / `compare_items` / `reject_item` / `undo` / `meta` / `unknown`），`IntentPatch` 只表示约束增量。提问与排除不得把原文写入 `query`。
 
 ### 6.5 RecommendationDraft 与最终响应
 
@@ -586,7 +590,7 @@ event: candidates.ranked
 data: {"mission_id":"uuid","run_id":"uuid","constraints_version":3,"candidate_set_id":"uuid","count":8}
 ```
 
-允许事件：`run.accepted`、`clarification.required`、`search.started`、`products.received`、`fx.received`、`candidates.ranked`、`recommendation.ready`、`run.degraded`、`run.superseded`、`run.failed`。
+允许事件：`run.accepted`、`clarification.required`、`search.started`、`products.received`、`fx.received`、`candidates.ranked`、`recommendation.ready`、`run.degraded`、`run.superseded`、`run.failed`、`agent.message`。
 
 ## 7. 可机械执行的开发方案
 
@@ -749,18 +753,22 @@ VITE_ENABLE_DEMO_AUTH=false
 顺序实现并逐节点测试：
 
 1. `receive_message`
-2. `parse_intent_patch`
+2. `classify_dialogue_act`
 3. `merge_mission_state`
-4. `need_clarification`
-5. `build_search_plan`
-6. `fetch_products`
-7. `fetch_fx`
-8. `normalize_and_deduplicate`
-9. `filter_hard_constraints`
-10. `rank_candidates`
-11. `verify_evidence`
-12. `compose_recommendation`
-13. `persist_decision_snapshot`
+4. `route_turn`（`clarify` / `talk` / `refilter` / `research`）
+5. `load_cached_candidates`（talk/refilter）
+6. `compose_grounded_reply`（talk）
+7. `build_search_plan`（research）
+8. `fetch_products`
+9. `fetch_fx`
+10. `normalize_and_deduplicate`
+11. `filter_hard_constraints`
+12. `rank_candidates`
+13. `verify_evidence`
+14. `compose_recommendation`
+15. `persist_decision_snapshot`
+
+对话行为（提问、比较、排除、改预算）先分类再决定是否重搜。预算/偏好/排除在可复用候选上只重过滤；query/市场变化才重新抓取。
 
 确定性解析器至少覆盖预算、市场、耳机/显示器/徒步鞋查询、价格优先、续航优先、降噪优先和仅看有货。数据不支持库存或续航时，偏好必须降级为“当前数据无法按该维度排序”，而不是使用 mock。
 

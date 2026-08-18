@@ -29,6 +29,7 @@ class MissionConstraints(BaseModel):
     markets: list[str] = Field(default_factory=lambda: ["US"])
     preference: str = "balanced"
     only_in_stock: bool = False
+    excluded_terms: list[str] = Field(default_factory=list)
 
 
 def next_constraints_version(current: int, before: MissionConstraints, after: MissionConstraints) -> int:

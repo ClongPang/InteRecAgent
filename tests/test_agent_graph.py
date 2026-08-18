@@ -1,6 +1,6 @@
 """Agent 状态图测试（P3 门禁）。
 
-- P3-W01（unit）：图结构快照——13 个显式节点齐全、关键路由存在。
+- P3-W01（unit）：图结构快照——显式节点齐全、关键路由存在。
 - P3-W02（integration，fixture + 测试库）：正常、追问、无结果、FX 失败、部分市场失败、superseded。
 """
 from __future__ import annotations
@@ -66,7 +66,7 @@ def _stub_uow_factory():
 
 
 def test_graph_has_required_nodes_and_routes() -> None:
-    """AGT-001：13 个显式节点齐全，构建成功。"""
+    """AGT-001：对话路由与检索子图节点齐全，构建成功。"""
     graph = build_graph(
         products=_NeverInvoked(),
         fx=_NeverInvoked(),
@@ -78,12 +78,14 @@ def test_graph_has_required_nodes_and_routes() -> None:
 
 
 def test_node_names_match_spec() -> None:
-    """节点集必须与规格 P3-W02 的 13 节点清单一致。"""
+    """节点集必须与对话路由后的显式节点清单一致。"""
     assert NODE_NAMES == (
         "receive_message",
-        "parse_intent_patch",
+        "classify_dialogue_act",
         "merge_mission_state",
-        "need_clarification",
+        "route_turn",
+        "load_cached_candidates",
+        "compose_grounded_reply",
         "build_search_plan",
         "fetch_products",
         "fetch_fx",

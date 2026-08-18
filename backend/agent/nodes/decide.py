@@ -3,7 +3,13 @@ from __future__ import annotations
 
 from ...application.dto import MissionConstraints, MissionStage
 from ...domain.models import NormalizedProduct
-from ...domain.policies import apply_budget_filter, convert_products, dedupe_products, rank_products
+from ...domain.policies import (
+    apply_budget_filter,
+    apply_exclusion_filter,
+    convert_products,
+    dedupe_products,
+    rank_products,
+)
 from ..state import MissionGraphState
 from .parse_intent import CLARIFYING_QUESTION
 
@@ -19,6 +25,7 @@ def make_merge_mission_state():
                 return {
                     "requires_clarification": True,
                     "clarification_question": CLARIFYING_QUESTION,
+                    "constraints_before": mission.constraints,
                     "mission": mission.model_copy(
                         update={
                             "stage": MissionStage.CLARIFYING,
@@ -33,6 +40,20 @@ def make_merge_mission_state():
                         "active_run_id": state["run_id"],
                     }
                 ),
+                "constraints_before": mission.constraints,
+                "requires_clarification": False,
+            }
+
+        act = state.get("dialogue_act")
+        if act is not None and act.kind.value in {
+            "ask_about_item",
+            "compare_items",
+            "meta",
+            "undo",
+        }:
+            return {
+                "mission": mission.model_copy(update={"active_run_id": state["run_id"]}),
+                "constraints_before": mission.constraints,
                 "requires_clarification": False,
             }
 
@@ -43,8 +64,14 @@ def make_merge_mission_state():
             return {
                 "requires_clarification": True,
                 "clarification_question": patch.clarification_question,
+                "constraints_before": constraints,
             }
 
+        excluded = list(constraints.excluded_terms)
+        extra = list(act.exclude_terms) if act is not None else []
+        for term in list(patch.exclude_terms or []) + extra:
+            if term and term not in excluded:
+                excluded.append(term)
         merged = MissionConstraints(
             query=patch.query or constraints.query,
             budget_cny=patch.budget_cny if patch.budget_cny is not None else constraints.budget_cny,
@@ -53,6 +80,7 @@ def make_merge_mission_state():
             only_in_stock=(
                 patch.only_in_stock if patch.only_in_stock is not None else constraints.only_in_stock
             ),
+            excluded_terms=excluded,
         )
         updated = mission.model_copy(
             update={
@@ -61,7 +89,11 @@ def make_merge_mission_state():
                 "active_run_id": state["run_id"],
             }
         )
-        return {"mission": updated, "requires_clarification": False}
+        return {
+            "mission": updated,
+            "constraints_before": constraints,
+            "requires_clarification": False,
+        }
 
     return merge_mission_state
 
@@ -87,6 +119,13 @@ def make_filter_hard_constraints():
 
         if constraints.only_in_stock:
             warnings.append("当前数据无法校验库存，'仅看有货' 条件无法生效，保留全部候选")
+
+        if constraints.excluded_terms:
+            products, dropped = apply_exclusion_filter(products, constraints.excluded_terms)
+            if dropped:
+                warnings.append(
+                    f"已按排除词过滤 {len(dropped)} 件（标题匹配：{'、'.join(constraints.excluded_terms)}）"
+                )
 
         if constraints.budget_cny is not None:
             kept, over, fx_failed = apply_budget_filter(products, constraints.budget_cny)

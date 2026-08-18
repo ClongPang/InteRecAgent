@@ -46,6 +46,13 @@ class FakeEvents:
         self.events.append((mission_id, event_type, payload))
         return len(self.events)
 
+    async def list_since(self, *, mission_id: str, sequence: int = 0) -> list[dict]:
+        out: list[dict] = []
+        for index, (mid, event_type, payload) in enumerate(self.events, start=1):
+            if mid == mission_id and index > sequence:
+                out.append({"sequence": index, "event_type": event_type, "payload": payload})
+        return out
+
 
 class FakeUoW:
     def __init__(self, missions: FakeMissions, events: FakeEvents) -> None:
@@ -174,3 +181,15 @@ async def test_update_constraints_unchanged_keeps_version() -> None:
     assert dispatcher.calls[0][2] == run_id
     assert dispatcher.calls[0][3] == 2
     assert missions.missions["m1"].constraints_version == 2
+
+
+@pytest.mark.asyncio
+async def test_get_thread_projects_user_message() -> None:
+    svc, missions, events, dispatcher = _make()
+    await events.append(
+        mission_id="m1", event_type="message.received", payload={"text": "降噪耳机", "constraints_version": 1}
+    )
+    view = await svc.get_thread(owner_id="u1", mission_id="m1")
+    assert len(view.messages) == 1
+    assert view.messages[0].kind == "user"
+    assert view.messages[0].text == "降噪耳机"

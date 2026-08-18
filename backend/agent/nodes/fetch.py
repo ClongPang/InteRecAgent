@@ -24,7 +24,12 @@ def make_receive_message(uow_factory: Callable[[], UnitOfWork]):
             if mission is None:
                 return {"status": RunnerStatus.FAILED, "warnings": ["任务不存在"]}
             events = await uow.events.list_since(mission_id=state["mission_id"])
-        return _bind_trigger(mission, events, state["run_id"])
+            cache_payload = None
+            if mission.candidate_set_id:
+                cache_payload = await uow.candidate_sets.get(mission.candidate_set_id)
+        bound = _bind_trigger(mission, events, state["run_id"])
+        bound["cache_payload"] = cache_payload
+        return bound
 
     return receive_message
 

@@ -10,6 +10,8 @@ from ..application.dto import (
     SearchPlan,
     ShoppingMission,
 )
+from ..application.dto.dialogue import DialogueAct
+from ..application.dto.mission import MissionConstraints
 from ..domain.models import FxSnapshot, NormalizedProduct
 
 
@@ -34,9 +36,19 @@ class MissionGraphState(TypedDict, total=False):
     mission: ShoppingMission
     text: NotRequired[str]
     skip_intent_patch: NotRequired[bool]
+    dialogue_act: NotRequired[DialogueAct]
     intent_patch: NotRequired[IntentPatch]
+    constraints_before: NotRequired[MissionConstraints]
     requires_clarification: NotRequired[bool]
     clarification_question: NotRequired[str | None]
+    turn_route: NotRequired[str]
+    cache_payload: NotRequired[dict | None]
+    snapshot_map: NotRequired[dict[str, str]]
+    reuse_snapshots: NotRequired[bool]
+    cached_fx_snapshot_ids: NotRequired[list[str]]
+    agent_message: NotRequired[str]
+    agent_snapshot_ids: NotRequired[list[str]]
+    comparison_snapshot_ids: NotRequired[list[str]]
     search_plan: NotRequired[SearchPlan]
     products: NotRequired[list[NormalizedProduct]]
     rates: NotRequired[dict[str, FxSnapshot]]
