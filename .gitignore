@@ -21,6 +21,9 @@ __pycache__/
 .coverage
 coverage.xml
 htmlcov/
+.claude/
+.impeccable/
+.zcode/
 
 # Node / frontend generated files
 node_modules/
