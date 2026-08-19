@@ -35,7 +35,14 @@ async def client():
         await conn.exec_driver_sql(TRUNCATE_SQL)
     await engine.dispose()
 
-    container = Container(Settings(database_url=TEST_DB_URL, data_source="fixture"))
+    container = Container(
+        Settings(
+            database_url=TEST_DB_URL,
+            data_source="fixture",
+            llm_provider="unconfigured",
+            llm_api_key="",
+        )
+    )
     app = create_app(container)
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)

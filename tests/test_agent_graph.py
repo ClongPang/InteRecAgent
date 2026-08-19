@@ -54,6 +54,9 @@ class _NeverInvoked:
     async def parse_intent(self, *a, **k):
         raise AssertionError("结构测试不应执行节点")
 
+    async def parse_turn(self, *a, **k):
+        raise AssertionError("结构测试不应执行节点")
+
     async def draft_recommendation(self, *a, **k):
         raise AssertionError("结构测试不应执行节点")
 
@@ -110,9 +113,35 @@ def test_bind_trigger_uses_this_run_event() -> None:
     constraint_run = _bind_trigger(mission, events, "r2")
     assert constraint_run["skip_intent_patch"] is True
     assert constraint_run["text"] == ""
+    accepted = _bind_trigger(
+        mission,
+        events + [{"event_type": "run.accepted", "payload": {"run_id": "r2"}}],
+        "r2",
+    )
+    assert accepted["skip_intent_patch"] is True
+    assert accepted["text"] == ""
     first_msg = _bind_trigger(mission, events, "r1")
     assert first_msg["text"] == "first"
     assert first_msg["skip_intent_patch"] is False
+    decided = _bind_trigger(
+        mission,
+        [
+            {
+                "event_type": "message.received",
+                "payload": {
+                    "run_id": "r4",
+                    "text": "不要这款",
+                    "turn_route": "rerank",
+                    "act_payload": {"kind": "reject_item", "referent_ranks": [1]},
+                    "skip_intent_patch": True,
+                },
+            }
+        ],
+        "r4",
+    )
+    assert decided["decided_route"] == "rerank"
+    assert decided["decided_act"]["kind"] == "reject_item"
+    assert decided["skip_intent_patch"] is True
 
 
 # ── P3-W02：确定性基础路径（integration） ─────────────────────

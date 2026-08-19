@@ -32,7 +32,12 @@ class Settings(BaseSettings):
             "INTEREC_BUYWHERE_API_KEY", "BUYWHERE_API_KEY", "BuyWhere_API"
         ),
     )
-    llm_provider: str = "unconfigured"  # unconfigured | deepseek | openai ...
+    llm_provider: str = "unconfigured"  # unconfigured | openai_compat | deepseek
+    llm_api_key: str = ""
+    llm_base_url: str = "https://api.deepseek.com"
+    llm_model: str = "deepseek-v4-flash"
+    llm_timeout: float = 30.0
+    llm_max_retries: int = 2
     log_level: str = "INFO"
 
     # 上游控制

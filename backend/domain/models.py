@@ -39,7 +39,6 @@ API_MISSING_FIELDS = (
     "rating",
     "review_count",
     "brand",
-    "availability",
     "structured_specs",
     "original_price",
     "discount_pct",
@@ -64,6 +63,10 @@ class NormalizedProduct(BaseModel):
     rmb_price: float | None = None  # 换算失败/未换算时为 None
     fx_as_of: str | None = None  # 所用汇率的 date
     fx_failed: bool = False  # 换算失败，保留原币
+    in_stock: bool | None = None
+    availability_status: str | None = None
+    attrs: dict[str, str] = Field(default_factory=dict)
+    derived_fields: list[str] = Field(default_factory=list)
 
     unavailable: list[str] = Field(default_factory=list)
 

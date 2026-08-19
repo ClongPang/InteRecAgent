@@ -5,7 +5,7 @@ Agent 捕获后走确定性解析/模板解释，保证无模型 Key 时完整�
 """
 from __future__ import annotations
 
-from ...application.dto import IntentPatch, RecommendationDraft
+from ...application.dto import DialogueAct, IntentPatch, RecommendationDraft
 from ...application.errors import ModelUnavailableError
 
 
@@ -18,6 +18,11 @@ class UnconfiguredModelBackend:
     async def parse_intent(self, text: str) -> IntentPatch:
         raise ModelUnavailableError(
             "LLM 未配置（llm_provider=unconfigured），请使用确定性解析器"
+        )
+
+    async def parse_turn(self, text: str, *, current_query: str | None = None) -> DialogueAct:
+        raise ModelUnavailableError(
+            "LLM 未配置（llm_provider=unconfigured），请使用确定性对话分类"
         )
 
     async def draft_recommendation(

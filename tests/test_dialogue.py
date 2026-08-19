@@ -274,14 +274,102 @@ def test_policy_stance_tightens_existing_budget() -> None:
     assert decision.constraints.budget_cny == 3200
     assert decision.apply_constraints is True
     assert decision.dispatch is True
-    assert decision.route == TurnRoute.REFILTER
+    assert decision.route == TurnRoute.RERANK
 
 
 def test_sanitize_unsupported_capabilities() -> None:
     before = MissionConstraints(query="显示器")
     after = MissionConstraints(query="显示器", only_in_stock=True, preference="noise")
     sanitized, warnings, replies = sanitize_constraints("显示器", before, after)
-    assert sanitized.only_in_stock is False
+    assert sanitized.only_in_stock is True
     assert sanitized.preference == "balanced"
     assert warnings
     assert replies
+
+
+def test_classify_reject_this_item_uses_rank() -> None:
+    act = classify_turn("不要这款", current_query="降噪耳机")
+    assert act.kind == DialogueActKind.REJECT
+    assert act.referent_ranks == [1]
+    assert act.exclude_terms == []
+
+
+def test_policy_reject_writes_belief_and_reranks() -> None:
+    mission = ShoppingMission(
+        owner_id="u1",
+        title="t",
+        constraints=MissionConstraints(query="降噪耳机", budget_cny=4000),
+    )
+    decision = DialoguePolicy().decide(
+        mission=mission,
+        turn=TurnInput(command=TurnCommand.MESSAGE, text="不要这款"),
+        has_cache=True,
+        cache_reuse_key=search_reuse_key(mission.constraints),
+        cache_payload={"ranked": [{"snapshot_id": "snap-1", "estimated_cny": {"amount": 2100}}]},
+    )
+    assert decision.route == TurnRoute.RERANK
+    assert "snap-1" in decision.belief.rejected_snapshot_ids
+    assert decision.apply_constraints is False
+
+
+def test_policy_expensive_without_budget_uses_cache_price() -> None:
+    mission = ShoppingMission(
+        owner_id="u1",
+        title="t",
+        constraints=MissionConstraints(query="降噪耳机"),
+    )
+    decision = DialoguePolicy().decide(
+        mission=mission,
+        turn=TurnInput(command=TurnCommand.MESSAGE, text="太贵了"),
+        has_cache=True,
+        cache_reuse_key=search_reuse_key(mission.constraints),
+        cache_payload={"ranked": [{"snapshot_id": "snap-1", "estimated_cny": {"amount": 2500}}]},
+    )
+    assert decision.constraints.query == "降噪耳机"
+    assert decision.constraints.budget_cny == 2000
+    assert decision.route == TurnRoute.RERANK
+
+
+def test_plan_route_reject_and_stance_use_rerank() -> None:
+    assert (
+        plan_route(
+            kind=DialogueActKind.REJECT,
+            has_query=True,
+            has_cache=True,
+            reuse_matches=True,
+            skip_intent_patch=False,
+            constraints_changed=False,
+        )
+        == TurnRoute.RERANK
+    )
+    assert (
+        plan_route(
+            kind=DialogueActKind.STANCE,
+            has_query=True,
+            has_cache=True,
+            reuse_matches=True,
+            skip_intent_patch=False,
+            constraints_changed=True,
+        )
+        == TurnRoute.RERANK
+    )
+
+
+def test_next_moves_follow_candidate_gap() -> None:
+    from backend.application.services.dialogue import next_moves_for
+
+    moves = next_moves_for(
+        kind=DialogueActKind.REFINE.value,
+        topic=None,
+        has_query=True,
+        has_candidates=True,
+        ranked=[
+            {"title": "Sony WH-1000XM5", "brand": "Sony", "estimated_cny": {"amount": 2100}},
+            {"title": "Bose QC Ultra", "brand": "Bose", "estimated_cny": {"amount": 2600}},
+        ],
+    )
+    texts = [move.text for move in moves]
+    labels = [move.label for move in moves]
+    assert "为什么推荐" in texts
+    assert any("不要Sony" in label or "不要索尼" in label for label in labels) or "不要Sony" in texts
+    assert any("再便宜一点" in text or "再收" in label for text, label in zip(texts, labels, strict=False))

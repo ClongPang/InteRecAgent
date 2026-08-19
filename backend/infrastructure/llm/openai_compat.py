@@ -1,0 +1,338 @@
+"""OpenAI 兼容 Chat Completions（DeepSeek 官方协议）。
+
+默认对接 https://api.deepseek.com + deepseek-v4-flash。
+只返回已校验的 IntentPatch / RecommendationDraft；非法结构或上游失败
+转为 ModelUnavailableError，由 Agent 走确定性 fallback。
+"""
+from __future__ import annotations
+
+import json
+import re
+from typing import Any
+
+import httpx
+from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt
+
+from ...application.dto import DialogueAct, DialogueActKind, IntentPatch, RecommendationDraft
+from ...application.dto.dialogue import AskTopic
+from ...application.errors import ModelUnavailableError, UpstreamUnavailableError
+from ...domain.models import VALID_MARKETS
+from ..retry import is_retryable, retry_wait
+
+DEFAULT_BASE_URL = "https://api.deepseek.com"
+DEFAULT_MODEL = "deepseek-v4-flash"
+_VALID_PREFERENCES = frozenset({"balanced", "battery", "noise", "lowest"})
+_JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.S)
+
+
+def completions_url(base_url: str) -> str:
+    base = (base_url or DEFAULT_BASE_URL).rstrip("/")
+    if base.endswith("/chat/completions"):
+        return base
+    return f"{base}/chat/completions"
+
+
+def _parse_retry_after(resp: httpx.Response) -> float | None:
+    value = resp.headers.get("Retry-After")
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def extract_json_object(text: str) -> dict[str, Any]:
+    raw = (text or "").strip()
+    fenced = _JSON_FENCE.search(raw)
+    if fenced:
+        raw = fenced.group(1).strip()
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        start, end = raw.find("{"), raw.rfind("}")
+        if start < 0 or end <= start:
+            raise ValueError("模型未返回 JSON 对象") from None
+        payload = json.loads(raw[start : end + 1])
+    if not isinstance(payload, dict):
+        raise ValueError("模型 JSON 根节点必须是对象")
+    return payload
+
+
+_VALID_STANCES = frozenset({"too_expensive", "want_cheaper", "want_lighter"})
+_TALK_KINDS = frozenset(
+    {
+        DialogueActKind.ASK_ITEM,
+        DialogueActKind.COMPARE,
+        DialogueActKind.REJECT,
+        DialogueActKind.STANCE,
+        DialogueActKind.META,
+        DialogueActKind.UNDO,
+    }
+)
+
+
+def sanitize_intent_patch(patch: IntentPatch) -> IntentPatch:
+    markets = None
+    if patch.markets:
+        markets = [code for code in patch.markets if code in VALID_MARKETS] or None
+    preference = patch.preference if patch.preference in _VALID_PREFERENCES else None
+    query = (patch.query or "").strip() or None
+    return patch.model_copy(
+        update={
+            "query": query,
+            "markets": markets,
+            "preference": preference,
+            "source": "model",
+        }
+    )
+
+
+def sanitize_dialogue_act(act: DialogueAct) -> DialogueAct:
+    patch = sanitize_intent_patch(act.patch) if act.patch is not None else None
+    if act.kind in _TALK_KINDS and patch is not None:
+        patch = patch.model_copy(update={"query": None, "requires_clarification": False})
+    stance = act.stance if act.stance in _VALID_STANCES else None
+    topic = act.topic if act.topic in set(AskTopic) else None
+    return act.model_copy(
+        update={
+            "patch": patch,
+            "stance": stance,
+            "topic": topic,
+            "source": "model",
+        }
+    )
+
+
+def _as_jsonable(value: object) -> Any:
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        return dump(mode="json")
+    if isinstance(value, list):
+        return [_as_jsonable(item) for item in value]
+    if isinstance(value, dict):
+        return value
+    return str(value)
+
+
+def _candidate_brief(item: object) -> dict[str, Any]:
+    data = _as_jsonable(item)
+    if not isinstance(data, dict):
+        return {"value": data}
+    return {
+        "id": data.get("id"),
+        "title": data.get("title"),
+        "merchant": data.get("merchant"),
+        "country_code": data.get("country_code"),
+        "rmb_price": data.get("rmb_price"),
+        "native_price_amount": data.get("native_price_amount"),
+        "native_currency": data.get("native_currency"),
+        "fx_failed": data.get("fx_failed"),
+        "unavailable": data.get("unavailable"),
+    }
+
+
+_INTENT_SYSTEM = """你是跨境购物意图解析器。只输出一个 JSON 对象，不要解释。
+字段：query, budget_cny, markets, preference, only_in_stock, exclude_terms,
+confidence, requires_clarification, clarification_question。
+规则：
+- 未出现的字段用 null 或省略；不要编造用户没说的预算、市场或品类。
+- query 只在用户明确商品/品类/型号时填写；「太贵了」「再便宜一点」不得写成 query。
+- markets 只能是 US、SG、VN、TH、MY。
+- preference 只能是 balanced、battery、noise、lowest。
+- preference=noise 仅当用户说「优先降噪」；query 里的「降噪耳机」不是 preference。
+- 无法判断要买什么时 requires_clarification=true，并给一句中文追问。
+- 不得输出价格、库存、链接或汇率。"""
+
+_TURN_SYSTEM = """你是跨境购物对话行为分类器。只输出一个 JSON 对象，不要解释。
+字段：kind, patch, referent_ranks, exclude_terms, stance, topic, confidence。
+kind 只能是：refine_constraints, ask_about_item, compare_items, reject_item,
+express_stance, undo, meta, unknown。
+规则：
+- 比较、提问、否定、态度、撤销、能力询问不得改 query。这些 kind 的 patch.query 必须为 null。
+- 「帮我比前两个 / 对比一下」→ compare_items，referent_ranks=[1,2]。
+- 「这款保修吗 / 为什么推荐 / 有货吗」→ ask_about_item，并填 topic：warranty|why|stock|tradeoff|overview。
+- 「不要这款 / 不要这个」→ reject_item，referent_ranks=[1]，不要把「这款」写成 exclude_terms。
+- 「不要索尼」→ reject_item，exclude_terms=["索尼"]。
+- 「太贵了 / 再便宜一点」→ express_stance，stance=too_expensive|want_cheaper，不得写成 query。
+- 「更轻」→ express_stance，stance=want_lighter。
+- 「降噪」出现在品类里不是 preference=noise；只有「优先降噪」才是。
+- 无法判断时 kind=unknown，patch.requires_clarification=true。
+- 不得输出价格、库存、链接或汇率。"""
+
+_DRAFT_SYSTEM = """你是证据约束的推荐起草器。只输出一个 JSON 对象，不要解释。
+字段：primary_snapshot_id, alternative_snapshot_ids, rationale, tradeoffs, cited_evidence_ids。
+规则：
+- 所有 ID 必须来自输入候选的 id，禁止编造。
+- rationale / tradeoffs 只能引用输入里已有的价格、市场、商户、缺失字段。
+- 不得声称保修、配送、正品、评分或库存（除非 unavailable 未包含该字段且输入给了值）。
+- alternative_snapshot_ids 最多 2 个。"""
+
+
+class OpenAICompatModelBackend:
+    """DeepSeek / 任意 OpenAI 兼容网关。httpx 调用，不引入 openai SDK。"""
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        base_url: str = DEFAULT_BASE_URL,
+        model: str = DEFAULT_MODEL,
+        timeout: float = 30.0,
+        client: httpx.AsyncClient | None = None,
+        max_retries: int = 2,
+    ) -> None:
+        self._api_key = api_key
+        self._base_url = base_url or DEFAULT_BASE_URL
+        self._model = model or DEFAULT_MODEL
+        self._timeout = timeout
+        self._max_retries = max_retries
+        self._client = client or httpx.AsyncClient(timeout=timeout)
+
+    def is_configured(self) -> bool:
+        return bool(self._api_key)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    async def parse_intent(self, text: str) -> IntentPatch:
+        payload = await self._complete_json(
+            system=_INTENT_SYSTEM,
+            user=f"用户输入：{text.strip()}",
+        )
+        try:
+            patch = IntentPatch.model_validate(payload)
+        except Exception as exc:
+            raise ModelUnavailableError("模型意图结构无法通过 Schema 校验") from exc
+        return sanitize_intent_patch(patch)
+
+    async def parse_turn(self, text: str, *, current_query: str | None = None) -> DialogueAct:
+        user = f"当前检索词：{current_query or '（无）'}\n用户输入：{text.strip()}"
+        payload = await self._complete_json(system=_TURN_SYSTEM, user=user)
+        try:
+            act = DialogueAct.model_validate(payload)
+        except Exception as exc:
+            raise ModelUnavailableError("模型对话行为无法通过 Schema 校验") from exc
+        return sanitize_dialogue_act(act)
+
+    async def draft_recommendation(
+        self,
+        *,
+        constraints: object,
+        candidates: list[object],
+        evidence: object,
+    ) -> RecommendationDraft:
+        user = json.dumps(
+            {
+                "constraints": _as_jsonable(constraints),
+                "candidates": [_candidate_brief(item) for item in candidates],
+                "deterministic_draft": _as_jsonable(evidence) if evidence is not None else None,
+            },
+            ensure_ascii=False,
+        )
+        payload = await self._complete_json(system=_DRAFT_SYSTEM, user=user)
+        try:
+            return RecommendationDraft.model_validate(payload)
+        except Exception as exc:
+            raise ModelUnavailableError("模型推荐草稿无法通过 Schema 校验") from exc
+
+    async def _complete_json(self, *, system: str, user: str) -> dict[str, Any]:
+        if not self._api_key:
+            raise ModelUnavailableError("LLM API Key 未配置")
+        try:
+            body = await self._request(system=system, user=user)
+        except UpstreamUnavailableError as exc:
+            raise ModelUnavailableError("模型上游不可用，改用确定性解析") from exc
+        except httpx.HTTPError as exc:
+            raise ModelUnavailableError("无法连接模型服务") from exc
+        text = _message_text(body)
+        try:
+            return extract_json_object(text)
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise ModelUnavailableError("模型未返回可用 JSON") from exc
+
+    async def _request(self, *, system: str, user: str) -> dict[str, Any]:
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "stream": False,
+            "response_format": {"type": "json_object"},
+            "thinking": {"type": "disabled"},
+        }
+        async for attempt in AsyncRetrying(
+            retry=retry_if_exception(is_retryable),
+            wait=retry_wait,
+            stop=stop_after_attempt(self._max_retries),
+            reraise=True,
+        ):
+            with attempt:
+                try:
+                    resp = await self._client.post(
+                        completions_url(self._base_url),
+                        headers=headers,
+                        json=payload,
+                    )
+                except httpx.HTTPError as exc:
+                    raise UpstreamUnavailableError(
+                        code="upstream_error",
+                        category="upstream",
+                        retryable=True,
+                        user_message="无法连接模型服务",
+                    ) from exc
+                if resp.status_code == 401:
+                    raise UpstreamUnavailableError(
+                        code="auth_error",
+                        category="system",
+                        retryable=False,
+                        status_code=401,
+                    )
+                if resp.status_code == 429:
+                    raise UpstreamUnavailableError(
+                        code="rate_limited",
+                        category="upstream",
+                        retryable=True,
+                        status_code=429,
+                        retry_after=_parse_retry_after(resp),
+                    )
+                if resp.status_code >= 500:
+                    raise UpstreamUnavailableError(
+                        code="upstream_error",
+                        category="upstream",
+                        retryable=True,
+                        status_code=resp.status_code,
+                    )
+                if resp.status_code >= 400:
+                    raise UpstreamUnavailableError(
+                        code="invalid_request",
+                        category="model",
+                        retryable=False,
+                        status_code=resp.status_code,
+                    )
+                try:
+                    return resp.json()
+                except ValueError as exc:
+                    raise UpstreamUnavailableError(
+                        code="parse_error", category="upstream", retryable=True
+                    ) from exc
+        raise UpstreamUnavailableError(code="upstream_error", retryable=True)
+
+
+def _message_text(body: dict[str, Any]) -> str:
+    choices = body.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ModelUnavailableError("模型响应缺少 choices")
+    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    if not isinstance(message, dict):
+        raise ModelUnavailableError("模型响应缺少 message")
+    content = message.get("content")
+    if isinstance(content, str) and content.strip():
+        return content
+    raise ModelUnavailableError("模型响应内容为空")

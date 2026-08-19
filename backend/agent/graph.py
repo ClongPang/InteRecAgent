@@ -79,7 +79,7 @@ def build_graph(
     graph.add_node("filter_hard_constraints", make_filter_hard_constraints())
     graph.add_node("rank_candidates", make_rank_candidates())
     graph.add_node("verify_evidence", make_verify_evidence())
-    graph.add_node("compose_recommendation", make_compose_recommendation())
+    graph.add_node("compose_recommendation", make_compose_recommendation(model_backend))
     graph.add_node("persist_decision_snapshot", make_persist_decision_snapshot(uow_factory))
 
     graph.add_edge(START, "receive_message")
@@ -93,6 +93,7 @@ def build_graph(
             "clarify": "persist_decision_snapshot",
             "talk": "load_cached_candidates",
             "refilter": "load_cached_candidates",
+            "rerank": "load_cached_candidates",
             "research": "build_search_plan",
         },
     )

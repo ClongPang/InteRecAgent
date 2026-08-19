@@ -7,6 +7,7 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 from ...domain.models import utcnow
+from .belief import PreferenceBelief
 
 
 class MissionStage(StrEnum):
@@ -73,5 +74,6 @@ class ShoppingMission(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     turn_phase: TurnPhase = TurnPhase.IDLE
     dialogue: DialogueState = Field(default_factory=DialogueState)
+    belief: PreferenceBelief = Field(default_factory=PreferenceBelief)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

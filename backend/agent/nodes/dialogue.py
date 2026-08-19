@@ -21,12 +21,41 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
 
     async def classify_dialogue_act(state: MissionGraphState) -> dict:
         if state.get("skip_intent_patch"):
-            act = DialogueAct(kind=DialogueActKind.REFINE, source="command")
-            return {"dialogue_act": act, "intent_patch": IntentPatch()}
+            raw_act = state.get("decided_act")
+            if isinstance(raw_act, dict):
+                act = DialogueAct.model_validate(raw_act)
+            else:
+                act = DialogueAct(kind=DialogueActKind.REFINE, source="command")
+            return {
+                "dialogue_act": act,
+                "intent_patch": act.patch or IntentPatch(),
+                "turn_route": state.get("decided_route") or state.get("turn_route"),
+            }
+        if (
+            isinstance(state.get("decided_act"), dict)
+            and state.get("decided_route")
+            and state["decided_act"].get("kind") not in {DialogueActKind.UNKNOWN.value, None}
+        ):
+            act = DialogueAct.model_validate(state["decided_act"])
+            return {
+                "dialogue_act": act,
+                "intent_patch": act.patch or IntentPatch(),
+                "turn_route": state["decided_route"],
+            }
         text = state.get("text") or ""
         current_query = state["mission"].constraints.query
         act = classify_turn(text, current_query=current_query)
-        if act.kind == DialogueActKind.REFINE and model_backend.is_configured():
+        if act.kind == DialogueActKind.UNKNOWN and model_backend.is_configured():
+            try:
+                act = await model_backend.parse_turn(text, current_query=current_query)
+                return {
+                    "dialogue_act": act,
+                    "intent_patch": act.patch or IntentPatch(),
+                    "decided_route": None,
+                }
+            except ModelUnavailableError:
+                pass
+        elif act.kind == DialogueActKind.REFINE and model_backend.is_configured():
             try:
                 patch = await model_backend.parse_intent(text)
                 act = act.model_copy(update={"patch": patch, "source": "model"})
@@ -52,6 +81,11 @@ async def route_turn(state: MissionGraphState) -> dict:
         skip_intent_patch=bool(state.get("skip_intent_patch")),
         constraints_changed=before != mission.constraints,
     )
+    if state.get("decided_route"):
+        return {
+            "turn_route": state["decided_route"],
+            "requires_clarification": state["decided_route"] == TurnRoute.CLARIFY.value,
+        }
     if state.get("requires_clarification") or route == TurnRoute.CLARIFY:
         if not mission.constraints.query:
             return {

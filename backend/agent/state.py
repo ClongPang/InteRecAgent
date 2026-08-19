@@ -36,6 +36,8 @@ class MissionGraphState(TypedDict, total=False):
     mission: ShoppingMission
     text: NotRequired[str]
     skip_intent_patch: NotRequired[bool]
+    decided_route: NotRequired[str | None]
+    decided_act: NotRequired[dict | None]
     dialogue_act: NotRequired[DialogueAct]
     intent_patch: NotRequired[IntentPatch]
     constraints_before: NotRequired[MissionConstraints]

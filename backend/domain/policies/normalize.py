@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from ..models import API_MISSING_FIELDS, NormalizedProduct
+from .derive_attrs import derive_title_attrs
 
 
 @runtime_checkable
@@ -29,6 +30,8 @@ class RawProduct(Protocol):
     country_code: str | None
     updated_at: str | None
     click_url: str | None
+    availability: object | None = None
+    metadata: object | None = None
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -44,7 +47,11 @@ def normalize_item(item: RawProduct) -> NormalizedProduct:
     """真实字段白名单映射。API 缺失的字段（rating/规格/库存等）显式标记 unavailable，
     不填默认值——遵循"不伪造字段"原则。"""
     price = item.price
-    return NormalizedProduct(
+    in_stock, status = _availability(getattr(item, "availability", None))
+    unavailable = [name for name in API_MISSING_FIELDS]
+    if in_stock is None:
+        unavailable.append("availability")
+    product = NormalizedProduct(
         id=item.id,
         title=item.title,
         merchant=item.merchant,
@@ -56,5 +63,22 @@ def normalize_item(item: RawProduct) -> NormalizedProduct:
         updated_at=_parse_iso(item.updated_at),
         native_price_amount=price.amount if price else None,
         native_currency=price.currency if price else None,
-        unavailable=list(API_MISSING_FIELDS),
+        in_stock=in_stock,
+        availability_status=status,
+        unavailable=unavailable,
     )
+    return derive_title_attrs(product)
+
+
+def _availability(raw: object | None) -> tuple[bool | None, str | None]:
+    if not isinstance(raw, dict):
+        in_stock = getattr(raw, "in_stock", None)
+        status = getattr(raw, "status", None)
+    else:
+        in_stock = raw.get("in_stock")
+        status = raw.get("status")
+    if isinstance(in_stock, bool):
+        return in_stock, str(status) if status else ("in_stock" if in_stock else "out_of_stock")
+    if isinstance(status, str) and status:
+        return status in {"in_stock", "limited"}, status
+    return None, None

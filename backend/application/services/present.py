@@ -37,6 +37,8 @@ def candidate_record(
         reasons.append("within_budget")
     if rank == 1 and not product.fx_failed:
         reasons.append("lowest_estimated_cny")
+    if product.in_stock is True:
+        reasons.append("in_stock")
     return {
         "snapshot_id": snapshot_id,
         "source": "buywhere",
@@ -50,12 +52,29 @@ def candidate_record(
         },
         "estimated_cny": estimated,
         "fx_failed": product.fx_failed,
+        "brand": (product.attrs or {}).get("brand"),
+        "availability": availability_label(product),
+        "in_stock": product.in_stock,
+        "availability_status": product.availability_status,
+        "attrs": dict(product.attrs or {}),
+        "derived_fields": list(product.derived_fields),
         "unavailable_fields": list(product.unavailable),
         "merchant_url": https_url(product.click_url) or https_url(product.url),
         "source_updated_at": product.updated_at.isoformat() if product.updated_at else None,
         "rank": rank,
         "decision_reasons": reasons,
     }
+
+
+def availability_label(product: NormalizedProduct) -> str:
+    status = product.availability_status
+    if status in {"in_stock", "limited", "out_of_stock"}:
+        return status
+    if product.in_stock is True:
+        return "in_stock"
+    if product.in_stock is False:
+        return "out_of_stock"
+    return "unknown"
 
 
 def remap_draft(draft: RecommendationDraft, snapshot_map: dict[str, str]) -> RecommendationDraft:
@@ -93,6 +112,7 @@ def product_candidate_from_record(item: dict, *, rank: int | None = None) -> Pro
         return None
     estimated = _estimated_cny(item)
     updated = _parse_dt(item.get("source_updated_at") or item.get("updated_at"))
+    attrs = item.get("attrs") if isinstance(item.get("attrs"), dict) else {}
     return ProductCandidate(
         snapshot_id=str(snapshot_id),
         source=str(item.get("source") or "buywhere"),
@@ -103,6 +123,9 @@ def product_candidate_from_record(item: dict, *, rank: int | None = None) -> Pro
         native_price=native_price,
         estimated_cny=estimated,
         fx_failed=bool(item.get("fx_failed")),
+        brand=item.get("brand") or attrs.get("brand"),
+        availability=_availability_from_record(item),
+        derived_fields=list(item.get("derived_fields") or []),
         unavailable_fields=list(item.get("unavailable_fields") or item.get("unavailable") or []),
         merchant_url=https_url(item.get("merchant_url"))
         or https_url(item.get("click_url"))
@@ -156,6 +179,10 @@ def hydrate_candidate_payload(payload: dict | None) -> tuple[list[NormalizedProd
                 date=str(estimated.get("rate_date") or item.get("fx_as_of") or ""),
                 source=str(estimated.get("source") or "cached"),
             )
+        in_stock, status = _hydrate_stock(item)
+        attrs = item.get("attrs") if isinstance(item.get("attrs"), dict) else {}
+        if item.get("brand") and "brand" not in attrs:
+            attrs = {**attrs, "brand": str(item["brand"])}
         products.append(
             NormalizedProduct(
                 id=source_id,
@@ -169,12 +196,45 @@ def hydrate_candidate_payload(payload: dict | None) -> tuple[list[NormalizedProd
                 rmb_price=float(rmb) if rmb is not None else None,
                 fx_as_of=str(estimated.get("rate_date") or item.get("fx_as_of") or "") or None,
                 fx_failed=fx_failed,
+                in_stock=in_stock,
+                availability_status=status,
+                attrs=attrs,
+                derived_fields=list(item.get("derived_fields") or []),
                 unavailable=list(item.get("unavailable_fields") or item.get("unavailable") or []),
                 updated_at=_parse_dt(item.get("source_updated_at") or item.get("updated_at")),
             )
         )
     fx_ids = [str(i) for i in (payload.get("fx_snapshot_ids") or [])]
     return products, snapshot_map, rates, fx_ids
+
+
+def _availability_from_record(item: dict) -> str:
+    raw = item.get("availability")
+    if raw in {"in_stock", "limited", "out_of_stock", "unknown"}:
+        return str(raw)
+    status = item.get("availability_status")
+    if status in {"in_stock", "limited", "out_of_stock"}:
+        return str(status)
+    if item.get("in_stock") is True:
+        return "in_stock"
+    if item.get("in_stock") is False:
+        return "out_of_stock"
+    return "unknown"
+
+
+def _hydrate_stock(item: dict) -> tuple[bool | None, str | None]:
+    if isinstance(item.get("in_stock"), bool):
+        in_stock = item["in_stock"]
+        status = item.get("availability_status") or ("in_stock" if in_stock else "out_of_stock")
+        return in_stock, str(status)
+    label = item.get("availability") or item.get("availability_status")
+    if label == "in_stock":
+        return True, "in_stock"
+    if label == "out_of_stock":
+        return False, "out_of_stock"
+    if label == "limited":
+        return True, "limited"
+    return None, None
 
 
 def _estimated_cny(item: dict) -> EstimatedCny | None:

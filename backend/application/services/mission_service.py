@@ -89,6 +89,7 @@ class MissionCommandService:
                 ),
                 has_cache=bool(cache and cache.get("ranked")),
                 cache_reuse_key=(cache or {}).get("reuse_key"),
+                cache_payload=cache,
             )
             if decision.undo:
                 await uow.events.append(
@@ -104,6 +105,7 @@ class MissionCommandService:
                     decision=decision,
                     expected_version=constraints_version,
                     user_text=text,
+                    cache_payload=cache,
                 )
                 await uow.commit()
         if decision.undo:
@@ -145,6 +147,7 @@ class MissionCommandService:
                 turn=TurnInput(command=TurnCommand.PATCH, source="filter", constraints=constraints),
                 has_cache=bool(cache and cache.get("ranked")),
                 cache_reuse_key=(cache or {}).get("reuse_key"),
+                cache_payload=cache,
             )
             run_id, new_version = await self._persist_decision(
                 uow,
@@ -177,6 +180,8 @@ class MissionCommandService:
                 if event["event_type"] != "constraints.updated":
                     continue
                 before = MissionConstraints(**event["payload"]["before"])
+                if not (before.query or "").strip():
+                    continue
                 run_id = str(uuid4())
                 new_version = next_constraints_version(
                     mission.constraints_version, mission.constraints, before
@@ -389,6 +394,7 @@ class MissionCommandService:
             events,
             has_query=bool(mission.constraints.query),
             has_candidates=bool(candidates.ranked),
+            ranked=[item.model_dump(mode="json") for item in candidates.ranked],
         )
 
     async def _require_mission(
@@ -411,6 +417,7 @@ class MissionCommandService:
         decision: TurnDecision,
         expected_version: int,
         user_text: str | None = None,
+        cache_payload: dict | None = None,
     ) -> tuple[str, int]:
         run_id = str(uuid4())
         before = mission.constraints
@@ -430,6 +437,7 @@ class MissionCommandService:
                 else mission.stage,
                 "turn_phase": decision.phase if decision.dispatch else TurnPhase.IDLE,
                 "dialogue": decision.dialogue,
+                "belief": decision.belief,
                 "warnings": warnings,
                 "active_run_id": run_id if decision.dispatch else mission.active_run_id,
                 "updated_at": utcnow(),
@@ -448,6 +456,11 @@ class MissionCommandService:
                     "constraints_version": mission.constraints_version,
                     "turn_phase": updated.turn_phase.value,
                     "source": decision.act.source,
+                    "turn_route": decision.route.value,
+                    "act_payload": decision.act.model_dump(mode="json"),
+                    "skip_intent_patch": decision.apply_constraints
+                    or decision.act.kind.value
+                    not in {"refine_constraints", "unknown"},
                 },
             )
         if decision.apply_constraints and after != before:
@@ -477,7 +490,8 @@ class MissionCommandService:
                             kind=decision.act.kind.value,
                             topic=decision.act.topic.value if decision.act.topic else None,
                             has_query=bool(after.query),
-                            has_candidates=False,
+                            has_candidates=bool((cache_payload or {}).get("ranked")),
+                            ranked=list((cache_payload or {}).get("ranked") or []),
                         )
                     ],
                 },

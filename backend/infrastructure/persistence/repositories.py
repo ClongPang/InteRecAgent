@@ -6,6 +6,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...application.dto import DialogueState, MissionConstraints, MissionStage, ShoppingMission, TurnPhase
+from ...application.dto.belief import PreferenceBelief
 from ...application.errors import MissionVersionConflict
 from ...domain.models import FxSnapshot, NormalizedProduct
 from .orm import (
@@ -30,6 +31,7 @@ def _mission_payload(mission: ShoppingMission) -> dict:
         "warnings": mission.warnings,
         "turn_phase": mission.turn_phase.value,
         "dialogue": mission.dialogue.model_dump(mode="json"),
+        "belief": mission.belief.model_dump(mode="json"),
     }
 
 
@@ -49,6 +51,7 @@ def _row_to_mission(row: ShoppingMissionRow) -> ShoppingMission:
         warnings=data.get("warnings") or [],
         turn_phase=TurnPhase(data["turn_phase"]) if data.get("turn_phase") else TurnPhase.IDLE,
         dialogue=DialogueState(**(data.get("dialogue") or {})),
+        belief=PreferenceBelief(**(data.get("belief") or {})),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

@@ -5,9 +5,11 @@ import pytest
 from backend.domain.models import FxSnapshot, NormalizedProduct
 from backend.domain.policies import (
     apply_budget_filter,
+    apply_stock_filter,
     convert_products,
     dedupe_products,
     rank_products,
+    score_and_rank,
 )
 
 
@@ -72,3 +74,30 @@ class TestRank:
         )
         ranked = rank_products(products)
         assert ranked[-1].id == "no_fx"
+
+
+class TestStockFilter:
+    def test_unknown_stock_does_not_drop_fixture_items(self):
+        items = [_product("a", 10), _product("b", 20)]
+        kept, out, unknown = apply_stock_filter(items)
+        assert [p.id for p in kept] == ["a", "b"]
+        assert out == [] and unknown == []
+
+    def test_filters_only_when_facts_exist(self):
+        items = [
+            _product("a", 10).model_copy(update={"in_stock": True}),
+            _product("b", 20).model_copy(update={"in_stock": False}),
+            _product("c", 30),
+        ]
+        kept, out, unknown = apply_stock_filter(items)
+        assert [p.id for p in kept] == ["a"]
+        assert [p.id for p in out] == ["b"]
+        assert [p.id for p in unknown] == ["c"]
+
+
+class TestScore:
+    def test_rejected_and_out_of_stock_rank_lower(self):
+        cheap = _product("cheap", 50).model_copy(update={"rmb_price": 350, "in_stock": False})
+        mid = _product("mid", 80).model_copy(update={"rmb_price": 560, "in_stock": True})
+        ranked = score_and_rank([cheap, mid], budget_cny=1000, rejected_source_ids={"cheap"})
+        assert [p.id for p in ranked] == ["mid", "cheap"]

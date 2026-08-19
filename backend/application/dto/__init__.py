@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .belief import Critique, PreferenceBelief, SoftPref
 from .dialogue import (
     AskTopic,
     Citation,
@@ -34,6 +35,9 @@ from .runner import IntentPatch, RecommendationDraft, RunnerResult, RunnerStatus
 from .search import ProductSearchResult
 
 __all__ = [
+    "Critique",
+    "PreferenceBelief",
+    "SoftPref",
     "CandidateSetView",
     "CreateMissionResponse",
     "DialogueState",

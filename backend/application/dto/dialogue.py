@@ -40,6 +40,7 @@ class TurnRoute(StrEnum):
     CLARIFY = "clarify"
     TALK = "talk"
     REFILTER = "refilter"
+    RERANK = "rerank"
     RESEARCH = "research"
 
 

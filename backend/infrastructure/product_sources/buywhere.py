@@ -21,8 +21,13 @@ class BuyWherePrice(BaseModel):
     currency: str | None = None
 
 
+class BuyWhereAvailability(BaseModel):
+    in_stock: bool | None = None
+    status: str | None = None
+
+
 class BuyWhereProduct(BaseModel):
-    # 字段集来自真实 API 实测（2026-08-16），不是 OpenAPI 文档假设。
+    # 字段集来自真实 API 实测（2026-08-19 阶段 0），不是 OpenAPI 文档假设。
     id: str
     title: str
     price: BuyWherePrice | None = None
@@ -37,6 +42,8 @@ class BuyWhereProduct(BaseModel):
     has_affiliate_tracking: bool | None = None
     is_affiliate: bool | None = None
     affiliate_disclosure: str | None = None
+    availability: BuyWhereAvailability | None = None
+    url_last_checked_at: str | None = None
     metadata: Any = None
 
 

@@ -39,7 +39,14 @@ async def live_server():
         await conn.exec_driver_sql(TRUNCATE_SQL)
     await engine.dispose()
 
-    container = Container(Settings(database_url=TEST_DB_URL, data_source="fixture"))
+    container = Container(
+        Settings(
+            database_url=TEST_DB_URL,
+            data_source="fixture",
+            llm_provider="unconfigured",
+            llm_api_key="",
+        )
+    )
     app = create_app(container)
 
     # 找空闲端口
@@ -97,7 +104,7 @@ async def test_sse_delivers_incremental_events(live_server) -> None:
                     elif line.startswith("event: "):
                         seen_ids.append(cur)
                         types.append(line.split(": ", 1)[1])
-                        if len(types) >= 2:
+                        if "recommendation.ready" in types and "run.accepted" in types:
                             return
             done.set()
 

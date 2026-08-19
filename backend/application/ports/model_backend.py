@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from ..dto import IntentPatch, RecommendationDraft
+from ..dto import DialogueAct, IntentPatch, RecommendationDraft
 
 
 @runtime_checkable
@@ -13,6 +13,8 @@ class ModelBackend(Protocol):
     def is_configured(self) -> bool: ...
 
     async def parse_intent(self, text: str) -> IntentPatch: ...
+
+    async def parse_turn(self, text: str, *, current_query: str | None = None) -> DialogueAct: ...
 
     async def draft_recommendation(
         self,

@@ -263,7 +263,7 @@ async def test_stance_keeps_query_and_tightens_budget() -> None:
 
 
 @pytest.mark.asyncio
-async def test_patch_unsupported_stock_does_not_dispatch() -> None:
+async def test_patch_in_stock_dispatches_refilter() -> None:
     mission = _mission(version=1).model_copy(
         update={"constraints": MissionConstraints(query="降噪耳机", budget_cny=4000)}
     )
@@ -274,11 +274,10 @@ async def test_patch_unsupported_stock_does_not_dispatch() -> None:
         constraints_version=1,
         constraints=MissionConstraints(query="降噪耳机", budget_cny=4000, only_in_stock=True),
     )
-    assert version == 1
-    assert dispatcher.calls == []
-    assert missions.missions["m1"].constraints.only_in_stock is False
-    assert events.events[-1][1] == "agent.message"
-    assert "库存" in events.events[-1][2]["text"]
+    assert version == 2
+    assert dispatcher.calls
+    assert missions.missions["m1"].constraints.only_in_stock is True
+    assert events.events[-1][1] == "constraints.updated"
 
 
 @pytest.mark.asyncio

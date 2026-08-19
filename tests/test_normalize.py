@@ -32,10 +32,20 @@ def test_real_fields_mapped():
 
 def test_missing_fields_marked_unavailable():
     p = normalize_item(_item())
-    # 文档/前端 mock 假设的 rating/specs/availability 等，真实 API 提供不了，显式标记
-    assert set(p.unavailable) == set(API_MISSING_FIELDS)
+    assert set(p.unavailable) == set(API_MISSING_FIELDS) | {"availability"}
     assert "rating" in p.unavailable
     assert "structured_specs" in p.unavailable
+    assert "availability" in p.unavailable
+    assert p.in_stock is None
+
+
+def test_availability_is_normalized_when_present():
+    p = normalize_item(_item(availability={"in_stock": True, "status": "in_stock"}))
+    assert p.in_stock is True
+    assert p.availability_status == "in_stock"
+    assert "availability" not in p.unavailable
+    assert p.attrs.get("brand") == "Sony"
+    assert "brand" in p.derived_fields
 
 
 def test_nullable_fields_stay_none():

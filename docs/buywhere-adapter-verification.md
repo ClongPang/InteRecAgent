@@ -1,6 +1,7 @@
 # BuyWhere 真实链路验证报告
 
-**日期**：2026-08-16
+**日期**：2026-08-16  
+**更新**：2026-08-19 阶段 0 复测见 [buywhere-capability-probe.md](./buywhere-capability-probe.md)。主要变化：搜索/详情已返回 `availability`；详情仍无增量字段；`country_code` 经常为 null。本节其余内容保留为切片当时记录。
 **范围**：纵向切片——用真实 BuyWhere Key + Frankfurter(ECB) 汇率，验证"搜索 → 归一化 → 人民币换算 → 硬过滤 → 排序"最小链路，对照架构文档假设。
 **关联**：[technical-architecture-and-selection.md](./technical-architecture-and-selection.md)、[cross-border-shopping-agent-prototype-design.md](./cross-border-shopping-agent-prototype-design.md)
 **实现**：`backend/adapters`、`backend/domain`、`backend/service.py`、`backend/cli.py`、`tests/`（含脱敏 fixture）

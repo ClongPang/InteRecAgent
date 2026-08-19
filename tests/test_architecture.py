@@ -58,6 +58,7 @@ def test_required_ports_exist_and_are_async() -> None:
     assert inspect.iscoroutinefunction(ports.MissionRunner.run)
     assert inspect.iscoroutinefunction(ports.RunDispatcher.dispatch)
     assert inspect.iscoroutinefunction(ports.MissionRepository.get)
+    assert inspect.iscoroutinefunction(ports.ModelBackend.parse_turn)
 
 
 def test_application_does_not_import_agent_or_infrastructure() -> None:
@@ -79,3 +80,20 @@ def test_settings_is_only_environment_reader() -> None:
         text = path.read_text(encoding="utf-8")
         for pat in banned:
             assert pat not in text, f"{_rel(path)} 读取环境变量（ARC-006 违规）: {pat}"
+
+
+def test_talk_and_present_do_not_call_product_detail() -> None:
+    """阶段 4：比较/提问只引用候选快照，不得打详情富化。"""
+    banned = ("get_product(", "products.compare", "/v1/products/compare")
+    paths = [
+        BACKEND / "application" / "services" / "grounded.py",
+        BACKEND / "application" / "services" / "present.py",
+        BACKEND / "application" / "services" / "dialogue.py",
+        BACKEND / "agent" / "nodes" / "dialogue.py",
+        BACKEND / "agent" / "nodes" / "decide.py",
+        BACKEND / "agent" / "nodes" / "evidence.py",
+    ]
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        for pat in banned:
+            assert pat not in text, f"{_rel(path)} 不应调用详情/比较接口: {pat}"

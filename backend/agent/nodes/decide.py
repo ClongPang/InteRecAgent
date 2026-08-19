@@ -6,9 +6,10 @@ from ...domain.models import NormalizedProduct
 from ...domain.policies import (
     apply_budget_filter,
     apply_exclusion_filter,
+    apply_stock_filter,
     convert_products,
     dedupe_products,
-    rank_products,
+    score_and_rank,
 )
 from ..state import MissionGraphState
 from .parse_intent import CLARIFYING_QUESTION
@@ -110,15 +111,36 @@ def make_normalize_and_deduplicate():
 
 
 def make_filter_hard_constraints():
-    """硬过滤：预算。库存数据不可用时不 mock，降级提示（FE-004/AGT-006）。"""
+    """硬过滤：否定候选、有货事实、排除词、预算。无库存事实时不筛。"""
 
     async def filter_hard_constraints(state: MissionGraphState) -> dict:
         constraints = state["mission"].constraints
         products: list[NormalizedProduct] = state.get("products", [])
         warnings: list[str] = []
 
+        rejected = set(getattr(state["mission"].belief, "rejected_snapshot_ids", []) or [])
+        snapshot_map = state.get("snapshot_map") or {}
+        if rejected:
+            before = len(products)
+            products = [
+                product
+                for product in products
+                if snapshot_map.get(product.id, product.id) not in rejected
+                and product.id not in rejected
+            ]
+            if len(products) < before:
+                warnings.append(f"已排除 {before - len(products)} 件被否定的候选")
+
         if constraints.only_in_stock:
-            warnings.append("当前数据无法校验库存，'仅看有货' 条件无法生效，保留全部候选")
+            kept, out, unknown = apply_stock_filter(products)
+            if any(item.in_stock is not None for item in state.get("products", [])):
+                products = kept
+                if out:
+                    warnings.append(f"{len(out)} 件无货，已按「仅看有货」去掉")
+                if unknown:
+                    warnings.append(f"{len(unknown)} 件没有库存事实，未列入仅看有货结果")
+            else:
+                warnings.append("当前候选没有库存事实，「仅看有货」未生效")
 
         if constraints.excluded_terms:
             products, dropped = apply_exclusion_filter(products, constraints.excluded_terms)
@@ -143,7 +165,7 @@ def _category_supports_audio_preference(query: str) -> bool:
 
 
 def make_rank_candidates():
-    """排序（人民币价升序，换算失败排最后）。数据不支持续航/降噪维度时降级为价格排序。"""
+    """多目标排序。缺续航/降噪规格时只警告，不编造分数。"""
 
     async def rank_candidates(state: MissionGraphState) -> dict:
         constraints = state["mission"].constraints
@@ -156,7 +178,16 @@ def make_rank_candidates():
         ):
             warnings.append(f"当前商品数据无法按「{preference}」维度排序，已按商品价排序")
 
-        ranked: list[NormalizedProduct] = rank_products(products)
+        rejected = {
+            source_id
+            for source_id, snapshot_id in (state.get("snapshot_map") or {}).items()
+            if snapshot_id in set(getattr(state["mission"].belief, "rejected_snapshot_ids", []) or [])
+        }
+        ranked: list[NormalizedProduct] = score_and_rank(
+            products,
+            budget_cny=constraints.budget_cny,
+            rejected_source_ids=rejected,
+        )
         return {"ranked": ranked, "warnings": warnings}
 
     return rank_candidates

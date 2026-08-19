@@ -10,7 +10,7 @@ from ..application.ports import FxSource, ModelBackend, ProductSource
 from ..application.services import MissionCommandService, SearchService
 from ..infrastructure.fx_sources.fixed import FixedFxSource
 from ..infrastructure.fx_sources.frankfurter import FrankfurterFxSource
-from ..infrastructure.llm.unconfigured import UnconfiguredModelBackend
+from ..infrastructure.llm.factory import UnsupportedLLMProviderError, build_model_backend
 from ..infrastructure.persistence.database import create_engine, session_factory
 from ..infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from ..infrastructure.product_sources.buywhere import BuyWhereProductSource
@@ -49,7 +49,7 @@ class Container:
     async def aclose(self) -> None:
         """关闭共享资源（lifespan 结束时调用）。"""
         self._dispatcher = None
-        for source in (self._product_source, self._fx_source):
+        for source in (self._product_source, self._fx_source, self._model_backend):
             closer = getattr(source, "aclose", None)
             if closer is not None:
                 await closer()
@@ -99,13 +99,19 @@ class Container:
         )
 
     def build_model_backend(self) -> ModelBackend:
-        """LLM 接缝。骨架仅支持 unconfigured（确定性 fallback）；真实 Provider 后续加入。"""
+        """LLM 接缝。unconfigured 走确定性 fallback；openai_compat/deepseek 走官方兼容协议。"""
         if self._model_backend is None:
-            if self.settings.llm_provider != "unconfigured":
-                raise ConfigurationError(
-                    f"llm_provider={self.settings.llm_provider} 暂未实现；骨架仅支持 unconfigured"
+            try:
+                self._model_backend = build_model_backend(
+                    provider=self.settings.llm_provider,
+                    api_key=self.settings.llm_api_key,
+                    base_url=self.settings.llm_base_url,
+                    model=self.settings.llm_model,
+                    timeout=self.settings.llm_timeout,
+                    max_retries=self.settings.llm_max_retries,
                 )
-            self._model_backend = UnconfiguredModelBackend()
+            except UnsupportedLLMProviderError as exc:
+                raise ConfigurationError(str(exc)) from exc
         return self._model_backend
 
     def build_mission_runner(

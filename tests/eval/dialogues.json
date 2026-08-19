@@ -1,0 +1,280 @@
+{
+  "description": "离线多轮评测：只跑 classify_turn + DialoguePolicy，不打 BuyWhere / LLM。",
+  "cache_ranked": [
+    {
+      "snapshot_id": "s1",
+      "title": "Sony WH-1000XM5",
+      "brand": "Sony",
+      "estimated_cny": {"amount": 2500}
+    },
+    {
+      "snapshot_id": "s2",
+      "title": "Bose QC Ultra",
+      "brand": "Bose",
+      "estimated_cny": {"amount": 2900}
+    }
+  ],
+  "turns": [
+    {
+      "id": "01-first-query",
+      "text": "通勤降噪耳机，预算 4000 元",
+      "query": null,
+      "budget_cny": null,
+      "has_cache": false,
+      "expect": {"kind": "refine_constraints", "route": "research", "query": "通勤降噪耳机", "budget_cny": 4000}
+    },
+    {
+      "id": "02-too-expensive",
+      "text": "太贵了",
+      "query": "通勤降噪耳机",
+      "budget_cny": 4000,
+      "has_cache": true,
+      "expect": {"kind": "express_stance", "route": "rerank", "query": "通勤降噪耳机", "budget_cny": 3200}
+    },
+    {
+      "id": "03-cheaper",
+      "text": "再便宜一点",
+      "query": "通勤降噪耳机",
+      "budget_cny": 3200,
+      "has_cache": true,
+      "expect": {"kind": "express_stance", "route": "rerank", "query": "通勤降噪耳机", "budget_cny": 2560}
+    },
+    {
+      "id": "04-why",
+      "text": "为什么推荐这款",
+      "query": "通勤降噪耳机",
+      "budget_cny": 2560,
+      "has_cache": true,
+      "expect": {"kind": "ask_about_item", "route": "talk", "topic": "why"}
+    },
+    {
+      "id": "05-compare",
+      "text": "帮我比前两个",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "compare_items", "route": "talk", "ranks": [1, 2]}
+    },
+    {
+      "id": "06-reject-this",
+      "text": "不要这款",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "reject_item", "route": "rerank", "ranks": [1], "reject_focus": true}
+    },
+    {
+      "id": "07-reject-brand",
+      "text": "不要索尼",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "reject_item", "route": "rerank", "exclude": ["索尼"]}
+    },
+    {
+      "id": "08-warranty",
+      "text": "这款保修吗",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "ask_about_item", "route": "talk", "topic": "warranty"}
+    },
+    {
+      "id": "09-stock",
+      "text": "有货吗",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "ask_about_item", "route": "talk", "topic": "stock"}
+    },
+    {
+      "id": "10-tradeoff",
+      "text": "这两款差在哪",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "ask_about_item", "route": "talk", "topic": "tradeoff"}
+    },
+    {
+      "id": "11-overview",
+      "text": "这款怎么样",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "ask_about_item", "route": "talk", "topic": "overview"}
+    },
+    {
+      "id": "12-undo",
+      "text": "撤销刚才的条件",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "undo", "undo": true}
+    },
+    {
+      "id": "13-meta",
+      "text": "你能做什么",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "meta", "route": "talk"}
+    },
+    {
+      "id": "14-in-stock",
+      "text": "仅看有货",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "refine_constraints", "route": "refilter", "only_in_stock": true}
+    },
+    {
+      "id": "15-prefer-noise-headphones",
+      "text": "优先降噪",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "refine_constraints", "route": "refilter", "preference": "noise"}
+    },
+    {
+      "id": "16-prefer-noise-monitor",
+      "text": "优先降噪",
+      "query": "27 寸 4K 显示器",
+      "has_cache": true,
+      "expect": {"kind": "refine_constraints", "dispatch": false, "preference": "balanced"}
+    },
+    {
+      "id": "17-lighter",
+      "text": "更轻一点",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "express_stance", "dispatch": false, "unsupported": "weight"}
+    },
+    {
+      "id": "18-switch-category",
+      "text": "改找 27 寸 4K 显示器",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "refine_constraints", "route": "research"}
+    },
+    {
+      "id": "19-budget-only",
+      "text": "预算 2000 元",
+      "query": "通勤降噪耳机",
+      "budget_cny": 4000,
+      "has_cache": true,
+      "expect": {"kind": "refine_constraints", "route": "refilter", "budget_cny": 2000, "query": "通勤降噪耳机"}
+    },
+    {
+      "id": "20-empty",
+      "text": "",
+      "query": null,
+      "has_cache": false,
+      "expect": {"kind": "unknown", "route": "clarify"}
+    },
+    {
+      "id": "21-stance-no-query",
+      "text": "太贵了",
+      "query": null,
+      "has_cache": false,
+      "expect": {"kind": "express_stance", "route": "clarify"}
+    },
+    {
+      "id": "22-reject-no-cache",
+      "text": "不要这款",
+      "query": "通勤降噪耳机",
+      "has_cache": false,
+      "expect": {"kind": "reject_item", "route": "research"}
+    },
+    {
+      "id": "23-us-market",
+      "text": "只要美国",
+      "query": "通勤降噪耳机",
+      "markets": ["SG"],
+      "has_cache": true,
+      "expect": {"kind": "refine_constraints", "route": "research", "markets": ["US"]}
+    },
+    {
+      "id": "24-too-expensive-implicit",
+      "text": "太贵了",
+      "query": "通勤降噪耳机",
+      "budget_cny": null,
+      "has_cache": true,
+      "use_default_cache": true,
+      "expect": {"kind": "express_stance", "route": "rerank", "budget_cny": 2000, "query": "通勤降噪耳机"}
+    },
+    {
+      "id": "25-first-shoes",
+      "text": "轻便徒步鞋，预算 1000 元",
+      "query": null,
+      "has_cache": false,
+      "expect": {"kind": "refine_constraints", "route": "research", "query": "轻便徒步鞋", "budget_cny": 1000}
+    },
+    {
+      "id": "26-monitor",
+      "text": "27 寸 4K 显示器，预算 3000 元",
+      "query": null,
+      "has_cache": false,
+      "expect": {"kind": "refine_constraints", "route": "research", "budget_cny": 3000}
+    },
+    {
+      "id": "27-second-item",
+      "text": "第二个怎么样",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "ask_about_item", "route": "talk", "ranks": [2]}
+    },
+    {
+      "id": "28-compare-synonym",
+      "text": "对比一下前两件",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "compare_items", "route": "talk", "ranks": [1, 2]}
+    },
+    {
+      "id": "29-reject-this-one",
+      "text": "不要这个",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "reject_item", "route": "rerank", "ranks": [1]}
+    },
+    {
+      "id": "30-leftover-keeps-query",
+      "text": "嗯嗯好的",
+      "query": "通勤降噪耳机",
+      "budget_cny": 4000,
+      "has_cache": true,
+      "expect": {"kind": "refine_constraints", "route": "talk", "query": "通勤降噪耳机"}
+    },
+    {
+      "id": "31-battery-headphones",
+      "text": "优先续航",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "refine_constraints", "route": "refilter", "preference": "battery"}
+    },
+    {
+      "id": "32-lowest-price",
+      "text": "最低商品价",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "refine_constraints", "route": "refilter", "preference": "lowest"}
+    },
+    {
+      "id": "33-why-recommend",
+      "text": "为什么选它",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "ask_about_item", "route": "talk", "topic": "why"}
+    },
+    {
+      "id": "34-too-heavy",
+      "text": "太重了",
+      "query": "轻便徒步鞋",
+      "has_cache": true,
+      "expect": {"kind": "express_stance", "dispatch": false, "unsupported": "weight"}
+    },
+    {
+      "id": "35-singapore",
+      "text": "新加坡也看看",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "refine_constraints", "route": "research", "markets": ["SG"]}
+    },
+    {
+      "id": "36-first-item-ask",
+      "text": "第一个怎么样",
+      "query": "通勤降噪耳机",
+      "has_cache": true,
+      "expect": {"kind": "ask_about_item", "route": "talk", "ranks": [1]}
+    }
+  ]
+}

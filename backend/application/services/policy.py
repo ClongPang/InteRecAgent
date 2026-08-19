@@ -3,38 +3,48 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from ..dto.belief import PreferenceBelief
 from ..dto.dialogue import DialogueAct, DialogueActKind, TurnCommand, TurnRoute
 from ..dto.mission import DialogueState, MissionConstraints, ShoppingMission, TurnPhase
 from ..dto.runner import IntentPatch
-from .dialogue import apply_stance_budget, classify_turn, preview_merged_constraints, preview_turn
+from .dialogue import apply_stance_budget, classify_turn, preview_merged_constraints, preview_turn, snapshot_ids_for_ranks
 from .parse_intent import parse_intent
 
 
 def supports_audio_preference(query: str | None) -> bool:
     text = (query or "").lower()
-    return any(token in text for token in ("耳机", "降噪", "headphone", "earbuds"))
+    return any(token in text for token in ("耳机", "headphone", "earbuds"))
 
 
 def sanitize_constraints(
     query: str | None, before: MissionConstraints, after: MissionConstraints
 ) -> tuple[MissionConstraints, list[str], list[str]]:
-    """能力不足的约束不写入。库存字段当前不可用；续航/降噪需品类支持。"""
+    """续航/降噪无规格时不写入排序偏好。库存改为候选集上按事实过滤。"""
     warnings: list[str] = []
     replies: list[str] = []
     preference = after.preference
-    only_in_stock = after.only_in_stock
     effective_query = after.query or query
-    if only_in_stock:
-        only_in_stock = False
-        warnings.append("当前数据无法校验库存，仅看有货未生效")
-        replies.append("快照没有可用库存事实，我不能按「仅看有货」过滤，仍保留全部候选。")
     if preference in {"battery", "noise"} and not supports_audio_preference(effective_query):
         preference = before.preference if before.preference not in {"battery", "noise"} else "balanced"
         label = "优先续航" if after.preference == "battery" else "优先降噪"
         warnings.append(f"当前商品数据无法按「{after.preference}」排序")
         replies.append(f"当前候选没有{label}所需的规格字段，我不会假装已按这个依据排序。")
-    sanitized = after.model_copy(update={"preference": preference, "only_in_stock": only_in_stock})
+    sanitized = after.model_copy(update={"preference": preference})
     return sanitized, warnings, replies
+
+
+def implicit_budget_from_cache(payload: dict | None) -> float | None:
+    if not payload:
+        return None
+    ranked = payload.get("ranked") or []
+    if not ranked:
+        return None
+    estimated = ranked[0].get("estimated_cny") if isinstance(ranked[0], dict) else None
+    amount = estimated.get("amount") if isinstance(estimated, dict) else None
+    if amount is None:
+        return None
+    tightened = max(100.0, round(float(amount) * 0.8))
+    return tightened if tightened < float(amount) else None
 
 
 class TurnInput(BaseModel):
@@ -56,10 +66,11 @@ class TurnDecision(BaseModel):
     apply_constraints: bool = False
     agent_message: str | None = None
     warnings: list[str] = Field(default_factory=list)
+    belief: PreferenceBelief = Field(default_factory=PreferenceBelief)
 
 
 class DialoguePolicy:
-    """Application 层大脑。LangGraph 只在 research/refilter 时被调度。"""
+    """Application 层唯一话轮决策。图只执行已决定的 route。"""
 
     def decide(
         self,
@@ -68,8 +79,10 @@ class DialoguePolicy:
         turn: TurnInput,
         has_cache: bool,
         cache_reuse_key: dict | None,
+        cache_payload: dict | None = None,
     ) -> TurnDecision:
         dialogue = mission.dialogue.model_copy()
+        belief = mission.belief.model_copy()
         if turn.focus_snapshot_id:
             dialogue.focus_snapshot_id = turn.focus_snapshot_id
 
@@ -83,6 +96,7 @@ class DialoguePolicy:
                 dialogue=dialogue,
                 undo=True,
                 dispatch=True,
+                belief=belief,
             )
 
         if turn.command == TurnCommand.PATCH:
@@ -102,6 +116,7 @@ class DialoguePolicy:
                     dispatch=False,
                     agent_message=" ".join(replies) or "这个条件当前无法执行，约束没有改动。",
                     warnings=warnings,
+                    belief=belief,
                 )
             _route, phase = preview_turn(
                 act=act,
@@ -124,11 +139,28 @@ class DialoguePolicy:
                 apply_constraints=True,
                 warnings=warnings,
                 agent_message=" ".join(replies) or None,
+                belief=belief,
             )
 
         text = (turn.text or "").strip()
         act = classify_turn(text, current_query=mission.constraints.query)
+        if act.kind == DialogueActKind.STANCE and act.stance in {"too_expensive", "want_cheaper"}:
+            if (act.patch is None or act.patch.budget_cny is None) and mission.constraints.budget_cny is None:
+                implicit = implicit_budget_from_cache(cache_payload)
+                if implicit is not None:
+                    act = act.model_copy(
+                        update={"patch": (act.patch or IntentPatch()).model_copy(update={"budget_cny": implicit})}
+                    )
         act = apply_stance_budget(act, mission.constraints)
+        if act.kind == DialogueActKind.REJECT:
+            focus = dialogue.focus_snapshot_id
+            if not focus and cache_payload:
+                ids = snapshot_ids_for_ranks(list(cache_payload.get("ranked") or []), act.referent_ranks or [1])
+                focus = ids[0] if ids else None
+            if focus:
+                belief = belief.reject(focus)
+        if act.stance == "want_lighter":
+            belief = belief.mark_unsupported("weight", "lower")
         dialogue.last_act = act.kind.value
         dialogue.stance = act.stance or dialogue.stance
         if act.kind == DialogueActKind.UNDO:
@@ -140,6 +172,7 @@ class DialoguePolicy:
                 dialogue=dialogue,
                 undo=True,
                 dispatch=True,
+                belief=belief,
             )
 
         merged = preview_merged_constraints(mission.constraints, act)
@@ -150,7 +183,7 @@ class DialoguePolicy:
                     "patch": act.patch.model_copy(
                         update={
                             "preference": merged.preference if merged.preference != mission.constraints.preference else act.patch.preference,
-                            "only_in_stock": None,
+                            "only_in_stock": act.patch.only_in_stock,
                             "query": act.patch.query,
                         }
                     )
@@ -166,6 +199,18 @@ class DialoguePolicy:
             route = TurnRoute.REFILTER
             phase = TurnPhase.REFILTERING
         if act.kind == DialogueActKind.STANCE and merged == mission.constraints:
+            if act.stance == "want_lighter":
+                return TurnDecision(
+                    act=act,
+                    route=TurnRoute.TALK,
+                    phase=TurnPhase.IDLE,
+                    constraints=mission.constraints,
+                    dialogue=dialogue,
+                    dispatch=False,
+                    agent_message=_stance_reply(act.stance),
+                    warnings=warnings,
+                    belief=belief,
+                )
             if not mission.constraints.query:
                 return TurnDecision(
                     act=act,
@@ -176,6 +221,7 @@ class DialoguePolicy:
                     dispatch=True,
                     agent_message=_stance_reply(act.stance),
                     warnings=warnings,
+                    belief=belief,
                 )
             return TurnDecision(
                 act=act,
@@ -186,8 +232,9 @@ class DialoguePolicy:
                 dispatch=False,
                 agent_message=_stance_reply(act.stance) or " ".join(replies),
                 warnings=warnings,
+                belief=belief,
             )
-        if replies and merged == mission.constraints:
+        if replies and merged == mission.constraints and act.kind != DialogueActKind.REJECT:
             return TurnDecision(
                 act=act,
                 route=TurnRoute.TALK,
@@ -197,6 +244,7 @@ class DialoguePolicy:
                 dispatch=False,
                 agent_message=" ".join(replies),
                 warnings=warnings,
+                belief=belief,
             )
         return TurnDecision(
             act=act,
@@ -208,6 +256,7 @@ class DialoguePolicy:
             apply_constraints=merged != mission.constraints,
             warnings=warnings,
             agent_message=" ".join(replies) or None,
+            belief=belief,
         )
 
 

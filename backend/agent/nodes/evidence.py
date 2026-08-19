@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from ...application.dto import RecommendationDraft, RunnerStatus
+from ...application.errors import ModelUnavailableError
+from ...application.ports import ModelBackend
 from ..state import MissionGraphState
 
 
@@ -38,12 +40,27 @@ def make_verify_evidence():
     return verify_evidence
 
 
-def make_compose_recommendation():
-    """校验草稿引用的证据 ID 都存在；不存在则删除断言（AC-009）。"""
+def make_compose_recommendation(model_backend: ModelBackend | None = None):
+    """模型可起草推荐；最终仍校验 ID。模型失败则保留确定性草稿（AC-009）。"""
 
     async def compose_recommendation(state: MissionGraphState) -> dict:
-        draft = state.get("recommendation")
         ranked = state.get("ranked", [])
+        draft = state.get("recommendation")
+        if not ranked:
+            return {
+                "recommendation": None,
+                "status": RunnerStatus.DEGRADED,
+                "warnings": ["无可用候选，无法生成推荐"],
+            }
+        if model_backend is not None and model_backend.is_configured():
+            try:
+                draft = await model_backend.draft_recommendation(
+                    constraints=state["mission"].constraints,
+                    candidates=list(ranked),
+                    evidence=draft,
+                )
+            except ModelUnavailableError:
+                pass
         if draft is None:
             return {
                 "recommendation": None,
@@ -52,7 +69,7 @@ def make_compose_recommendation():
             }
         valid_ids = {p.id for p in ranked}
         primary = draft.primary_snapshot_id if draft.primary_snapshot_id in valid_ids else None
-        if primary is None and ranked:
+        if primary is None:
             primary = ranked[0].id
         return {
             "recommendation": RecommendationDraft(

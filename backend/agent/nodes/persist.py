@@ -142,7 +142,8 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 "candidate_set_id": candidate_set_id,
                 "recommendation_run_id": run_id,
                 "warnings": warnings,
-                "dialogue": current.dialogue,
+                "dialogue": mission.dialogue,
+                "belief": mission.belief,
             }
             if comparison_ids:
                 updates["comparison_snapshot_ids"] = comparison_ids
@@ -218,7 +219,8 @@ async def _persist_talk(
             "recommendation_run_id": current.recommendation_run_id,
             "comparison_snapshot_ids": comparison_ids,
             "warnings": warnings or current.warnings,
-            "dialogue": current.dialogue,
+            "dialogue": mission.dialogue,
+            "belief": mission.belief,
             "active_run_id": run_id,
         }
     )

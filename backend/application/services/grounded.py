@@ -52,6 +52,7 @@ class CitedFacts:
     reasons: list[str]
     unavailable: list[str]
     merchant_url: str | None
+    availability: str = "unknown"
 
     @property
     def within_budget(self) -> bool:
@@ -83,6 +84,7 @@ def cited_facts(record: dict) -> CitedFacts | None:
         reasons=list(record.get("decision_reasons") or []),
         unavailable=list(record.get("unavailable_fields") or record.get("unavailable") or []),
         merchant_url=record.get("merchant_url") or record.get("click_url") or record.get("url"),
+        availability=_availability_of(record),
     )
 
 
@@ -221,8 +223,16 @@ def _warranty_reply(item: CitedFacts) -> str:
 
 
 def _stock_reply(item: CitedFacts) -> str:
+    if item.availability == "in_stock":
+        stock = "快照记录为有货。"
+    elif item.availability == "out_of_stock":
+        stock = "快照记录为无货。"
+    elif item.availability == "limited":
+        stock = "快照记录库存有限。"
+    else:
+        stock = "快照没有库存或可买性字段，我不能判断现在是否有货。"
     return (
-        f"{item.title}：快照没有库存或可买性字段，我不能判断现在是否有货。"
+        f"{item.title}：{stock}"
         f"已经记录的是{_price_clause(item)}{_place_clause(item)}。"
         f"{_merchant_check(item)}"
     )
@@ -240,7 +250,10 @@ def _why_reply(item: CitedFacts, constraints: MissionConstraints) -> str:
         parts.append(f"这个估算落在 {constraints.budget_cny:.0f} 元预算内。")
     elif constraints.budget_cny is not None and item.cny is not None and item.cny > constraints.budget_cny:
         parts.append(f"它高于当前 {constraints.budget_cny:.0f} 元预算，只是现有候选里相对更接近。")
-    parts.append("保修和库存未提供，因此不是推荐理由。")
+    if item.availability == "unknown" or "availability" in item.unavailable:
+        parts.append("保修和库存未提供，因此不是推荐理由。")
+    else:
+        parts.append("保修未提供，因此不是推荐理由。")
     return "".join(parts)
 
 
@@ -257,6 +270,17 @@ def _overview_reply(item: CitedFacts, constraints: MissionConstraints) -> str:
         f"{item.title}：{_price_clause(item)}{extra}。"
         "快照未提供保修、库存、评分和品牌，这些不能用来判断好坏。"
     )
+
+
+def _availability_of(record: dict) -> str:
+    raw = record.get("availability")
+    if raw in {"in_stock", "limited", "out_of_stock", "unknown"}:
+        return str(raw)
+    if record.get("in_stock") is True:
+        return "in_stock"
+    if record.get("in_stock") is False:
+        return "out_of_stock"
+    return "unknown"
 
 
 def _price_clause(item: CitedFacts) -> str:

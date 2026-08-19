@@ -10,7 +10,7 @@ from ...application.services.market_search import gather_market_products
 from ...domain.models import VALID_MARKETS, FxSnapshot
 from ..state import MissionGraphState
 
-_CONSTRAINT_TRIGGERS = frozenset({"constraints.updated", "constraints.undo"})
+_CONSTRAINT_TRIGGERS = frozenset({"constraints.updated", "constraints.undo", "run.accepted"})
 
 
 def make_receive_message(uow_factory: Callable[[], UnitOfWork]):
@@ -44,10 +44,13 @@ def _bind_trigger(mission, events: list[dict], run_id: str) -> dict:
             matched = event
     if matched is not None:
         if matched["event_type"] == "message.received":
+            payload = matched["payload"]
             return {
                 "mission": mission,
-                "text": matched["payload"].get("text", ""),
-                "skip_intent_patch": False,
+                "text": payload.get("text", ""),
+                "skip_intent_patch": bool(payload.get("skip_intent_patch")),
+                "decided_route": payload.get("turn_route"),
+                "decided_act": payload.get("act_payload"),
             }
         if matched["event_type"] in _CONSTRAINT_TRIGGERS:
             return {"mission": mission, "text": "", "skip_intent_patch": True}
@@ -76,7 +79,7 @@ def make_build_search_plan():
 
 
 def make_fetch_products(products: ProductSource, max_concurrency: int = 3):
-    """抓取商品：多市场受限并发，按市场输入顺序归并（BE-004）。"""
+    """抓取商品：只走 search。详情接口与搜索同构，不用于富化。"""
 
     async def fetch_products(state: MissionGraphState) -> dict:
         plan = state["search_plan"]

@@ -27,6 +27,19 @@ def convert_products(
     return out
 
 
+def apply_stock_filter(
+    products: Iterable[NormalizedProduct],
+) -> tuple[list[NormalizedProduct], list[NormalizedProduct], list[NormalizedProduct]]:
+    """仅在至少一件商品有库存事实时过滤。全未知则不筛，避免 fixture 被清空。"""
+    items = list(products)
+    if not any(p.in_stock is not None for p in items):
+        return items, [], []
+    kept = [p for p in items if p.in_stock is True]
+    unknown = [p for p in items if p.in_stock is None]
+    out = [p for p in items if p.in_stock is False]
+    return kept, out, unknown
+
+
 def apply_exclusion_filter(
     products: Iterable[NormalizedProduct], terms: list[str]
 ) -> tuple[list[NormalizedProduct], list[NormalizedProduct]]:
