@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .runner import IntentPatch
 
@@ -53,6 +53,13 @@ class DialogueAct(BaseModel):
     topic: AskTopic | None = None
     confidence: float = 1.0
     source: str = "deterministic"
+
+    @field_validator("referent_ranks", "exclude_terms", mode="before")
+    @classmethod
+    def _null_to_empty(cls, value: object) -> object:
+        """LLM 依提示常把「无」写成 null（含这些集合字段）；容忍 null→[]，
+        否则一次合法分类会因 null 落进 Schema 校验而整体降级为 ModelUnavailableError。"""
+        return [] if value is None else value
 
 
 class Citation(BaseModel):

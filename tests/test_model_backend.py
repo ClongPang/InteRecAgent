@@ -274,6 +274,22 @@ async def test_openai_compat_parse_turn_compare_does_not_fill_query() -> None:
     assert act.patch is None or act.patch.query is None
 
 
+@pytest.mark.asyncio
+async def test_openai_compat_parse_turn_tolerates_null_list_fields() -> None:
+    # 真实 DeepSeek 依「未出现字段用 null」提示，会把这些集合字段写成 null；
+    # 不容忍则一次合法分类整体降级为 ModelUnavailableError（live 冒烟实测复现）。
+    content = (
+        '{"kind":"compare_items","referent_ranks":null,"exclude_terms":null,'
+        '"stance":null,"topic":null,"patch":null}'
+    )
+    with respx.mock:
+        respx.post(CHAT_URL).mock(return_value=httpx.Response(200, json=_chat_response(content)))
+        act = await OpenAICompatModelBackend("sk-test").parse_turn("帮我比前两个", current_query="降噪耳机")
+    assert act.kind == DialogueActKind.COMPARE
+    assert act.referent_ranks == []
+    assert act.exclude_terms == []
+
+
 def test_sanitize_dialogue_act_strips_query_from_talk() -> None:
     act = sanitize_dialogue_act(
         DialogueAct(
