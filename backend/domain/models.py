@@ -18,6 +18,16 @@ class SearchMode(StrEnum):
 
 # 经真实 API 实测可用于搜索的市场（country_code 不等于配送目的地）
 VALID_MARKETS = ("US", "SG", "VN", "TH", "MY")
+# 用户未点名市场时的默认召回范围：一次给出可比较的跨市场结果。
+DEFAULT_MARKETS = ("US", "SG")
+# 检索原币上限用。country_code 只决定搜哪里，不表示配送目的地。
+MARKET_CURRENCY = {
+    "US": "USD",
+    "SG": "SGD",
+    "VN": "VND",
+    "TH": "THB",
+    "MY": "MYR",
+}
 
 
 class FxSnapshot(BaseModel):
@@ -73,7 +83,7 @@ class NormalizedProduct(BaseModel):
 
 class SearchParams(BaseModel):
     query: str
-    markets: list[str] = Field(default_factory=lambda: ["US"])
+    markets: list[str] = Field(default_factory=lambda: list(DEFAULT_MARKETS))
     mode: SearchMode = SearchMode.KEYWORD
     limit: int = 20
     budget_cny: float | None = None

@@ -3,11 +3,12 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { FxStrip } from '../components/evidence/FxStrip'
 import { Button } from '../components/ui/Button'
 import { Icon } from '../components/ui/Icon'
+import { DecisionCard } from '../features/candidates/DecisionCard'
 import { CompareStrip, EvidenceDock } from '../features/candidates/EvidenceDock'
 import { ConversationPanel } from '../features/conversation/ConversationPanel'
 import { useMissionWorkspace } from '../features/missions/useMissionWorkspace'
 import { ProductDrawer } from '../features/products/ProductDrawer'
-import { type Currency } from '../lib/currency'
+import { ratesFromCandidates, type Currency } from '../lib/currency'
 import { stageText } from '../lib/format'
 import { beliefOf, type ProductCandidate } from '../api/types'
 
@@ -19,6 +20,8 @@ export function MissionView({ currency }: { currency: Currency }) {
   const mission = workspace.mission
   const ranked = workspace.ranked
   const thread = workspace.queries.thread.data
+  const recommendation = workspace.queries.recommendation.data
+  const rates = ratesFromCandidates(ranked)
   const running = mission?.turn_phase === 'researching' || mission?.turn_phase === 'refiltering'
 
   const openSnapshot = (snapshotId: string) => {
@@ -79,6 +82,13 @@ export function MissionView({ currency }: { currency: Currency }) {
           onClearFocus={() => workspace.setFocusSnapshotId(null)}
         />
         <section className="results-region">
+          <DecisionCard
+            recommendation={recommendation}
+            mission={mission}
+            currency={currency}
+            rates={rates}
+            onOpen={openSnapshot}
+          />
           <EvidenceDock
             candidates={ranked}
             focusId={workspace.focusSnapshotId}
@@ -99,6 +109,7 @@ export function MissionView({ currency }: { currency: Currency }) {
           product={detail}
           selected={workspace.draftCompare.includes(detail.snapshot_id)}
           currency={currency}
+          rates={rates}
           onClose={() => setDetail(null)}
           onToggle={() => workspace.toggleCompare(detail.snapshot_id)}
           onTalk={(text) => {

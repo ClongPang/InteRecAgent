@@ -117,6 +117,7 @@ export type ProductCandidate = {
   derived_fields: string[]
   unavailable_fields: string[]
   merchant_url: string | null
+  image_url?: string | null
   source_updated_at: string | null
   rank: number | null
   decision_reasons: string[]

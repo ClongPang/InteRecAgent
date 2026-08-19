@@ -25,6 +25,11 @@ export function BeliefBar({
     chips.push({ key: 'stance', label: stance, text: '再便宜一点', tone: 'soft' })
   }
   chips.push({
+    key: 'markets',
+    label: constraints.markets.length ? `市场 ${constraints.markets.join(' / ')}` : '未指定市场',
+    text: '美国和新加坡',
+  })
+  chips.push({
     key: 'pref',
     label: preferenceText(constraints.preference),
     text: preferenceText(constraints.preference),

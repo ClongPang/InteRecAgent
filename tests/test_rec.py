@@ -37,6 +37,9 @@ def test_chinese_exploratory_query_uses_hybrid() -> None:
     plan = plan_search(rec_state_from_mission(mission))
     assert plan.mode == "hybrid"
     assert plan.recall_mode == "exploratory"
+    from backend.domain.models import DEFAULT_MARKETS
+
+    assert plan.markets == list(DEFAULT_MARKETS)
 
 
 def test_referent_hint_resolves_brand_and_cheapest() -> None:

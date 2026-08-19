@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-from ....domain.models import VALID_MARKETS
+from ....domain.models import DEFAULT_MARKETS, VALID_MARKETS
 from ...dto.runner import SearchPlan
 from .state import RecState
 
@@ -19,7 +19,7 @@ def query_has_cjk(query: str | None) -> bool:
 
 
 def plan_search(rec: RecState, *, limit: int = 20) -> SearchPlan:
-    markets = [code for code in rec.markets if code in VALID_MARKETS] or ["US"]
+    markets = [code for code in rec.markets if code in VALID_MARKETS] or list(DEFAULT_MARKETS)
     query = (rec.query or "").strip()
     precise = looks_like_exact_model(query)
     # BuyWhere keyword 对中文几乎不召回；hybrid 才能把「通勤降噪耳机」落到商品。

@@ -34,8 +34,18 @@ class StubProducts:
         self.fail_system = fail_system or set()
         self.calls: list[dict] = []
 
-    async def search(self, query, *, country_code, mode="keyword", limit=20) -> ProductSearchResult:
-        self.calls.append({"query": query, "country_code": country_code, "mode": mode, "limit": limit})
+    async def search(
+        self, query, *, country_code, mode="keyword", limit=20, max_price=None
+    ) -> ProductSearchResult:
+        self.calls.append(
+            {
+                "query": query,
+                "country_code": country_code,
+                "mode": mode,
+                "limit": limit,
+                "max_price": max_price,
+            }
+        )
         if country_code in self.fail_system:
             raise UpstreamUnavailableError(code="auth_error", category="system", retryable=False)
         return self.by_market.get(country_code, ProductSearchResult(products=[]))
@@ -84,11 +94,13 @@ async def test_end_to_end_rank_by_rmb_price() -> None:
 @pytest.mark.asyncio
 async def test_budget_filter_excludes_over() -> None:
     us = _result_from_fixture("search_sony_keyword_us.json")
-    svc = _svc(StubProducts({"US": us}), StubFx({"USD": _usd()}))
+    products = StubProducts({"US": us})
+    svc = _svc(products, StubFx({"USD": _usd()}))
     result = await svc.run(SearchParams(query="q", markets=["US"], budget_cny=1000))
     # 499.99*6.7 ≈ 3350 > 1000，全部排除；无换算失败商品
     assert result.products == []
     assert any("超出预算" in w for w in result.warnings)
+    assert products.calls[0]["max_price"] == pytest.approx(1000 / 6.7, rel=1e-4)
 
 
 @pytest.mark.asyncio
@@ -134,10 +146,12 @@ async def test_partial_market_failure_keeps_others_and_degrades() -> None:
     sg = _result_from_fixture("search_wireless_hybrid_us.json")
 
     class FailProducts(StubProducts):
-        async def search(self, query, *, country_code, mode="keyword", limit=20):
+        async def search(self, query, *, country_code, mode="keyword", limit=20, max_price=None):
             if country_code == "US":
                 raise UpstreamUnavailableError(code="rate_limited", category="upstream", retryable=True)
-            return await super().search(query, country_code=country_code, mode=mode, limit=limit)
+            return await super().search(
+                query, country_code=country_code, mode=mode, limit=limit, max_price=max_price
+            )
 
     svc = _svc(FailProducts({"SG": sg}), StubFx({"USD": _usd()}))
     result = await svc.run(SearchParams(query="q", markets=["US", "SG"]))

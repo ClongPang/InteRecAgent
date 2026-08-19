@@ -114,7 +114,7 @@ def compose_talk_reply(
             clarification_question=CLARIFYING_QUESTION if not constraints.query else None,
         )
     if act.kind == DialogueActKind.COMPARE or (act.kind == DialogueActKind.ASK_ITEM and _topic(act, text) == AskTopic.TRADEOFF):
-        return _compare_reply(act, ranked, constraints, focus_snapshot_id)
+        return _compare_reply(act, ranked, constraints, focus_snapshot_id, text=text)
     items = _resolve_items(act, ranked, focus_snapshot_id, text=text)
     if not items:
         return TalkReply(text="当前候选里找不到你指的那一件，可以说「第一件」或先打开商品详情。")
@@ -195,12 +195,20 @@ def _compare_reply(
     ranked: list[dict],
     constraints: MissionConstraints,
     focus_snapshot_id: str | None,
+    *,
+    text: str = "",
 ) -> TalkReply:
     ranks = act.referent_ranks or [1, 2]
     ids = snapshot_ids_for_ranks(ranked, ranks)
-    if focus_snapshot_id and focus_snapshot_id in {str(item.get("snapshot_id")) for item in ranked}:
-        others = [str(item.get("snapshot_id")) for item in ranked if str(item.get("snapshot_id")) != focus_snapshot_id]
-        ids = [focus_snapshot_id] + [sid for sid in others[:1] if sid]
+    ordered = [str(item.get("snapshot_id")) for item in ranked if item.get("snapshot_id")]
+    if focus_snapshot_id and focus_snapshot_id in ordered:
+        if "上一件" in text:
+            index = ordered.index(focus_snapshot_id)
+            previous = ordered[index - 1] if index > 0 else (ordered[1] if len(ordered) > 1 else None)
+            ids = [focus_snapshot_id] + ([previous] if previous else [])
+        else:
+            others = [sid for sid in ordered if sid != focus_snapshot_id]
+            ids = [focus_snapshot_id] + others[:1]
     if len(ids) < 2:
         ids = snapshot_ids_for_ranks(ranked, [1, 2])
     if not 2 <= len(ids) <= 4:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
-from ....domain.models import FxSnapshot, NormalizedProduct
+from ....domain.models import DEFAULT_MARKETS, MARKET_CURRENCY, FxSnapshot, NormalizedProduct
 from ....domain.policies import (
     apply_budget_filter,
     apply_exclusion_filter,
@@ -25,6 +25,41 @@ from .rank import preference_hits, rank_with_belief
 from .state import rec_state_from_mission
 
 
+def native_budget_cap(budget_cny: float, rate: float) -> float:
+    """人民币预算 ÷ (1 原币兑人民币) = 该市场检索上限。"""
+    if rate <= 0:
+        raise ValueError("fx rate must be positive")
+    return round(budget_cny / rate, 2)
+
+
+async def market_native_caps(
+    fx: FxSource,
+    markets: list[str],
+    budget_cny: float | None,
+) -> tuple[dict[str, float], list[str]]:
+    """各市场原币 max_price。缺汇率的市场不设上限，由调用方照常检索再做人民币过滤。"""
+    if budget_cny is None:
+        return {}, []
+    caps: dict[str, float] = {}
+    failed: list[str] = []
+    seen: set[str] = set()
+    for market in markets:
+        currency = MARKET_CURRENCY.get(market)
+        if not currency or currency in seen:
+            continue
+        seen.add(currency)
+        try:
+            snap = await fx.get_rate(currency, "CNY")
+        except UpstreamUnavailableError:
+            failed.append(currency)
+            continue
+        cap = native_budget_cap(budget_cny, snap.rate)
+        for code in markets:
+            if MARKET_CURRENCY.get(code) == currency:
+                caps[code] = cap
+    return caps, failed
+
+
 async def run_search(
     products: ProductSource,
     *,
@@ -33,15 +68,17 @@ async def run_search(
     mode: str,
     limit: int,
     max_concurrency: int = 3,
+    max_prices: dict[str, float] | None = None,
 ) -> MarketSearchOutcome:
     """多市场受限并发检索。单市场 upstream 失败降级为 failed_markets，鉴权错误上抛。"""
     return await gather_market_products(
         products,
         query=query or "",
-        markets=markets,
+        markets=markets or list(DEFAULT_MARKETS),
         mode=mode,
         limit=limit,
         max_concurrency=max_concurrency,
+        max_prices=max_prices,
     )
 
 

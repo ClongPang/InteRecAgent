@@ -151,7 +151,7 @@
       "query": "通勤降噪耳机",
       "budget_cny": 4000,
       "has_cache": true,
-      "expect": {"kind": "refine_constraints", "route": "refilter", "budget_cny": 2000, "query": "通勤降噪耳机"}
+      "expect": {"kind": "refine_constraints", "route": "research", "budget_cny": 2000, "query": "通勤降噪耳机"}
     },
     {
       "id": "20-empty",

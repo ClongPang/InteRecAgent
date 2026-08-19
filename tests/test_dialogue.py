@@ -92,12 +92,13 @@ def test_plan_route_reuses_cache_for_budget_only() -> None:
     )
 
 
-def test_search_reuse_key_ignores_budget() -> None:
+def test_search_reuse_key_includes_budget() -> None:
     a = MissionConstraints(query="耳机", budget_cny=4000, markets=["US"])
     b = MissionConstraints(query="耳机", budget_cny=2000, markets=["US"])
-    assert search_reuse_key(a) == search_reuse_key(b)
+    assert search_reuse_key(a) != search_reuse_key(b)
     c = MissionConstraints(query="耳机", budget_cny=4000, markets=["SG"])
     assert search_reuse_key(a) != search_reuse_key(c)
+    assert search_reuse_key(a)["budget_cny"] == 4000
 
 
 def test_exclusion_filter_drops_title_matches() -> None:
@@ -144,7 +145,7 @@ def test_preview_question_is_responding_not_research() -> None:
     assert phase == TurnPhase.RESPONDING
 
 
-def test_preview_budget_only_is_refilter() -> None:
+def test_preview_budget_only_is_research() -> None:
     act = classify_turn("预算 2000 元")
     current = MissionConstraints(query="降噪耳机", budget_cny=4000)
     _route, phase = preview_turn(
@@ -153,8 +154,8 @@ def test_preview_budget_only_is_refilter() -> None:
         has_cache=True,
         cache_reuse_key=search_reuse_key(current),
     )
-    assert _route == TurnRoute.REFILTER
-    assert phase == TurnPhase.REFILTERING
+    assert _route == TurnRoute.RESEARCH
+    assert phase == TurnPhase.RESEARCHING
 
 
 def test_summarize_and_project_constraint_change() -> None:
@@ -400,8 +401,9 @@ def test_next_moves_keep_budget_when_price_sensitive() -> None:
             {"snapshot_id": "b", "title": "B", "estimated_cny": {"amount": 300}},
         ],
         belief=PreferenceBelief(price_sensitivity="too_expensive"),
+        budget_cny=4000,
     )
-    assert any(item.text == "预算 2000 元" for item in moves)
+    assert any(item.text.startswith("预算") for item in moves)
 
 
 def test_plan_route_reject_and_stance_use_rerank() -> None:

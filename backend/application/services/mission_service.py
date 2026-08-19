@@ -387,6 +387,7 @@ class MissionCommandService:
             has_candidates=bool(candidates.ranked),
             ranked=[item.model_dump(mode="json") for item in candidates.ranked],
             belief=mission.belief,
+            budget_cny=mission.constraints.budget_cny,
         )
 
     async def _require_mission(
@@ -485,6 +486,7 @@ class MissionCommandService:
                             has_candidates=bool((cache_payload or {}).get("ranked")),
                             ranked=list((cache_payload or {}).get("ranked") or []),
                             belief=decision.belief,
+                            budget_cny=after.budget_cny,
                         )
                     ],
                 },

@@ -4,7 +4,7 @@ import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/ui/Icon'
 import { PlatformMark } from '../../components/ui/PlatformMark'
 import { categoryIconFor } from '../../lib/category'
-import { type Currency } from '../../lib/currency'
+import { type Currency, type SnapshotRates } from '../../lib/currency'
 import { brandLabel, reasonsText } from '../../lib/format'
 import { platformName, platformTone } from '../../lib/platform'
 
@@ -12,6 +12,7 @@ export function ProductDrawer({
   product,
   selected,
   currency,
+  rates,
   onClose,
   onToggle,
   onTalk,
@@ -19,6 +20,7 @@ export function ProductDrawer({
   product: ProductCandidate
   selected: boolean
   currency: Currency
+  rates?: SnapshotRates
   onClose: () => void
   onToggle: () => void
   onTalk?: (text: string) => void
@@ -40,9 +42,13 @@ export function ProductDrawer({
           <button className="icon-button" onClick={onClose} aria-label="关闭"><Icon name="close" size={18} /></button>
         </div>
         <div className={`drawer-image tone-${platformTone(product.merchant)}`}>
-          <span className="category-icon" aria-hidden="true">
-            <Icon name={categoryIconFor(product.title)} size={56} />
-          </span>
+          {product.image_url ? (
+            <img src={product.image_url} alt="" className="drawer-photo" />
+          ) : (
+            <span className="category-icon" aria-hidden="true">
+              <Icon name={categoryIconFor(product.title)} size={56} />
+            </span>
+          )}
         </div>
         <div className="drawer-body">
           <div className="product-source">
@@ -51,7 +57,7 @@ export function ProductDrawer({
           </div>
           <h2>{product.title}</h2>
           {brand ? <p className="drawer-description">{brand}</p> : null}
-          <PriceEvidence product={product} currency={currency} />
+          <PriceEvidence product={product} currency={currency} rates={rates} />
           <section className="drawer-section">
             <div className="section-title">商品信息</div>
             {product.specs.length ? (
@@ -64,7 +70,7 @@ export function ProductDrawer({
               <div className="drawer-talk">
                 <Button variant="quiet" onClick={() => onTalk('为什么推荐这款')}>为什么选它</Button>
                 <Button variant="quiet" onClick={() => onTalk('不要这款')}>不要这款</Button>
-                <Button variant="quiet" onClick={() => onTalk('帮我比前两个')}>和上一件比</Button>
+                <Button variant="quiet" onClick={() => onTalk('帮我比这款和上一件')}>和上一件比</Button>
               </div>
             ) : null}
           </section>

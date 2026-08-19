@@ -26,9 +26,15 @@ class FixtureProductSource:
         country_code: str,
         mode: str = "keyword",
         limit: int = 20,
+        max_price: float | None = None,
     ) -> ProductSearchResult:
+        del query, mode
         resp = self._load_market(country_code)
         result = _normalize_response(resp)
+        if max_price is not None:
+            result.products = [
+                item for item in result.products if item.native_price_amount <= max_price
+            ]
         result.products = result.products[:limit]
         return result
 

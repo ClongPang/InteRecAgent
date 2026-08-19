@@ -1,5 +1,7 @@
 from .pipeline import (
     VersionProbe,
+    market_native_caps,
+    native_budget_cap,
     normalize_products,
     run_filter,
     run_fx,
@@ -14,6 +16,8 @@ __all__ = [
     "RecState",
     "VersionProbe",
     "looks_like_exact_model",
+    "market_native_caps",
+    "native_budget_cap",
     "normalize_products",
     "plan_search",
     "preference_hits",

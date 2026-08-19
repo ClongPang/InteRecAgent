@@ -14,7 +14,7 @@ import logging
 
 from ..application.dto import AssistantTurn, ChatMessage, ToolCall
 from ..application.ports import ModelBackend
-from ..application.services.rec import VersionProbe
+from ..application.services.rec import VersionProbe, run_filter, run_rank
 from .tools import ResearchContext, ResearchTools
 
 logger = logging.getLogger(__name__)
@@ -108,13 +108,47 @@ async def _dispatch(
 
 async def run_deterministic(ctx: ResearchContext, tools: ResearchTools) -> None:
     """固定顺序驱动：检索 → 换算 → 过滤 → 排序。无 Key / 降级 / 安全网复用。"""
+    await _run_once(ctx, tools)
+    if ctx.ranked:
+        ctx.finalized = True
+        return
+    # PRD 6.7：只放宽软条件。预算硬过滤不抬升；原币上限过窄时允许再召回一次。
+    if ctx.plan.budget_cny is not None and ctx.recall_count == 0 and not ctx.relaxed_native_cap:
+        ctx.add_warnings(["原币预算上限下无召回，已放宽检索，仍按人民币预算过滤"])
+        ctx.searched = False
+        ctx.converted = False
+        await tools.run(
+            ToolCall(id="d-search-relax", name="search_products", arguments={"skip_budget_cap": True}),
+            ctx,
+        )
+        await _run_once(ctx, tools)
+        if ctx.ranked:
+            ctx.finalized = True
+            return
+    if ctx.mission.constraints.only_in_stock and ctx.converted_products:
+        relaxed = ctx.mission.constraints.model_copy(update={"only_in_stock": False})
+        products, warnings = run_filter(
+            relaxed,
+            ctx.converted_products,
+            rejected_snapshot_ids=set(getattr(ctx.mission.belief, "rejected_snapshot_ids", []) or []),
+        )
+        if products:
+            ctx.add_warnings(["「仅看有货」导致空集，已按软条件放宽库存过滤"])
+            ctx.add_warnings(warnings)
+            ctx.products = products
+            ranked, rank_warnings = run_rank(ctx.mission, products)
+            ctx.ranked = ranked
+            ctx.add_warnings(rank_warnings)
+    ctx.finalized = True
+
+
+async def _run_once(ctx: ResearchContext, tools: ResearchTools) -> None:
     if not ctx.searched:
         await tools.run(ToolCall(id="d-search", name="search_products", arguments={}), ctx)
     if not ctx.converted:
         await tools.run(ToolCall(id="d-fx", name="convert_fx", arguments={}), ctx)
     await tools.run(ToolCall(id="d-filter", name="filter_candidates", arguments={}), ctx)
     await tools.run(ToolCall(id="d-rank", name="rank_candidates", arguments={}), ctx)
-    ctx.finalized = True
 
 
 def _empty_turn() -> AssistantTurn:  # pragma: no cover - 便于测试构造终稿

@@ -30,7 +30,7 @@ export function CurrencyPicker({
             </button>
           ))}
         </div>
-        <p className="currency-note">商品价先统一换算为人民币，再按所选货币显示；运费与税费以商户结算页为准。</p>
+        <p className="currency-note">比较货币只用本轮候选快照里的汇率；没有该币种快照时不换算。运费与税费以商户结算页为准。</p>
       </section>
     </div>
   )

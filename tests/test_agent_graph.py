@@ -268,7 +268,7 @@ async def test_partial_market_failure_keeps_other_results(db) -> None:
     class FailUSThenSony:
         """US 失败，SG 返回索尼候选（AC-006：部分成功）。"""
 
-        async def search(self, query, *, country_code, mode="keyword", limit=20):
+        async def search(self, query, *, country_code, mode="keyword", limit=20, max_price=None):
             if country_code == "US":
                 raise UpstreamUnavailableError(code="rate_limited", category="upstream", retryable=True)
             return _sony_result()

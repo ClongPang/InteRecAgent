@@ -82,6 +82,7 @@ class ProductCandidate(BaseModel):
     derived_fields: list[str] = Field(default_factory=list)
     unavailable_fields: list[str] = Field(default_factory=list)
     merchant_url: str | None = None
+    image_url: str | None = None
     source_updated_at: datetime | None = None
     rank: int | None = None
     decision_reasons: list[str] = Field(default_factory=list)

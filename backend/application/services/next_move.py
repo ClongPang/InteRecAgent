@@ -13,6 +13,7 @@ def next_moves_for(
     has_candidates: bool,
     ranked: list[dict] | None = None,
     belief: PreferenceBelief | None = None,
+    budget_cny: float | None = None,
 ) -> list[NextMove]:
     """上一轮结束后的可执行下一句。有候选时按价差/品牌差生成。"""
     if not has_query:
@@ -25,7 +26,9 @@ def next_moves_for(
         belief
         and any(item.attr == "weight" and item.status == "unsupported" for item in belief.soft)
     )
-    delta_moves = _moves_from_ranked(ranked or [], skip_lighter=unsupported_weight)
+    delta_moves = _moves_from_ranked(
+        ranked or [], budget_cny=budget_cny, skip_lighter=unsupported_weight
+    )
     if topic == AskTopic.WARRANTY.value or topic == "warranty":
         return delta_moves[:1] + [
             NextMove(label="为什么选它", text="为什么推荐这款"),
@@ -43,7 +46,7 @@ def next_moves_for(
         ]
     if kind == DialogueActKind.STANCE.value:
         return [
-            NextMove(label="预算 2000 元", text="预算 2000 元"),
+            _budget_move(budget_cny),
             NextMove(label="对比前两件", text="帮我比前两个"),
         ]
     if has_candidates:
@@ -51,23 +54,41 @@ def next_moves_for(
             NextMove(label="为什么推荐", text="为什么推荐"),
             *delta_moves[:3],
         ]
-        return _with_price_budget_move(moves, belief)
+        return _with_price_budget_move(moves, belief, budget_cny)
     return []
 
 
-def _with_price_budget_move(moves: list[NextMove], belief: PreferenceBelief | None) -> list[NextMove]:
+def _with_price_budget_move(
+    moves: list[NextMove], belief: PreferenceBelief | None, budget_cny: float | None
+) -> list[NextMove]:
     if not belief or belief.price_sensitivity not in {"too_expensive", "want_cheaper"}:
         return moves
     if any(item.text.startswith("预算") for item in moves):
         return moves
-    return [NextMove(label="预算 2000 元", text="预算 2000 元"), *moves]
+    return [_budget_move(budget_cny), *moves]
 
 
-def _moves_from_ranked(ranked: list[dict], *, skip_lighter: bool = False) -> list[NextMove]:
+def _budget_move(budget_cny: float | None, *, delta: float | None = None) -> NextMove:
+    target = _tighten_budget(budget_cny, delta=delta)
+    if target is None:
+        return NextMove(label="设个预算", text="预算 2500 元")
+    return NextMove(label=f"预算 {target:.0f} 元", text=f"预算 {target:.0f} 元")
+
+
+def _tighten_budget(budget_cny: float | None, *, delta: float | None = None) -> float | None:
+    if budget_cny is None:
+        return None
+    raw = budget_cny - delta if delta is not None else budget_cny * 0.8
+    return max(100.0, round(raw / 100.0) * 100.0)
+
+
+def _moves_from_ranked(
+    ranked: list[dict], *, budget_cny: float | None = None, skip_lighter: bool = False
+) -> list[NextMove]:
     del skip_lighter
     if len(ranked) < 2:
         return [
-            NextMove(label="再便宜一点", text="再便宜一点"),
+            _budget_move(budget_cny),
             NextMove(label="对比前两件", text="帮我比前两个"),
         ]
     first, second = ranked[0], ranked[1]
@@ -76,9 +97,13 @@ def _moves_from_ranked(ranked: list[dict], *, skip_lighter: bool = False) -> lis
     cny_b = _record_cny(second)
     if cny_a is not None and cny_b is not None and cny_a != cny_b:
         gap = abs(cny_a - cny_b)
-        moves.append(NextMove(label=f"再收 ¥{gap:.0f}", text="再便宜一点"))
+        tighter = _tighten_budget(budget_cny, delta=gap)
+        if tighter is not None:
+            moves.append(NextMove(label=f"再收 ¥{gap:.0f}", text=f"预算 {tighter:.0f} 元"))
+        else:
+            moves.append(NextMove(label="再便宜一点", text="再便宜一点"))
     else:
-        moves.append(NextMove(label="再便宜一点", text="再便宜一点"))
+        moves.append(_budget_move(budget_cny) if budget_cny else NextMove(label="再便宜一点", text="再便宜一点"))
     brand = str(first.get("brand") or "").strip()
     if brand:
         moves.append(NextMove(label=f"不要{brand}", text=f"不要{brand}"))

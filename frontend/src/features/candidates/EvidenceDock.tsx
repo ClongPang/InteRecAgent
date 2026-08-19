@@ -1,7 +1,7 @@
 import type { ProductCandidate } from '../../api/types'
 import { Button } from '../../components/ui/Button'
 import { rmbAmount } from '../../lib/currency'
-import { brandLabel, reasonsText } from '../../lib/format'
+import { availabilityText, brandLabel, reasonsText } from '../../lib/format'
 import { platformName } from '../../lib/platform'
 
 export function EvidenceDock({
@@ -68,7 +68,7 @@ export function EvidenceDock({
                     <button type="button" onClick={() => onTalk(product, '为什么推荐这款')}>为什么选它</button>
                     <button type="button" onClick={() => onTalk(product, '不要这款')}>不要这款</button>
                     {index > 0 ? (
-                      <button type="button" onClick={() => onTalk(product, '帮我比前两个')}>和上一件比</button>
+                      <button type="button" onClick={() => onTalk(product, '帮我比这款和上一件')}>和上一件比</button>
                     ) : null}
                   </>
                 ) : null}
@@ -92,17 +92,42 @@ export function CompareStrip({
   return (
     <section className="compare-strip" aria-label="当前比较">
       <span className="section-eyebrow">对照</span>
-      <div>
-        {items.map((product) => {
-          const amount = rmbAmount(product)
-          return (
-            <button key={product.snapshot_id} type="button" onClick={() => onFocus(product)}>
-              <strong>{product.title}</strong>
-              <span>{amount != null ? `约 ¥${Math.round(amount).toLocaleString()}` : '价格待确认'}</span>
-            </button>
-          )
-        })}
-      </div>
+      <table className="compare-table">
+        <thead>
+          <tr>
+            <th>商品</th>
+            <th>平台 / 市场</th>
+            <th>原币价</th>
+            <th>人民币估算</th>
+            <th>库存</th>
+            <th>更新</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((product) => {
+            const amount = rmbAmount(product)
+            const fx = product.estimated_cny
+            return (
+              <tr key={product.snapshot_id}>
+                <td>
+                  <button type="button" onClick={() => onFocus(product)}>
+                    <strong>{product.title}</strong>
+                    {product.brand ? <span>{product.brand}</span> : null}
+                  </button>
+                </td>
+                <td>{platformName(product.merchant)} · {product.market ?? '—'}</td>
+                <td>{product.native_price.currency} {product.native_price.amount.toFixed(2)}</td>
+                <td>
+                  {amount != null ? `约 ¥${Math.round(amount).toLocaleString()}` : '待确认'}
+                  {fx ? <small>汇率 {fx.rate} · {fx.rate_date}</small> : null}
+                </td>
+                <td>{availabilityText(product.availability)}</td>
+                <td>{product.source_updated_at ? product.source_updated_at.replace('T', ' ').slice(0, 16) : '—'}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </section>
   )
 }

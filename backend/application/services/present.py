@@ -67,6 +67,7 @@ def candidate_record(
         "derived_fields": list(product.derived_fields),
         "unavailable_fields": list(product.unavailable),
         "merchant_url": https_url(product.click_url) or https_url(product.url),
+        "image_url": https_url(product.image_url),
         "source_updated_at": product.updated_at.isoformat() if product.updated_at else None,
         "rank": rank,
         "decision_reasons": reasons,
@@ -137,6 +138,7 @@ def product_candidate_from_record(item: dict, *, rank: int | None = None) -> Pro
         merchant_url=https_url(item.get("merchant_url"))
         or https_url(item.get("click_url"))
         or https_url(item.get("url")),
+        image_url=https_url(item.get("image_url")),
         source_updated_at=updated,
         rank=item.get("rank") if item.get("rank") is not None else rank,
         decision_reasons=list(item.get("decision_reasons") or []),
@@ -198,6 +200,7 @@ def hydrate_candidate_payload(payload: dict | None) -> tuple[list[NormalizedProd
                 country_code=item.get("market") or item.get("country_code"),
                 url=item.get("merchant_url") or item.get("url"),
                 click_url=item.get("merchant_url") or item.get("click_url"),
+                image_url=item.get("image_url"),
                 native_price_amount=float(amount),
                 native_currency=currency,
                 rmb_price=float(rmb) if rmb is not None else None,

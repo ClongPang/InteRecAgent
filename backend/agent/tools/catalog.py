@@ -12,6 +12,7 @@ from typing import Any
 from ...application.dto import ToolCall, ToolSpec
 from ...application.ports import FxSource, ProductSource
 from ...application.services.rec import (
+    market_native_caps,
     normalize_products,
     run_filter,
     run_fx,
@@ -66,6 +67,10 @@ class ResearchTools:
                         },
                         "mode": {"type": "string", "enum": ["keyword", "hybrid"]},
                         "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                        "skip_budget_cap": {
+                            "type": "boolean",
+                            "description": "为 true 时不传原币预算上限（召回放宽，仍按人民币预算过滤）",
+                        },
                     },
                 },
             ),
@@ -112,6 +117,16 @@ class ResearchTools:
         markets = markets or list(ctx.plan.markets)
         mode = args.get("mode") if args.get("mode") in {"keyword", "hybrid"} else ctx.plan.mode
         limit = int(args.get("limit") or ctx.plan.limit)
+        skip_cap = bool(args.get("skip_budget_cap"))
+        caps: dict[str, float] = {}
+        if ctx.plan.budget_cny is not None and not skip_cap:
+            caps, cap_failed = await market_native_caps(self._fx, markets, ctx.plan.budget_cny)
+            if cap_failed:
+                ctx.add_warnings(
+                    f"以下币种汇率暂不可用，对应市场未设原币预算上限：{'、'.join(cap_failed)}"
+                )
+        if skip_cap:
+            ctx.relaxed_native_cap = True
         outcome = await run_search(
             self._products,
             query=query,
@@ -119,8 +134,10 @@ class ResearchTools:
             mode=mode,
             limit=limit,
             max_concurrency=self._max_concurrency,
+            max_prices=caps or None,
         )
         ctx.products = list(outcome.products)
+        ctx.recall_count = len(ctx.products)
         ctx.failed_markets = list(outcome.failed_markets)
         ctx.searched = True
         ctx.converted = False
@@ -130,6 +147,7 @@ class ResearchTools:
             "found": len(ctx.products),
             "markets": markets,
             "failed_markets": ctx.failed_markets,
+            "native_caps": caps,
             "sample": [_brief(p) for p in ctx.products[:5]],
         }
 
@@ -142,6 +160,7 @@ class ResearchTools:
         ctx.rates = rates
         ctx.fx_failed_currencies = failed
         ctx.products = normalize_products(ctx.products, rates)
+        ctx.converted_products = list(ctx.products)
         ctx.converted = True
         return {
             "converted": sorted(rates.keys()),

@@ -18,6 +18,7 @@ class ProductSource(Protocol):
         country_code: str,
         mode: str = "keyword",
         limit: int = 20,
+        max_price: float | None = None,
     ) -> ProductSearchResult: ...
 
     async def get_product(self, product_id: str) -> NormalizedProduct | None: ...

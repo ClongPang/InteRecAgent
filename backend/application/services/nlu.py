@@ -87,10 +87,15 @@ def build_turn_context(
 
 
 def search_reuse_key(constraints: MissionConstraints) -> dict:
-    """候选能否复用只取决于检索输入，不含预算/偏好/排除。"""
+    """候选能否复用只取决于检索输入。
+
+    预算进入原币 max_price，必须计入复用键：放宽预算时旧缓存会漏召回。
+    仅看有货 / 排序偏好 / 排除词仍是过滤输入，不进本键。
+    """
     return {
         "query": constraints.query or "",
         "markets": list(constraints.markets),
+        "budget_cny": constraints.budget_cny,
     }
 
 
@@ -100,6 +105,7 @@ def reuse_key_matches(constraints: MissionConstraints, cached: dict | None) -> b
     return search_reuse_key(constraints) == {
         "query": cached.get("query") or "",
         "markets": list(cached.get("markets") or []),
+        "budget_cny": cached.get("budget_cny"),
     }
 
 

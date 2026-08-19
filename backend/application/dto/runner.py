@@ -4,6 +4,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from ...domain.models import DEFAULT_MARKETS
 from .belief import SoftPref
 
 
@@ -41,7 +42,7 @@ class SearchPlan(BaseModel):
     """确定性生成的搜索计划。mode 是 BuyWhere 参数；recall_mode 是对用户的质量承诺。"""
 
     query: str
-    markets: list[str] = Field(default_factory=lambda: ["US"])
+    markets: list[str] = Field(default_factory=lambda: list(DEFAULT_MARKETS))
     mode: str = "keyword"
     limit: int = 20
     budget_cny: float | None = None

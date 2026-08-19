@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ...domain.models import (
+    DEFAULT_MARKETS,
     VALID_MARKETS,
     FxSnapshot,
     SearchParams,
@@ -10,6 +11,7 @@ from ...domain.policies import apply_budget_filter, convert_products, dedupe_pro
 from ..errors import UpstreamUnavailableError
 from ..ports import FxSource, ProductSource
 from .market_search import gather_market_products
+from .rec.pipeline import market_native_caps
 
 
 class SearchService:
@@ -35,9 +37,15 @@ class SearchService:
             markets=list(params.markets),
             mode=params.mode.value,
         )
-        markets = [m for m in params.markets if m in VALID_MARKETS] or ["US"]
+        markets = [m for m in params.markets if m in VALID_MARKETS] or list(DEFAULT_MARKETS)
         if set(markets) != set(params.markets):
             result.warnings.append(f"忽略无效市场: {sorted(set(params.markets) - set(markets))}")
+
+        caps, cap_failed = await market_native_caps(self._fx, markets, params.budget_cny)
+        if cap_failed:
+            result.warnings.append(
+                f"以下币种汇率暂不可用，对应市场未设原币预算上限：{'、'.join(cap_failed)}"
+            )
 
         outcome = await gather_market_products(
             self._products,
@@ -46,6 +54,7 @@ class SearchService:
             mode=params.mode.value,
             limit=params.limit,
             max_concurrency=self._max_concurrency,
+            max_prices=caps or None,
         )
         result.warnings.extend(outcome.warnings)
         products = outcome.products

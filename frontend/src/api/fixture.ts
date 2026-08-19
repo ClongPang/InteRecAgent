@@ -95,7 +95,7 @@ function emptyConstraints(): MissionConstraints {
   return {
     query: null,
     budget_cny: null,
-    markets: ['US'],
+    markets: ['US', 'SG'],
     preference: 'balanced',
     only_in_stock: false,
     excluded_terms: [],
@@ -266,10 +266,22 @@ function markUnsupported(belief: PreferenceBelief, attr: string): PreferenceBeli
   return next
 }
 
-function nextMoves(ranked: ProductCandidate[], kind: string, belief: PreferenceBelief): NextMove[] {
+function budgetMove(budgetCny: number | null, delta?: number): NextMove {
+  if (budgetCny == null) return { label: '设个预算', text: '预算 2500 元' }
+  const raw = delta != null ? budgetCny - delta : budgetCny * 0.8
+  const target = Math.max(100, Math.round(raw / 100) * 100)
+  return { label: `预算 ${target} 元`, text: `预算 ${target} 元` }
+}
+
+function nextMoves(
+  ranked: ProductCandidate[],
+  kind: string,
+  belief: PreferenceBelief,
+  budgetCny: number | null,
+): NextMove[] {
   if (kind === 'stance') {
     return [
-      { label: '预算 2000 元', text: '预算 2000 元' },
+      budgetMove(budgetCny),
       { label: '对比前两件', text: '帮我比前两个' },
     ]
   }
@@ -292,15 +304,18 @@ function nextMoves(ranked: ProductCandidate[], kind: string, belief: PreferenceB
   const a = itemCny(first)
   const b = itemCny(second)
   if (a != null && b != null && a !== b) {
-    moves.push({ label: `再收 ¥${Math.round(Math.abs(a - b))}`, text: '再便宜一点' })
+    const gap = Math.round(Math.abs(a - b))
+    moves.push(budgetCny != null
+      ? { label: `再收 ¥${gap}`, text: budgetMove(budgetCny, gap).text }
+      : { label: '再便宜一点', text: '再便宜一点' })
   } else {
-    moves.push({ label: '再便宜一点', text: '再便宜一点' })
+    moves.push(budgetCny != null ? budgetMove(budgetCny) : { label: '再便宜一点', text: '再便宜一点' })
   }
   if (first.brand) moves.push({ label: `不要${first.brand}`, text: `不要${first.brand}` })
   else moves.push({ label: '不要这款', text: '不要这款' })
   if (belief.price_sensitivity === 'too_expensive' || belief.price_sensitivity === 'want_cheaper') {
     if (!moves.some((item) => item.text.startsWith('预算'))) {
-      moves.unshift({ label: '预算 2000 元', text: '预算 2000 元' })
+      moves.unshift(budgetMove(budgetCny))
     }
   }
   return moves
@@ -547,7 +562,7 @@ function applyRun(
   }
   push(store, mission.id, 'agent', reply, version, {
     citations: citationsFor(cited),
-    next_moves: nextMoves(visible, act.kind, belief),
+    next_moves: nextMoves(visible, act.kind, belief, constraints.budget_cny),
   })
   return ready
 }

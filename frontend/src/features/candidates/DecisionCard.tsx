@@ -1,28 +1,35 @@
 import type { ProductCandidate, RecommendationView, MissionView } from '../../api/types'
 import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/ui/Icon'
-import { CURRENCY_SYMBOL, displayAmount, nativePriceText, rmbAmount, type Currency } from '../../lib/currency'
+import { CURRENCY_SYMBOL, displayAmount, nativePriceText, rmbAmount, type Currency, type SnapshotRates } from '../../lib/currency'
 import { preferenceText } from '../../lib/format'
 
 export function DecisionCard({
   recommendation,
   mission,
   currency,
+  rates,
+  onOpen,
 }: {
   recommendation: RecommendationView | null | undefined
   mission: MissionView
   currency: Currency
+  rates?: SnapshotRates
+  onOpen?: (snapshotId: string) => void
 }) {
   const product = recommendation?.primary
   if (!product) return null
-  const amount = displayAmount(rmbAmount(product), currency)
+  const amount = displayAmount(rmbAmount(product), currency, rates)
   return (
     <section className="decision-card">
       <div className="decision-icon"><Icon name="spark" size={20} /></div>
       <div className="decision-copy">
         <span>当前推荐 · V{mission.constraints_version}</span>
-        <h2>{product.title}</h2>
+        <h2>{onOpen ? <button type="button" className="decision-title-button" onClick={() => onOpen(product.snapshot_id)}>{product.title}</button> : product.title}</h2>
         <p>{recommendation?.rationale[0] ?? '已按当前约束给出首选。'} {recommendation?.tradeoffs[0] ?? ''}</p>
+        {recommendation?.alternatives.length ? (
+          <p className="decision-alts">备选：{recommendation.alternatives.map((item) => item.title).join('；')}</p>
+        ) : null}
         <div className="decision-tags">
           {[mission.constraints.budget_cny ? '商品价在预算内' : '未设置预算', preferenceText(mission.constraints.preference)].map((tag) => (
             <span key={tag}>{tag}</span>

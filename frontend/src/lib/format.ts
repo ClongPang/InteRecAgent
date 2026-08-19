@@ -48,8 +48,8 @@ export function composerPlaceholder(
   focusTitle?: string | null,
 ): string {
   if (focusTitle) return `问问「${focusTitle}」为什么推荐，或说不要这款`
-  if (priceStanceText(belief.price_sensitivity)) return '例如：预算 2000 元，或帮我比前两个'
-  return '例如：预算 2000 元，或再便宜一点'
+  if (priceStanceText(belief.price_sensitivity)) return '例如：收紧预算，或帮我比前两个'
+  return '例如：说一个人民币预算，或再便宜一点'
 }
 
 export function stageText(stage: string, turnPhase?: string): string {

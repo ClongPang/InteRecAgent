@@ -173,6 +173,7 @@ class BuyWhereProductSource:
         country_code: str = "US",
         mode: str = "keyword",
         limit: int = 20,
+        max_price: float | None = None,
     ) -> ProductSearchResult:
         params: dict[str, Any] = {
             "q": query,
@@ -180,6 +181,8 @@ class BuyWhereProductSource:
             "mode": mode,
             "limit": limit,
         }
+        if max_price is not None:
+            params["max_price"] = max_price
         body = await self._request("/v1/products/search", params)
         resp = BuyWhereSearchResponse.model_validate(body)
         return _normalize_response(resp)

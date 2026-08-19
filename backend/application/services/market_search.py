@@ -24,15 +24,21 @@ async def gather_market_products(
     mode: str,
     limit: int,
     max_concurrency: int = 3,
+    max_prices: dict[str, float] | None = None,
 ) -> MarketSearchOutcome:
     """受限并发搜索；单市场 upstream 失败不拖垮整轮，鉴权/配置错误上抛。"""
     sem = asyncio.Semaphore(max_concurrency)
+    caps = max_prices or {}
 
     async def _one(market: str) -> tuple[str, object]:
         async with sem:
             try:
                 return market, await products.search(
-                    query, country_code=market, mode=mode, limit=limit
+                    query,
+                    country_code=market,
+                    mode=mode,
+                    limit=limit,
+                    max_price=caps.get(market),
                 )
             except UpstreamUnavailableError as exc:
                 return market, exc

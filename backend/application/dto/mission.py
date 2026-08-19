@@ -6,7 +6,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ...domain.models import utcnow
+from ...domain.models import DEFAULT_MARKETS, utcnow
 from .belief import PreferenceBelief
 
 
@@ -46,7 +46,7 @@ class MissionConstraints(BaseModel):
 
     query: str | None = None
     budget_cny: float | None = None
-    markets: list[str] = Field(default_factory=lambda: ["US"])
+    markets: list[str] = Field(default_factory=lambda: list(DEFAULT_MARKETS))
     preference: str = "balanced"
     only_in_stock: bool = False
     excluded_terms: list[str] = Field(default_factory=list)

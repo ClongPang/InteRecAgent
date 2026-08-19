@@ -29,6 +29,9 @@ class ResearchContext:
     converted: bool = False
     finalized: bool = False
     stale: bool = False
+    recall_count: int = 0
+    relaxed_native_cap: bool = False
+    converted_products: list[NormalizedProduct] = field(default_factory=list)
 
     def add_warnings(self, items: list[str]) -> None:
         for item in items:

@@ -23,6 +23,7 @@ def project_thread(
     has_candidates: bool = False,
     ranked: list[dict] | None = None,
     belief: PreferenceBelief | None = None,
+    budget_cny: float | None = None,
 ) -> ThreadView:
     mapped = [item for item in (_map_event(event) for event in events) if item is not None]
     return ThreadView(
@@ -32,6 +33,7 @@ def project_thread(
             has_candidates=has_candidates,
             ranked=ranked,
             belief=belief,
+            budget_cny=budget_cny,
         )
     )
 
@@ -43,6 +45,7 @@ def _fold_thread(
     has_candidates: bool,
     ranked: list[dict] | None = None,
     belief: PreferenceBelief | None = None,
+    budget_cny: float | None = None,
 ) -> list[ThreadMessage]:
     dialogue_runs = {item.run_id for item in messages if item.kind != "change" and item.run_id}
     changes = {
@@ -71,6 +74,7 @@ def _fold_thread(
                 has_candidates=has_candidates or bool(item.citations or item.snapshot_ids),
                 ranked=ranked,
                 belief=belief,
+                budget_cny=budget_cny,
             )
             if not item.citations and item.snapshot_ids:
                 updates["citations"] = [
