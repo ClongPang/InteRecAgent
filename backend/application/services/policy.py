@@ -7,7 +7,7 @@ from ..dto.belief import PreferenceBelief
 from ..dto.dialogue import DialogueAct, DialogueActKind, TurnCommand, TurnRoute
 from ..dto.mission import DialogueState, MissionConstraints, ShoppingMission, TurnPhase
 from ..dto.runner import IntentPatch
-from .nlu import classify_turn, preview_merged_constraints, snapshot_ids_for_ranks
+from .nlu import preview_merged_constraints, snapshot_ids_for_ranks
 from .parse_intent import parse_intent
 from .route import preview_turn
 
@@ -15,6 +15,34 @@ from .route import preview_turn
 def supports_audio_preference(query: str | None) -> bool:
     text = (query or "").lower()
     return any(token in text for token in ("耳机", "headphone", "earbuds"))
+
+
+def apply_act_effects(
+    belief: PreferenceBelief,
+    dialogue: DialogueState,
+    act: DialogueAct,
+    *,
+    cache_payload: dict | None = None,
+) -> tuple[PreferenceBelief, DialogueState]:
+    """把一次话轮行为的信念副作用焊死在此（价格态度 / 否定聚焦 / 不支持维度）。
+
+    单一事实源：DialoguePolicy（确定性参照）与图节点 apply_turn_effects（运行时权威）
+    都调用它，保证「命令层预判」与「LLM 自主编排」两条路径的信念演化不漂移。"""
+    if act.kind == DialogueActKind.STANCE and act.stance in {"too_expensive", "want_cheaper"}:
+        belief = belief.mark_price_stance(act.stance)
+    if act.kind == DialogueActKind.REJECT:
+        focus = dialogue.focus_snapshot_id
+        if not focus and cache_payload:
+            ids = snapshot_ids_for_ranks(
+                list(cache_payload.get("ranked") or []), act.referent_ranks or [1]
+            )
+            focus = ids[0] if ids else None
+        if focus:
+            belief = belief.reject(focus)
+    if act.stance == "want_lighter":
+        belief = belief.mark_unsupported("weight", "lower")
+    dialogue = dialogue.model_copy(update={"last_act": act.kind.value})
+    return belief, dialogue
 
 
 def sanitize_constraints(
@@ -57,7 +85,12 @@ class TurnDecision(BaseModel):
 
 
 class DialoguePolicy:
-    """Application 层唯一话轮决策。图只执行已决定的 route。"""
+    """结构化约束编辑（PATCH）的确定性决策。
+
+    控制反转（Phase 3）后，自由文本话轮的分类/路由/信念副作用由 Agent 图承担
+    （classify_dialogue_act → apply_turn_effects → merge_mission_state → route_turn），
+    命令层不再预判。本类只服务 update_constraints 的结构化 PATCH：它没有自由文本可分类，
+    天然确定性，无需 LLM。约束级护栏 sanitize_constraints 与图 merge 节点共用，不漂移。"""
 
     def decide(
         self,
@@ -69,205 +102,53 @@ class DialoguePolicy:
         cache_payload: dict | None = None,
         turn_context: dict | None = None,
     ) -> TurnDecision:
+        if turn.command != TurnCommand.PATCH:
+            raise ValueError(
+                f"DialoguePolicy 仅处理结构化 PATCH；{turn.command} 由 Agent 图负责"
+            )
+        del cache_payload, turn_context
         dialogue = mission.dialogue.model_copy()
         belief = mission.belief.model_copy()
-        context = turn_context or {}
-        mentioned = list(context.get("mentioned_snapshot_ids") or dialogue.mentioned_snapshot_ids)
-        if mentioned:
-            dialogue.mentioned_snapshot_ids = mentioned
-        if turn.focus_snapshot_id:
-            dialogue.focus_snapshot_id = turn.focus_snapshot_id
-        elif not dialogue.focus_snapshot_id and mentioned:
-            dialogue.focus_snapshot_id = mentioned[0]
-
-        if turn.command == TurnCommand.UNDO:
-            dialogue.last_act = DialogueActKind.UNDO.value
-            return TurnDecision(
-                act=DialogueAct(kind=DialogueActKind.UNDO, source=turn.source),
-                route=TurnRoute.REFILTER,
-                phase=TurnPhase.REFILTERING,
-                constraints=mission.constraints,
-                dialogue=dialogue,
-                undo=True,
-                dispatch=True,
-                belief=belief,
-            )
-
-        if turn.command == TurnCommand.PATCH:
-            desired = turn.constraints or mission.constraints
-            sanitized, warnings, replies = sanitize_constraints(
-                mission.constraints.query, mission.constraints, desired
-            )
-            act = DialogueAct(kind=DialogueActKind.REFINE, source=turn.source, patch=IntentPatch())
-            if sanitized == mission.constraints:
-                dialogue.last_act = act.kind.value
-                return TurnDecision(
-                    act=act,
-                    route=TurnRoute.TALK,
-                    phase=TurnPhase.IDLE,
-                    constraints=mission.constraints,
-                    dialogue=dialogue,
-                    dispatch=False,
-                    agent_message=" ".join(replies) or "这个条件当前无法执行，约束没有改动。",
-                    warnings=warnings,
-                    belief=belief,
-                )
-            _route, phase = preview_turn(
-                act=act,
-                constraints=sanitized,
-                has_cache=has_cache,
-                cache_reuse_key=cache_reuse_key,
-                skip_intent_patch=True,
-            )
-            if sanitized != mission.constraints and phase == TurnPhase.RESPONDING:
-                phase = TurnPhase.REFILTERING
-                _route = TurnRoute.REFILTER
-            dialogue.last_act = act.kind.value
-            return TurnDecision(
-                act=act,
-                route=_route,
-                phase=phase,
-                constraints=sanitized,
-                dialogue=dialogue,
-                dispatch=True,
-                apply_constraints=True,
-                warnings=warnings,
-                agent_message=" ".join(replies) or None,
-                belief=belief,
-            )
-
-        text = (turn.text or "").strip()
-        act = classify_turn(text, current_query=mission.constraints.query, context=context)
-        if act.kind == DialogueActKind.STANCE and act.stance in {"too_expensive", "want_cheaper"}:
-            belief = belief.mark_price_stance(act.stance)
-        if act.kind == DialogueActKind.REJECT:
-            focus = dialogue.focus_snapshot_id
-            if not focus and cache_payload:
-                ids = snapshot_ids_for_ranks(list(cache_payload.get("ranked") or []), act.referent_ranks or [1])
-                focus = ids[0] if ids else None
-            if focus:
-                belief = belief.reject(focus)
-        if act.stance == "want_lighter":
-            belief = belief.mark_unsupported("weight", "lower")
+        desired = turn.constraints or mission.constraints
+        sanitized, warnings, replies = sanitize_constraints(
+            mission.constraints.query, mission.constraints, desired
+        )
+        act = DialogueAct(kind=DialogueActKind.REFINE, source=turn.source, patch=IntentPatch())
         dialogue.last_act = act.kind.value
-        if act.kind == DialogueActKind.UNDO:
+        if sanitized == mission.constraints:
             return TurnDecision(
                 act=act,
-                route=TurnRoute.REFILTER,
-                phase=TurnPhase.REFILTERING,
+                route=TurnRoute.TALK,
+                phase=TurnPhase.IDLE,
                 constraints=mission.constraints,
                 dialogue=dialogue,
-                undo=True,
-                dispatch=True,
+                dispatch=False,
+                agent_message=" ".join(replies) or "这个条件当前无法执行，约束没有改动。",
+                warnings=warnings,
                 belief=belief,
             )
-
-        merged = preview_merged_constraints(mission.constraints, act)
-        merged, warnings, replies = sanitize_constraints(mission.constraints.query, mission.constraints, merged)
-        if act.patch is not None:
-            act = act.model_copy(
-                update={
-                    "patch": act.patch.model_copy(
-                        update={
-                            "preference": merged.preference if merged.preference != mission.constraints.preference else act.patch.preference,
-                            "only_in_stock": act.patch.only_in_stock,
-                            "query": act.patch.query,
-                        }
-                    )
-                }
-            )
-        route, phase = preview_turn(
+        _route, phase = preview_turn(
             act=act,
-            constraints=mission.constraints,
+            constraints=sanitized,
             has_cache=has_cache,
             cache_reuse_key=cache_reuse_key,
+            skip_intent_patch=True,
         )
-        if merged != mission.constraints and route == TurnRoute.TALK:
-            route = TurnRoute.REFILTER
+        if phase == TurnPhase.RESPONDING:
             phase = TurnPhase.REFILTERING
-        if act.kind == DialogueActKind.STANCE and merged == mission.constraints:
-            if act.stance == "want_lighter":
-                return TurnDecision(
-                    act=act,
-                    route=TurnRoute.TALK,
-                    phase=TurnPhase.IDLE,
-                    constraints=mission.constraints,
-                    dialogue=dialogue,
-                    dispatch=False,
-                    agent_message=_stance_reply(act.stance),
-                    warnings=warnings,
-                    belief=belief,
-                )
-            if not mission.constraints.query:
-                return TurnDecision(
-                    act=act,
-                    route=TurnRoute.CLARIFY,
-                    phase=TurnPhase.RESPONDING,
-                    constraints=mission.constraints,
-                    dialogue=dialogue,
-                    dispatch=True,
-                    agent_message=_stance_reply(act.stance),
-                    warnings=warnings,
-                    belief=belief,
-                )
-            if has_cache:
-                return TurnDecision(
-                    act=act,
-                    route=TurnRoute.RERANK,
-                    phase=TurnPhase.REFILTERING,
-                    constraints=mission.constraints,
-                    dialogue=dialogue,
-                    dispatch=True,
-                    apply_constraints=False,
-                    agent_message=_stance_reply(act.stance),
-                    warnings=warnings,
-                    belief=belief,
-                )
-            return TurnDecision(
-                act=act,
-                route=TurnRoute.TALK,
-                phase=TurnPhase.IDLE,
-                constraints=mission.constraints,
-                dialogue=dialogue,
-                dispatch=False,
-                agent_message=_stance_reply(act.stance) or " ".join(replies),
-                warnings=warnings,
-                belief=belief,
-            )
-        if replies and merged == mission.constraints and act.kind != DialogueActKind.REJECT:
-            return TurnDecision(
-                act=act,
-                route=TurnRoute.TALK,
-                phase=TurnPhase.IDLE,
-                constraints=mission.constraints,
-                dialogue=dialogue,
-                dispatch=False,
-                agent_message=" ".join(replies),
-                warnings=warnings,
-                belief=belief,
-            )
+            _route = TurnRoute.REFILTER
         return TurnDecision(
             act=act,
-            route=route,
+            route=_route,
             phase=phase,
-            constraints=merged,
+            constraints=sanitized,
             dialogue=dialogue,
             dispatch=True,
-            apply_constraints=merged != mission.constraints,
+            apply_constraints=True,
             warnings=warnings,
             agent_message=" ".join(replies) or None,
             belief=belief,
         )
-
-
-def _stance_reply(stance: str | None) -> str:
-    if stance == "too_expensive":
-        return "已记下「太贵了」，会提高价格权重重排，但没有改硬预算。可以说具体上限，例如「预算 2000 元」。"
-    if stance == "want_cheaper":
-        return "已记下「再便宜一点」，会按价格敏感重排。需要硬上限时请说「预算 1500 元」。"
-    if stance == "want_lighter":
-        return "快照没有重量字段，我不能按「更轻」排序或过滤，也不会编造规格。"
-    return "我记下了这个态度，但还不能据此改检索。"
 
 
 def command_patch_from_text(text: str, current: MissionConstraints) -> MissionConstraints:

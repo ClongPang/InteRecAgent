@@ -16,10 +16,12 @@ from .nlu import (
     summarize_constraint_change,
 )
 from .parse_intent import parse_intent
+from .policy import apply_act_effects, sanitize_constraints
 from .route import phase_for_route, plan_route, preview_turn, stage_for_phase
 from .thread import project_thread
 
 __all__ = [
+    "apply_act_effects",
     "apply_stance_budget",
     "build_turn_context",
     "classify_turn",
@@ -34,6 +36,7 @@ __all__ = [
     "project_thread",
     "resolve_referent_ids",
     "reuse_key_matches",
+    "sanitize_constraints",
     "search_reuse_key",
     "snapshot_ids_for_ranks",
     "stage_for_phase",

@@ -1,8 +1,8 @@
 """对话行为分类、检索失效与线程投影。"""
 from __future__ import annotations
 
-from backend.application.dto.belief import PreferenceBelief
-from backend.application.dto.dialogue import DialogueActKind, TurnCommand, TurnRoute
+from backend.application.dto.belief import PreferenceBelief, SoftPref
+from backend.application.dto.dialogue import DialogueActKind, TurnRoute
 from backend.application.dto.mission import MissionConstraints, ShoppingMission, TurnPhase
 from backend.application.services.dialogue import (
     classify_turn,
@@ -15,9 +15,10 @@ from backend.application.services.dialogue import (
     summarize_constraint_change,
 )
 from backend.application.services.parse_intent import extract_query
-from backend.application.services.policy import DialoguePolicy, TurnInput, sanitize_constraints
+from backend.application.services.policy import sanitize_constraints
 from backend.domain.models import NormalizedProduct
 from backend.domain.policies import apply_exclusion_filter
+from tests.fakes import deterministic_turn
 
 
 def test_classify_refine_vs_talk_vs_reject() -> None:
@@ -261,26 +262,23 @@ def test_stance_without_query_clarifies() -> None:
     )
 
 
-def test_policy_stance_records_belief_without_budget_change() -> None:
+def test_stance_records_belief_without_budget_change() -> None:
     mission = ShoppingMission(
         owner_id="u1",
         title="t",
         constraints=MissionConstraints(query="降噪耳机", budget_cny=4000),
     )
-    decision = DialoguePolicy().decide(
-        mission=mission,
-        turn=TurnInput(command=TurnCommand.MESSAGE, text="太贵了"),
-        has_cache=True,
-        cache_reuse_key=search_reuse_key(mission.constraints),
+    preview = deterministic_turn(
+        mission,
+        "太贵了",
+        cache_payload={"ranked": [{"snapshot_id": "s1", "estimated_cny": {"amount": 2500}}],
+                       "reuse_key": search_reuse_key(mission.constraints)},
     )
-    assert decision.constraints.query == "降噪耳机"
-    assert decision.constraints.budget_cny == 4000
-    assert decision.apply_constraints is False
-    assert decision.dispatch is True
-    assert decision.route == TurnRoute.RERANK
-    assert decision.belief.price_sensitivity == "too_expensive"
-    assert decision.dialogue.last_act == "express_stance"
-    assert "stance" not in decision.dialogue.model_dump()
+    assert preview.constraints.query == "降噪耳机"
+    assert preview.constraints.budget_cny == 4000
+    assert preview.route == "rerank"
+    assert preview.belief.price_sensitivity == "too_expensive"
+    assert preview.mission.dialogue.last_act == "express_stance"
 
 
 def test_sanitize_unsupported_capabilities() -> None:
@@ -300,44 +298,42 @@ def test_classify_reject_this_item_uses_rank() -> None:
     assert act.exclude_terms == []
 
 
-def test_policy_reject_writes_belief_and_reranks() -> None:
+def test_reject_writes_belief_and_reranks() -> None:
     mission = ShoppingMission(
         owner_id="u1",
         title="t",
         constraints=MissionConstraints(query="降噪耳机", budget_cny=4000),
     )
-    decision = DialoguePolicy().decide(
-        mission=mission,
-        turn=TurnInput(command=TurnCommand.MESSAGE, text="不要这款"),
-        has_cache=True,
-        cache_reuse_key=search_reuse_key(mission.constraints),
-        cache_payload={"ranked": [{"snapshot_id": "snap-1", "estimated_cny": {"amount": 2100}}]},
+    preview = deterministic_turn(
+        mission,
+        "不要这款",
+        cache_payload={"ranked": [{"snapshot_id": "snap-1", "estimated_cny": {"amount": 2100}}],
+                       "reuse_key": search_reuse_key(mission.constraints)},
     )
-    assert decision.route == TurnRoute.RERANK
-    assert "snap-1" in decision.belief.rejected_snapshot_ids
-    assert decision.apply_constraints is False
+    assert preview.route == "rerank"
+    assert "snap-1" in preview.belief.rejected_snapshot_ids
 
 
-def test_policy_expensive_without_budget_uses_cache_price() -> None:
+def test_expensive_without_budget_reranks() -> None:
     mission = ShoppingMission(
         owner_id="u1",
         title="t",
         constraints=MissionConstraints(query="降噪耳机"),
     )
-    decision = DialoguePolicy().decide(
-        mission=mission,
-        turn=TurnInput(command=TurnCommand.MESSAGE, text="太贵了"),
-        has_cache=True,
-        cache_reuse_key=search_reuse_key(mission.constraints),
-        cache_payload={"ranked": [{"snapshot_id": "snap-1", "estimated_cny": {"amount": 2500}}]},
+    preview = deterministic_turn(
+        mission,
+        "太贵了",
+        cache_payload={"ranked": [{"snapshot_id": "snap-1", "estimated_cny": {"amount": 2500}}],
+                       "reuse_key": search_reuse_key(mission.constraints)},
     )
-    assert decision.constraints.query == "降噪耳机"
-    assert decision.constraints.budget_cny is None
-    assert decision.route == TurnRoute.RERANK
-    assert decision.belief.price_sensitivity == "too_expensive"
+    assert preview.constraints.query == "降噪耳机"
+    assert preview.constraints.budget_cny is None
+    assert preview.route == "rerank"
+    assert preview.belief.price_sensitivity == "too_expensive"
 
 
-def test_plan_route_reject_without_cache_talks() -> None:
+def test_plan_route_reject_without_cache_researches_when_query_present() -> None:
+    # 无候选可排除但已有 query：去检索补齐候选，而非空谈；无 query 才澄清。
     assert (
         plan_route(
             kind=DialogueActKind.REJECT,
@@ -347,7 +343,18 @@ def test_plan_route_reject_without_cache_talks() -> None:
             skip_intent_patch=False,
             constraints_changed=False,
         )
-        == TurnRoute.TALK
+        == TurnRoute.RESEARCH
+    )
+    assert (
+        plan_route(
+            kind=DialogueActKind.REJECT,
+            has_query=False,
+            has_cache=False,
+            reuse_matches=False,
+            skip_intent_patch=False,
+            constraints_changed=False,
+        )
+        == TurnRoute.CLARIFY
     )
 
 
@@ -361,6 +368,25 @@ def test_classify_correction_keeps_query_and_excludes_inear() -> None:
 
 def test_resolve_focus_falls_back_to_mentioned() -> None:
     assert resolve_referent_ids("刚才那个怎么样", [], mentioned_snapshot_ids=["snap-9"]) == ["snap-9"]
+
+
+def test_belief_with_soft_prefs_merges_and_keeps_reserved() -> None:
+    belief = PreferenceBelief().mark_price_stance("too_expensive")  # 已含 price 软偏好
+    merged = belief.with_soft_prefs(
+        [
+            SoftPref(attr="防水", cues=["waterproof"]),
+            SoftPref(attr="低延迟", cues=["low latency", "ms"]),
+            SoftPref(attr="price", cues=["ignored"]),  # 保留通道，不应被 LLM 从这里改写
+        ]
+    )
+    attrs = {item.attr for item in merged.soft}
+    assert "防水" in attrs and "低延迟" in attrs
+    price = next(item for item in merged.soft if item.attr == "price")
+    assert price.cues == []  # 原 price 软偏好未被开放式维度覆盖
+    # 同 attr 再次并入以最新覆盖
+    again = merged.with_soft_prefs([SoftPref(attr="防水", cues=["ipx8"])])
+    waterproof = next(item for item in again.soft if item.attr == "防水")
+    assert waterproof.cues == ["ipx8"]
 
 
 def test_next_moves_keep_budget_when_price_sensitive() -> None:

@@ -24,7 +24,7 @@ from ..errors import (
 )
 from ..ports import RunDispatcher, UnitOfWork
 from .dialogue import next_moves_for, preview_turn, project_thread, stage_for_phase
-from .nlu import build_turn_context
+from .nlu import is_undo_text
 from .policy import DialoguePolicy, TurnDecision, TurnInput
 from .present import product_candidate_from_record, product_candidate_from_snapshot
 
@@ -76,55 +76,43 @@ class MissionCommandService:
         constraints_version: int,
         focus_snapshot_id: str | None = None,
     ) -> str:
-        """追加消息。对话政策决定是否调度检索子图。"""
-        async with self._uow_factory() as uow:
-            mission = await self._require_mission(uow, owner_id, mission_id, constraints_version)
-            cache = await self._cache_payload(uow, mission)
-            events = await uow.events.list_since(mission_id=mission_id)
-            decision = DialoguePolicy().decide(
-                mission=mission,
-                turn=TurnInput(
-                    command=TurnCommand.MESSAGE,
-                    source="chat",
-                    text=text,
-                    focus_snapshot_id=focus_snapshot_id,
-                ),
-                has_cache=bool(cache and cache.get("ranked")),
-                cache_reuse_key=(cache or {}).get("reuse_key"),
-                cache_payload=cache,
-                turn_context=build_turn_context(events, mission, cache),
-            )
-            if decision.undo:
-                await uow.events.append(
-                    mission_id=mission_id,
-                    event_type="message.received",
-                    payload={"text": text, "constraints_version": constraints_version},
-                )
-                await uow.commit()
-            else:
-                run_id, dispatch_version = await self._persist_decision(
-                    uow,
-                    mission=mission,
-                    decision=decision,
-                    expected_version=constraints_version,
-                    user_text=text,
-                    cache_payload=cache,
-                )
-                await uow.commit()
-        if decision.undo:
+        """薄入口：分类/路由/编排全部下沉到 Agent 图（控制反转）。
+
+        命令层只做：乐观版本校验、置聚焦、追加 message.received、派单。撤销是事务控制
+        （非意图理解），仍在派单前确定性识别后走 undo 回溯。"""
+        if is_undo_text(text):
             undo_run_id, _ = await self.undo(
                 owner_id=owner_id,
                 mission_id=mission_id,
                 constraints_version=constraints_version,
             )
             return undo_run_id
-        if decision.dispatch:
-            await self._dispatcher.dispatch(
-                owner_id=owner_id,
-                mission_id=mission_id,
-                run_id=run_id,
-                constraints_version=dispatch_version,
+        run_id = str(uuid4())
+        async with self._uow_factory() as uow:
+            mission = await self._require_mission(uow, owner_id, mission_id, constraints_version)
+            dialogue = mission.dialogue
+            if focus_snapshot_id:
+                dialogue = dialogue.model_copy(update={"focus_snapshot_id": focus_snapshot_id})
+            updated = mission.model_copy(
+                update={"active_run_id": run_id, "dialogue": dialogue, "updated_at": utcnow()}
             )
+            await uow.missions.save(updated, expected_version=constraints_version)
+            await uow.events.append(
+                mission_id=mission_id,
+                event_type="message.received",
+                payload={
+                    "run_id": run_id,
+                    "text": text,
+                    "constraints_version": constraints_version,
+                },
+            )
+            await uow.commit()
+        await self._dispatcher.dispatch(
+            owner_id=owner_id,
+            mission_id=mission_id,
+            run_id=run_id,
+            constraints_version=constraints_version,
+        )
         return run_id
 
     async def update_constraints(

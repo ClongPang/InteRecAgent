@@ -159,6 +159,19 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 await uow.rollback()
                 return {"status": RunnerStatus.SUPERSEDED, "warnings": ["运行基于旧版本约束，已标记 superseded"]}
 
+            # 控制反转后约束合并在图内发生；补发 constraints.updated 以支撑 undo 回溯与线程投影。
+            if mission.constraints != current.constraints:
+                await uow.events.append(
+                    mission_id=mission.id,
+                    event_type="constraints.updated",
+                    payload={
+                        "run_id": run_id,
+                        "before": current.constraints.model_dump(mode="json"),
+                        "after": mission.constraints.model_dump(mode="json"),
+                        "constraints_version": constraints_version,
+                    },
+                )
+
             event_type = "recommendation.ready" if stage == MissionStage.READY else "run.degraded"
             agent_text = state.get("agent_message") or compose_ready_reply(
                 ranked_records,

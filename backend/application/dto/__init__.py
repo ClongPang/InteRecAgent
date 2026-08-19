@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .agent import AssistantTurn, ChatMessage, ToolCall, ToolSpec
 from .belief import Critique, PreferenceBelief, SoftPref
 from .dialogue import (
     AskTopic,
@@ -35,6 +36,10 @@ from .runner import IntentPatch, RecommendationDraft, RunnerResult, RunnerStatus
 from .search import ProductSearchResult
 
 __all__ = [
+    "AssistantTurn",
+    "ChatMessage",
+    "ToolCall",
+    "ToolSpec",
     "Critique",
     "PreferenceBelief",
     "SoftPref",

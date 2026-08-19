@@ -5,7 +5,13 @@ import uuid
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...application.dto import DialogueState, MissionConstraints, MissionStage, ShoppingMission, TurnPhase
+from ...application.dto import (
+    DialogueState,
+    MissionConstraints,
+    MissionStage,
+    ShoppingMission,
+    TurnPhase,
+)
 from ...application.dto.belief import PreferenceBelief
 from ...application.errors import MissionVersionConflict
 from ...domain.models import FxSnapshot, NormalizedProduct

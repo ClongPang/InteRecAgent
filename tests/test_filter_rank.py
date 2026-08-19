@@ -133,3 +133,27 @@ class TestScore:
             soft_prefs=[("weight", "lower", "unsupported")],
         )
         assert [p.id for p in soft] == base
+
+    def test_soft_pref_cues_match_cross_language(self):
+        from backend.domain.policies.score import dimension_matches
+
+        product = _product("wp", 100, title="Garmin Waterproof Diver Watch")
+        # attr 是中文标签，命中靠 LLM 给出的英文 cues → 通用跨语言匹配
+        assert dimension_matches(product, attr="防水", cues=["waterproof", "ip68"]) is True
+        # 没有 cues 且标题里没有「防水」字面 → 不命中（不编造）
+        assert dimension_matches(product, attr="防水", cues=[]) is False
+
+    def test_open_soft_pref_lifts_matching_candidate(self):
+        match = _product("m", 100, title="Garmin Waterproof Watch").model_copy(
+            update={"rmb_price": 670}
+        )
+        other = _product("o", 100, title="Basic Analog Watch").model_copy(
+            update={"rmb_price": 670}
+        )
+        ranked = score_and_rank(
+            [other, match],
+            budget_cny=4000,
+            soft_prefs=[("防水", "higher", "active", ("waterproof",))],
+        )
+        # 同价位下，命中开放式软偏好（带 cues）的候选被抬到首位
+        assert [p.id for p in ranked][0] == "m"

@@ -51,6 +51,12 @@ class _NeverInvoked:
     def is_configured(self) -> bool:
         raise AssertionError("结构测试不应执行节点")
 
+    def supports_tools(self) -> bool:
+        raise AssertionError("结构测试不应执行节点")
+
+    async def chat(self, *a, **k):
+        raise AssertionError("结构测试不应执行节点")
+
     async def parse_intent(self, *a, **k):
         raise AssertionError("结构测试不应执行节点")
 
@@ -81,18 +87,19 @@ def test_graph_has_required_nodes_and_routes() -> None:
 
 
 def test_node_names_match_spec() -> None:
-    """节点集必须与对话路由后的显式节点清单一致。"""
+    """节点集必须与对话路由后的显式节点清单一致。
+
+    检索子图已从线性链收敛为单个 research 节点（LLM 自主编排 + 动态 tool-use，AGT-001）；
+    filter/rank 节点保留供 refilter/rerank 增量路径复用。"""
     assert NODE_NAMES == (
         "receive_message",
         "classify_dialogue_act",
+        "apply_turn_effects",
         "merge_mission_state",
         "route_turn",
         "load_cached_candidates",
         "compose_grounded_reply",
-        "build_search_plan",
-        "fetch_products",
-        "fetch_fx",
-        "normalize_and_deduplicate",
+        "research",
         "filter_hard_constraints",
         "rank_candidates",
         "verify_evidence",

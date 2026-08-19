@@ -8,32 +8,40 @@ from ..models import NormalizedProduct
 NOISE_CUES = ("降噪", "noise", "cancelling", "anc", "wh-1000", "wh1000", "xm5", "xm4", "qc ultra")
 BATTERY_CUES = ("续航", "battery", "小时", "hours", "hrs")
 
+# 遗留 preference 枚举的种子线索。仅作确定性 fallback 的默认同义词；
+# LLM 产出的开放式软偏好自带 cues，不依赖此表——这样新增偏好维度是「给数据」而非「改分支」。
+SEED_CUES: dict[str, tuple[str, ...]] = {"noise": NOISE_CUES, "battery": BATTERY_CUES}
+
 
 def product_text(product: NormalizedProduct) -> str:
     attrs = " ".join((product.attrs or {}).values())
     return f"{product.title} {attrs}".lower()
 
 
-def title_matches_preference(product: NormalizedProduct, preference: str) -> bool:
-    text = product_text(product)
-    if preference == "noise":
-        return any(cue in text for cue in NOISE_CUES)
-    if preference == "battery":
-        return any(cue in text for cue in BATTERY_CUES)
-    return False
+def dimension_matches(
+    product: NormalizedProduct, *, attr: str, cues: Iterable[str] = ()
+) -> bool:
+    """通用维度命中：结构化 attr 字段 > cues/attr 名称的标题命中 > 品牌命中。
 
-
-def title_matches_soft(product: NormalizedProduct, attr: str) -> bool:
+    价格/重量走各自专门通道（价格权重、无规格降级），不在此判定。"""
     if attr in {"price", "weight"}:
         return False
     attrs = product.attrs or {}
     if attrs.get(attr):
         return True
-    needle = attr.lower()
-    if needle in product_text(product):
+    text = product_text(product)
+    needles = [attr.lower(), *(cue.lower() for cue in cues)]
+    if any(needle and needle in text for needle in needles):
         return True
     brand = (attrs.get("brand") or "").lower()
-    return bool(brand) and brand == needle
+    return bool(brand) and brand == attr.lower()
+
+
+def title_matches_preference(product: NormalizedProduct, preference: str) -> bool:
+    cues = SEED_CUES.get(preference)
+    if cues is None:
+        return False
+    return dimension_matches(product, attr=preference, cues=cues)
 
 
 def score_and_rank(
@@ -56,7 +64,7 @@ def score_and_rank(
         parts: list[tuple[float, float]] = []
         if budget_cny is not None and product.rmb_price is not None:
             parts.append((1.0 if product.rmb_price <= budget_cny else 0.2, 0.35))
-        price_weight = 0.55 if want_lowest else 0.18 if preference in {"battery", "noise"} else 0.4
+        price_weight = 0.55 if want_lowest else 0.18 if preference in SEED_CUES else 0.4
         if product.rmb_price is not None and hi > lo:
             parts.append((1.0 - (product.rmb_price - lo) / (hi - lo), price_weight))
         elif product.rmb_price is not None:
@@ -65,13 +73,16 @@ def score_and_rank(
             parts.append((1.0 if product.in_stock else 0.0, 0.15))
         if product.id in rejected:
             parts.append((0.0, 0.3))
-        if preference in {"battery", "noise"}:
+        if preference in SEED_CUES:
             hit = title_matches_preference(product, preference)
             parts.append((1.0 if hit else 0.15, 0.40))
-        for attr, _direction, status in soft:
+        for entry in soft:
+            attr, _direction, status = entry[0], entry[1], entry[2]
+            cues = entry[3] if len(entry) > 3 else ()
             if status != "active" or attr in {"price", "weight"}:
                 continue
-            parts.append((1.0 if title_matches_soft(product, attr) else 0.2, 0.2))
+            hit = dimension_matches(product, attr=attr, cues=cues)
+            parts.append((1.0 if hit else 0.2, 0.2))
         weight = sum(w for _s, w in parts) or 1.0
         overall = sum(score * w for score, w in parts) / weight
         return (
@@ -85,5 +96,8 @@ def score_and_rank(
     return sorted(items, key=_score)
 
 
-def _soft_price_lower(soft: list[tuple[str, str, str]]) -> bool:
-    return any(attr == "price" and direction == "lower" and status == "active" for attr, direction, status in soft)
+def _soft_price_lower(soft: list[tuple]) -> bool:
+    return any(
+        entry[0] == "price" and entry[1] == "lower" and entry[2] == "active"
+        for entry in soft
+    )

@@ -160,6 +160,11 @@ def classify_turn(
     return DialogueAct(kind=kind, patch=patch)
 
 
+def is_undo_text(text: str) -> bool:
+    """撤销是事务控制而非意图理解，命令层薄入口仍需在派单前识别以走 undo 回溯。"""
+    return bool(_UNDO.search(text or ""))
+
+
 def detect_ask_topic(text: str) -> AskTopic:
     if _ASK_WARRANTY.search(text):
         return AskTopic.WARRANTY

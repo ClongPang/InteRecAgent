@@ -4,6 +4,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from .belief import SoftPref
+
 
 class IntentPatch(BaseModel):
     """从用户输入得到的结构化条件增量（规格 §6.4）。不直接覆盖任务状态，由 Agent 合并。"""
@@ -16,6 +18,9 @@ class IntentPatch(BaseModel):
     exclude_terms: list[str] | None = None
     use_case: str | None = None
     price_stance: str | None = None
+    # 开放式软偏好维度（防水/轻便/游戏低延迟/送礼…）。由 LLM 给出 attr+cues，
+    # 不再受 preference 枚举限制；确定性打分按 cues 通用匹配。见 §5.1 天花板。
+    soft_prefs: list[SoftPref] | None = None
     confidence: float = 1.0
     source: str = "deterministic"  # deterministic | model
     requires_clarification: bool = False

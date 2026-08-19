@@ -15,10 +15,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.agent.graph import build_graph
 from backend.agent.runner import LangGraphMissionRunner
 from backend.application.dto import IntentPatch, RecommendationDraft
+from backend.application.dto.dialogue import DialogueAct, DialogueActKind
 from backend.application.errors import ModelUnavailableError
 from backend.infrastructure.fx_sources.fixed import FixedFxSource
 from backend.infrastructure.llm.factory import UnsupportedLLMProviderError, build_model_backend
-from backend.application.dto.dialogue import DialogueAct, DialogueActKind
 from backend.infrastructure.llm.openai_compat import (
     DEFAULT_MODEL,
     OpenAICompatModelBackend,
@@ -153,6 +153,27 @@ def test_sanitize_intent_patch_drops_unknown_markets() -> None:
     assert patch.source == "model"
 
 
+def test_sanitize_intent_patch_cleans_open_soft_prefs() -> None:
+    from backend.application.dto.belief import SoftPref
+
+    patch = sanitize_intent_patch(
+        IntentPatch(
+            query="登山表",
+            soft_prefs=[
+                SoftPref(attr="  防水 ", direction="bogus", cues=["waterproof", "  ", "ip68"]),
+                SoftPref(attr="price", cues=["x"]),  # 保留通道，不接受从这里改写
+                SoftPref(attr="", cues=["y"]),  # 空 attr 丢弃
+            ],
+        )
+    )
+    assert patch.soft_prefs is not None
+    assert [p.attr for p in patch.soft_prefs] == ["防水"]
+    dim = patch.soft_prefs[0]
+    assert dim.direction == "higher"  # 非法方向归一
+    assert dim.status == "active"
+    assert dim.cues == ["waterproof", "ip68"]  # 空白 cue 去除
+
+
 def test_factory_requires_key_and_rejects_unknown_provider() -> None:
     assert isinstance(build_model_backend(provider="unconfigured"), UnconfiguredModelBackend)
     with pytest.raises(UnsupportedLLMProviderError, match="INTEREC_LLM_API_KEY"):
@@ -184,6 +205,23 @@ async def test_openai_compat_parse_intent_from_official_payload() -> None:
     assert patch.query == "通勤降噪耳机"
     assert patch.budget_cny == 2500
     assert patch.markets == ["US", "SG"]
+    assert patch.source == "model"
+
+
+@pytest.mark.asyncio
+async def test_openai_compat_parse_intent_extracts_open_soft_prefs() -> None:
+    """LLM 把开放式偏好放进 soft_prefs（带跨语言 cues），不塞进 preference 枚举（§5.1）。"""
+    content = (
+        '{"query":"登山手表","preference":"balanced","requires_clarification":false,'
+        '"soft_prefs":[{"attr":"防水","direction":"higher",'
+        '"cues":["waterproof","ip68"]}]}'
+    )
+    with respx.mock:
+        respx.post(CHAT_URL).mock(return_value=httpx.Response(200, json=_chat_response(content)))
+        patch = await OpenAICompatModelBackend("sk-test").parse_intent("要防水的登山手表")
+    assert patch.soft_prefs is not None
+    assert patch.soft_prefs[0].attr == "防水"
+    assert patch.soft_prefs[0].cues == ["waterproof", "ip68"]
     assert patch.source == "model"
 
 

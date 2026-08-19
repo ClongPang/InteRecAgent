@@ -5,9 +5,13 @@ from pydantic import BaseModel, Field
 
 
 class SoftPref(BaseModel):
+    """一个通用软偏好维度。cues 是该维度的匹配线索（同义词/跨语言/型号码），
+    由 LLM 在解析时给出，使确定性打分能通用匹配任意维度，而无需在代码里写死品类枚举。"""
+
     attr: str
     direction: str = "higher"
     status: str = "active"  # active | unsupported
+    cues: list[str] = Field(default_factory=list)
 
 
 class Critique(BaseModel):
@@ -30,6 +34,26 @@ class PreferenceBelief(BaseModel):
         critiques = list(self.critiques)
         critiques.append(Critique(kind=kind, snapshot_id=snapshot_id))
         return self.model_copy(update={"rejected_snapshot_ids": rejected, "critiques": critiques})
+
+    def with_soft_prefs(self, dims: list[SoftPref]) -> PreferenceBelief:
+        """并入 LLM 解析出的通用软偏好维度（按 attr 去重，新维度覆盖旧同名维度）。
+
+        price/weight 等已有专门通道（价格态度、不支持维度）的维度不在此覆盖，
+        以免打乱既定语义。"""
+        if not dims:
+            return self
+        reserved = {"price", "weight"}
+        merged: dict[str, SoftPref] = {
+            item.attr: item for item in self.soft if item.attr in reserved
+        }
+        for item in self.soft:
+            merged.setdefault(item.attr, item)
+        for dim in dims:
+            attr = (dim.attr or "").strip()
+            if not attr or attr in reserved:
+                continue
+            merged[attr] = dim
+        return self.model_copy(update={"soft": list(merged.values())})
 
     def mark_unsupported(self, attr: str, direction: str = "higher") -> PreferenceBelief:
         soft = [item for item in self.soft if item.attr != attr]

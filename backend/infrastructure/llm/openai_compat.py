@@ -13,7 +13,17 @@ from typing import Any
 import httpx
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt
 
-from ...application.dto import DialogueAct, DialogueActKind, IntentPatch, RecommendationDraft
+from ...application.dto import (
+    AssistantTurn,
+    ChatMessage,
+    DialogueAct,
+    DialogueActKind,
+    IntentPatch,
+    RecommendationDraft,
+    ToolCall,
+    ToolSpec,
+)
+from ...application.dto.belief import SoftPref
 from ...application.dto.dialogue import AskTopic
 from ...application.errors import ModelUnavailableError, UpstreamUnavailableError
 from ...domain.models import VALID_MARKETS
@@ -72,6 +82,32 @@ _TALK_KINDS = frozenset(
 )
 
 
+_RESERVED_SOFT_ATTRS = frozenset({"price", "weight"})
+_MAX_SOFT_PREFS = 4
+_MAX_SOFT_CUES = 8
+
+
+def _sanitize_soft_prefs(dims: list[SoftPref] | None) -> list[SoftPref] | None:
+    """收紧 LLM 产出的开放式软偏好：去空、限量、方向合法、状态强制 active。
+
+    price/weight 有各自专门通道，不接受 LLM 从这里改写。"""
+    if not dims:
+        return None
+    cleaned: list[SoftPref] = []
+    seen: set[str] = set()
+    for dim in dims:
+        attr = (dim.attr or "").strip()
+        if not attr or attr in _RESERVED_SOFT_ATTRS or attr in seen:
+            continue
+        seen.add(attr)
+        direction = dim.direction if dim.direction in {"higher", "lower"} else "higher"
+        cues = [c.strip() for c in (dim.cues or []) if c and c.strip()][:_MAX_SOFT_CUES]
+        cleaned.append(SoftPref(attr=attr, direction=direction, status="active", cues=cues))
+        if len(cleaned) >= _MAX_SOFT_PREFS:
+            break
+    return cleaned or None
+
+
 def sanitize_intent_patch(patch: IntentPatch) -> IntentPatch:
     markets = None
     if patch.markets:
@@ -83,6 +119,7 @@ def sanitize_intent_patch(patch: IntentPatch) -> IntentPatch:
             "query": query,
             "markets": markets,
             "preference": preference,
+            "soft_prefs": _sanitize_soft_prefs(patch.soft_prefs),
             "source": "model",
         }
     )
@@ -132,8 +169,16 @@ def _candidate_brief(item: object) -> dict[str, Any]:
     }
 
 
-_INTENT_SYSTEM = """你是跨境购物意图解析器。只输出一个 JSON 对象，不要解释。
-字段：query, budget_cny, markets, preference, only_in_stock, exclude_terms,
+_SOFT_PREFS_RULE = """- soft_prefs 表达枚举 preference 之外的开放式偏好维度（防水、轻便、送礼、老人易用、
+  游戏低延迟、大电池、更好散热…），是一个数组，每项 {attr, direction, cues}：
+  - attr：该维度的简短标签（如「防水」「低延迟」）；
+  - direction：higher 表示越强越好，lower 表示越低越好（默认 higher）；
+  - cues：用于在商品标题里匹配该维度的线索词，务必给出中英文同义词与常见型号/术语
+    （如防水→["防水","waterproof","ip67","ipx"]），以便确定性打分跨语言命中。
+  - 不要把 price/weight 放进 soft_prefs（各有专门通道）；用户没提开放式偏好时省略或给空数组。"""
+
+_INTENT_SYSTEM = f"""你是跨境购物意图解析器。只输出一个 JSON 对象，不要解释。
+字段：query, budget_cny, markets, preference, only_in_stock, exclude_terms, soft_prefs,
 confidence, requires_clarification, clarification_question。
 规则：
 - 未出现的字段用 null 或省略；不要编造用户没说的预算、市场或品类。
@@ -141,6 +186,7 @@ confidence, requires_clarification, clarification_question。
 - markets 只能是 US、SG、VN、TH、MY。
 - preference 只能是 balanced、battery、noise、lowest。
 - preference=noise 仅当用户说「优先降噪」；query 里的「降噪耳机」不是 preference。
+{_SOFT_PREFS_RULE}
 - 无法判断要买什么时 requires_clarification=true，并给一句中文追问。
 - 不得输出价格、库存、链接或汇率。"""
 
@@ -157,6 +203,8 @@ express_stance, undo, meta, unknown。
 - 「太贵了 / 再便宜一点」→ express_stance，stance=too_expensive|want_cheaper，不得写成 query。
 - 「更轻」→ express_stance，stance=want_lighter。
 - 「降噪」出现在品类里不是 preference=noise；只有「优先降噪」才是。
+- 用户提出「要防水 / 更轻便 / 送礼 / 游戏低延迟」等开放式偏好时，用 refine_constraints，
+  在 patch.soft_prefs 里给出 {attr, direction, cues}（cues 需含中英文同义词），不要塞进 preference 枚举。
 - 无法判断时 kind=unknown，patch.requires_clarification=true。
 - 不得输出价格、库存、链接或汇率。"""
 
@@ -192,8 +240,32 @@ class OpenAICompatModelBackend:
     def is_configured(self) -> bool:
         return bool(self._api_key)
 
+    def supports_tools(self) -> bool:
+        return bool(self._api_key)
+
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    async def chat(
+        self, *, messages: list[ChatMessage], tools: list[ToolSpec]
+    ) -> AssistantTurn:
+        """原生 function/tool calling 一步。模型发起 tool_call 或给出终稿文本。"""
+        if not self._api_key:
+            raise ModelUnavailableError("LLM API Key 未配置")
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": [_encode_message(m) for m in messages],
+            "tools": [_encode_tool(t) for t in tools],
+            "tool_choice": "auto",
+            "stream": False,
+        }
+        try:
+            body = await self._post(payload)
+        except UpstreamUnavailableError as exc:
+            raise ModelUnavailableError("模型上游不可用") from exc
+        except httpx.HTTPError as exc:
+            raise ModelUnavailableError("无法连接模型服务") from exc
+        return _decode_turn(body)
 
     async def parse_intent(
         self, text: str, *, current_query: str | None = None, context: dict | None = None
@@ -274,11 +346,6 @@ class OpenAICompatModelBackend:
             raise ModelUnavailableError("模型未返回可用 JSON") from exc
 
     async def _request(self, *, system: str, user: str) -> dict[str, Any]:
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
         payload = {
             "model": self._model,
             "messages": [
@@ -288,6 +355,14 @@ class OpenAICompatModelBackend:
             "stream": False,
             "response_format": {"type": "json_object"},
             "thinking": {"type": "disabled"},
+        }
+        return await self._post(payload)
+
+    async def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
         }
         async for attempt in AsyncRetrying(
             retry=retry_if_exception(is_retryable),
@@ -345,6 +420,73 @@ class OpenAICompatModelBackend:
                         code="parse_error", category="upstream", retryable=True
                     ) from exc
         raise UpstreamUnavailableError(code="upstream_error", retryable=True)
+
+
+def _encode_tool(tool: ToolSpec) -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": tool.parameters,
+        },
+    }
+
+
+def _encode_message(message: ChatMessage) -> dict[str, Any]:
+    encoded: dict[str, Any] = {"role": message.role}
+    if message.content is not None:
+        encoded["content"] = message.content
+    if message.tool_calls:
+        encoded["tool_calls"] = [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {
+                    "name": call.name,
+                    "arguments": json.dumps(call.arguments, ensure_ascii=False),
+                },
+            }
+            for call in message.tool_calls
+        ]
+    if message.tool_call_id:
+        encoded["tool_call_id"] = message.tool_call_id
+    if message.name:
+        encoded["name"] = message.name
+    return encoded
+
+
+def _decode_turn(body: dict[str, Any]) -> AssistantTurn:
+    choices = body.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ModelUnavailableError("模型响应缺少 choices")
+    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    if not isinstance(message, dict):
+        raise ModelUnavailableError("模型响应缺少 message")
+    calls: list[ToolCall] = []
+    for index, raw in enumerate(message.get("tool_calls") or []):
+        if not isinstance(raw, dict):
+            continue
+        fn = raw.get("function") or {}
+        name = fn.get("name")
+        if not name:
+            continue
+        arguments = _decode_arguments(fn.get("arguments"))
+        calls.append(ToolCall(id=str(raw.get("id") or f"call_{index}"), name=str(name), arguments=arguments))
+    content = message.get("content")
+    return AssistantTurn(content=content if isinstance(content, str) else None, tool_calls=calls)
+
+
+def _decode_arguments(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
 
 
 def _message_text(body: dict[str, Any]) -> str:

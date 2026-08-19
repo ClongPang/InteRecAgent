@@ -135,8 +135,9 @@ async def test_submit_message_dispatches_and_returns_run_id() -> None:
     # 事件已持久化（先于调度，保证可追溯）
     assert events.events[0][1] == "message.received"
     assert events.events[0][2]["run_id"] == run_id
+    # 控制反转：薄入口不再同步改 stage/phase（分类与路由在图内异步发生）
     assert missions.missions["m1"].stage.value == "collecting"
-    assert missions.missions["m1"].turn_phase.value == "responding"
+    assert missions.missions["m1"].turn_phase.value == "idle"
     assert missions.missions["m1"].active_run_id == run_id
 
 
@@ -234,8 +235,9 @@ async def test_submit_question_does_not_mark_searching() -> None:
     )
     assert dispatcher.calls[0][2] == run_id
     stored = missions.missions["m1"]
+    # 薄入口不改 stage/phase：既有的 ready 不被误置为 searching，phase 仍 idle（图内再定）
     assert stored.stage == MissionStage.READY
-    assert stored.turn_phase == TurnPhase.RESPONDING
+    assert stored.turn_phase == TurnPhase.IDLE
 
 
 @pytest.mark.asyncio
@@ -255,15 +257,16 @@ async def test_chat_undo_does_not_dispatch_search_run() -> None:
     run_id = await svc.submit_message(
         owner_id="u1", mission_id="m1", text="撤销刚才的条件", constraints_version=2
     )
-    assert [item[1] for item in events.events] == ["constraints.updated", "message.received", "constraints.undo"]
+    # 薄入口把撤销识别为事务控制，直接走 undo 回溯，不再落 message.received
+    assert [item[1] for item in events.events] == ["constraints.updated", "constraints.undo"]
     assert len(dispatcher.calls) == 1
     assert dispatcher.calls[0][2] == run_id
-    assert events.events[1][2].get("run_id") is None
     assert missions.missions["m1"].constraints.budget_cny == 2000
 
 
 @pytest.mark.asyncio
-async def test_stance_keeps_query_and_records_price_belief() -> None:
+async def test_stance_message_dispatches_without_touching_constraints() -> None:
+    """态度话轮（太贵了）：薄入口不改约束/版本，只派单；信念副作用在图内异步落地。"""
     mission = _mission(version=1).model_copy(
         update={
             "stage": MissionStage.READY,
@@ -284,10 +287,9 @@ async def test_stance_keeps_query_and_records_price_belief() -> None:
     assert stored.constraints.query == "降噪耳机"
     assert stored.constraints.budget_cny == 4000
     assert stored.constraints_version == 1
-    assert stored.belief.price_sensitivity == "too_expensive"
-    assert not hasattr(stored.dialogue, "stance") or getattr(stored.dialogue, "stance", None) is None
     assert dispatcher.calls[0][2] == run_id
     assert dispatcher.calls[0][3] == 1
+    # 命令层不再同步写约束事件；价格态度信念由图内 apply_turn_effects 记录
     assert "constraints.updated" not in [item[1] for item in events.events]
 
 

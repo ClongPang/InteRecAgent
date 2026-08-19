@@ -79,7 +79,7 @@ def _moves_from_ranked(ranked: list[dict], *, skip_lighter: bool = False) -> lis
         moves.append(NextMove(label=f"再收 ¥{gap:.0f}", text="再便宜一点"))
     else:
         moves.append(NextMove(label="再便宜一点", text="再便宜一点"))
-    brand = (first.get("brand") or _title_brand(str(first.get("title") or "")) or "").strip()
+    brand = str(first.get("brand") or "").strip()
     if brand:
         moves.append(NextMove(label=f"不要{brand}", text=f"不要{brand}"))
     else:
@@ -96,11 +96,4 @@ def _record_cny(record: dict) -> float | None:
             return float(record["estimated_cny"])
         except (TypeError, ValueError):
             return None
-    return None
-
-
-def _title_brand(title: str) -> str | None:
-    for token in ("Sony", "Bose", "Apple", "Samsung", "Dell", "Salomon"):
-        if token.lower() in title.lower():
-            return token
     return None
