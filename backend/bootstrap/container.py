@@ -9,7 +9,7 @@ from ..agent.runner import LangGraphMissionRunner
 from ..application.ports import FxSource, ModelBackend, ProductSource
 from ..application.services import MissionCommandService, SearchService
 from ..infrastructure.fx_sources.fixed import FixedFxSource
-from ..infrastructure.fx_sources.frankfurter import FrankfurterFxSource
+from ..infrastructure.fx_sources.fxratesapi import FxRatesApiFxSource
 from ..infrastructure.llm.factory import UnsupportedLLMProviderError, build_model_backend
 from ..infrastructure.persistence.database import create_engine, session_factory
 from ..infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
@@ -86,7 +86,8 @@ class Container:
     def _new_fx_source(self) -> FxSource:
         if self.settings.data_source == "fixture":
             return FixedFxSource()
-        return FrankfurterFxSource(
+        # Frankfurter（api.frankfurter.dev）在部分网络不可达，live 改用 fxratesapi.com。
+        return FxRatesApiFxSource(
             timeout=self.settings.fx_timeout,
             max_retries=self.settings.fx_max_retries,
         )

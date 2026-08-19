@@ -12,7 +12,7 @@ import pytest
 from backend.bootstrap.container import ConfigurationError, Container
 from backend.bootstrap.settings import Settings
 from backend.infrastructure.fx_sources.fixed import FixedFxSource
-from backend.infrastructure.fx_sources.frankfurter import FrankfurterFxSource
+from backend.infrastructure.fx_sources.fxratesapi import FxRatesApiFxSource
 from backend.infrastructure.llm.openai_compat import OpenAICompatModelBackend
 from backend.infrastructure.llm.unconfigured import UnconfiguredModelBackend
 from backend.infrastructure.product_sources.buywhere import BuyWhereProductSource
@@ -53,7 +53,7 @@ def test_live_mode_error_does_not_contain_secret_value() -> None:
 def test_live_mode_with_key_builds_real_source() -> None:
     c = Container(_settings(data_source="live", buywhere_api_key="test-key-123"))
     assert isinstance(c.build_product_source(), BuyWhereProductSource)
-    assert isinstance(c.build_fx_source(), FrankfurterFxSource)
+    assert isinstance(c.build_fx_source(), FxRatesApiFxSource)
 
 
 def test_dispatcher_is_shared_with_command_service() -> None:
