@@ -13,8 +13,8 @@ from backend.application.services.dialogue import (
 )
 from backend.application.services.parse_intent import extract_query
 from backend.application.services.policy import DialoguePolicy, TurnInput, sanitize_constraints
-from backend.domain.policies import apply_exclusion_filter
 from backend.domain.models import NormalizedProduct
+from backend.domain.policies import apply_exclusion_filter
 
 
 def test_classify_refine_vs_talk_vs_reject() -> None:
@@ -258,7 +258,7 @@ def test_stance_without_query_clarifies() -> None:
     )
 
 
-def test_policy_stance_tightens_existing_budget() -> None:
+def test_policy_stance_records_belief_without_budget_change() -> None:
     mission = ShoppingMission(
         owner_id="u1",
         title="t",
@@ -271,10 +271,11 @@ def test_policy_stance_tightens_existing_budget() -> None:
         cache_reuse_key=search_reuse_key(mission.constraints),
     )
     assert decision.constraints.query == "降噪耳机"
-    assert decision.constraints.budget_cny == 3200
-    assert decision.apply_constraints is True
+    assert decision.constraints.budget_cny == 4000
+    assert decision.apply_constraints is False
     assert decision.dispatch is True
     assert decision.route == TurnRoute.RERANK
+    assert decision.belief.price_sensitivity == "too_expensive"
 
 
 def test_sanitize_unsupported_capabilities() -> None:
@@ -326,8 +327,9 @@ def test_policy_expensive_without_budget_uses_cache_price() -> None:
         cache_payload={"ranked": [{"snapshot_id": "snap-1", "estimated_cny": {"amount": 2500}}]},
     )
     assert decision.constraints.query == "降噪耳机"
-    assert decision.constraints.budget_cny == 2000
+    assert decision.constraints.budget_cny is None
     assert decision.route == TurnRoute.RERANK
+    assert decision.belief.price_sensitivity == "too_expensive"
 
 
 def test_plan_route_reject_and_stance_use_rerank() -> None:

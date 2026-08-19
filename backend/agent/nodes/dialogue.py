@@ -47,7 +47,11 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
         act = classify_turn(text, current_query=current_query)
         if act.kind == DialogueActKind.UNKNOWN and model_backend.is_configured():
             try:
-                act = await model_backend.parse_turn(text, current_query=current_query)
+                act = await model_backend.parse_turn(
+                    text,
+                    current_query=current_query,
+                    context=_turn_context(state),
+                )
                 return {
                     "dialogue_act": act,
                     "intent_patch": act.patch or IntentPatch(),
@@ -64,6 +68,28 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
         return {"dialogue_act": act, "intent_patch": act.patch or IntentPatch()}
 
     return classify_dialogue_act
+
+
+def _turn_context(state: MissionGraphState) -> dict:
+    mission = state.get("mission")
+    payload = state.get("cache_payload") or {}
+    ranked = []
+    for item in list(payload.get("ranked") or [])[:4]:
+        if isinstance(item, dict):
+            ranked.append(
+                {
+                    "snapshot_id": item.get("snapshot_id"),
+                    "title": item.get("title"),
+                    "estimated_cny": (item.get("estimated_cny") or {}).get("amount")
+                    if isinstance(item.get("estimated_cny"), dict)
+                    else item.get("estimated_cny"),
+                }
+            )
+    belief = getattr(mission, "belief", None) if mission is not None else None
+    return {
+        "belief": belief.model_dump() if belief is not None else {},
+        "ranked": ranked,
+    }
 
 
 async def route_turn(state: MissionGraphState) -> dict:
@@ -126,6 +152,7 @@ def make_compose_grounded_reply():
             ranked=ranked_records,
             constraints=mission.constraints,
             focus_snapshot_id=getattr(mission.dialogue, "focus_snapshot_id", None),
+            belief=mission.belief,
         )
         result = {
             "agent_message": reply.text,

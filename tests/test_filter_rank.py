@@ -101,3 +101,35 @@ class TestScore:
         mid = _product("mid", 80).model_copy(update={"rmb_price": 560, "in_stock": True})
         ranked = score_and_rank([cheap, mid], budget_cny=1000, rejected_source_ids={"cheap"})
         assert [p.id for p in ranked] == ["mid", "cheap"]
+
+    def test_noise_preference_lifts_title_cue(self):
+        generic = _product("generic", 80, title="Generic Wired Earbuds").model_copy(update={"rmb_price": 800})
+        sony = _product("sony", 200, title="Sony WH-1000XM5 Noise Cancelling").model_copy(
+            update={"rmb_price": 2100}
+        )
+        lowest = score_and_rank([generic, sony], budget_cny=4000, preference="lowest")
+        noise = score_and_rank([generic, sony], budget_cny=4000, preference="noise")
+        assert [p.id for p in lowest][0] == "generic"
+        assert [p.id for p in noise][0] == "sony"
+
+    def test_price_sensitive_prefers_cheaper(self):
+        cheap = _product("cheap", 80, title="Bose QC Ultra").model_copy(update={"rmb_price": 1800})
+        pricey = _product("pricey", 200, title="Sony WH-1000XM5").model_copy(update={"rmb_price": 2800})
+        ranked = score_and_rank(
+            [pricey, cheap],
+            budget_cny=4000,
+            preference="balanced",
+            price_sensitive=True,
+        )
+        assert [p.id for p in ranked][0] == "cheap"
+
+    def test_unsupported_weight_does_not_change_order(self):
+        a = _product("a", 80, title="Sony").model_copy(update={"rmb_price": 1800})
+        b = _product("b", 90, title="Bose").model_copy(update={"rmb_price": 2000})
+        base = [p.id for p in score_and_rank([a, b], budget_cny=4000)]
+        soft = score_and_rank(
+            [a, b],
+            budget_cny=4000,
+            soft_prefs=[("weight", "lower", "unsupported")],
+        )
+        assert [p.id for p in soft] == base

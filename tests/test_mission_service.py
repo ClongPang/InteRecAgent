@@ -55,10 +55,25 @@ class FakeEvents:
         return out
 
 
+class FakeCandidateSets:
+    def __init__(self, payload: dict | None) -> None:
+        self.payload = payload
+
+    async def get(self, _candidate_set_id: str) -> dict | None:
+        return self.payload
+
+
 class FakeUoW:
-    def __init__(self, missions: FakeMissions, events: FakeEvents) -> None:
+    def __init__(
+        self,
+        missions: FakeMissions,
+        events: FakeEvents,
+        candidate_payload: dict | None = None,
+    ) -> None:
         self.missions = missions
         self.events = events
+        if candidate_payload is not None:
+            self.candidate_sets = FakeCandidateSets(candidate_payload)
 
     async def __aenter__(self):
         return self
@@ -88,13 +103,20 @@ class FakeDispatcher:
 
 
 def _make(
-    mission: ShoppingMission | None = None, version: int = 1
+    mission: ShoppingMission | None = None,
+    version: int = 1,
+    cache: dict | None = None,
 ) -> tuple[MissionCommandService, FakeMissions, FakeEvents, FakeDispatcher]:
     m = mission or _mission(version=version)
+    if cache is not None and not m.candidate_set_id:
+        m = m.model_copy(update={"candidate_set_id": "c1"})
     missions = FakeMissions({"m1": m})
     events = FakeEvents()
     dispatcher = FakeDispatcher()
-    svc = MissionCommandService(uow_factory=lambda: FakeUoW(missions, events), dispatcher=dispatcher)
+    svc = MissionCommandService(
+        uow_factory=lambda: FakeUoW(missions, events, cache),
+        dispatcher=dispatcher,
+    )
     return svc, missions, events, dispatcher
 
 
@@ -241,25 +263,32 @@ async def test_chat_undo_does_not_dispatch_search_run() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stance_keeps_query_and_tightens_budget() -> None:
+async def test_stance_keeps_query_and_records_price_belief() -> None:
     mission = _mission(version=1).model_copy(
         update={
             "stage": MissionStage.READY,
             "constraints": MissionConstraints(query="降噪耳机", budget_cny=4000),
         }
     )
-    svc, missions, events, dispatcher = _make(mission=mission)
+    svc, missions, events, dispatcher = _make(
+        mission=mission,
+        cache={
+            "ranked": [{"snapshot_id": "s1", "estimated_cny": {"amount": 2500}}],
+            "reuse_key": {"query": "降噪耳机", "markets": ["US"]},
+        },
+    )
     run_id = await svc.submit_message(
         owner_id="u1", mission_id="m1", text="太贵了", constraints_version=1
     )
     stored = missions.missions["m1"]
     assert stored.constraints.query == "降噪耳机"
-    assert stored.constraints.budget_cny == 3200
-    assert stored.constraints_version == 2
+    assert stored.constraints.budget_cny == 4000
+    assert stored.constraints_version == 1
     assert stored.dialogue.stance == "too_expensive"
+    assert stored.belief.price_sensitivity == "too_expensive"
     assert dispatcher.calls[0][2] == run_id
-    assert dispatcher.calls[0][3] == 2
-    assert events.events[1][1] == "constraints.updated"
+    assert dispatcher.calls[0][3] == 1
+    assert "constraints.updated" not in [item[1] for item in events.events]
 
 
 @pytest.mark.asyncio

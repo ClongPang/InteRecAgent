@@ -4,7 +4,8 @@ from collections.abc import Callable
 from uuid import uuid4
 
 from ...domain.models import utcnow
-from ..dto import MissionConstraints, MissionStage, ShoppingMission, TurnPhase
+from ..dto import MissionConstraints, ShoppingMission, TurnPhase
+from ..dto.dialogue import DialogueAct, DialogueActKind, ThreadView, TurnCommand
 from ..dto.mission import next_constraints_version
 from ..dto.public import (
     CandidateSetView,
@@ -25,7 +26,6 @@ from ..ports import RunDispatcher, UnitOfWork
 from .dialogue import next_moves_for, preview_turn, project_thread, stage_for_phase
 from .policy import DialoguePolicy, TurnDecision, TurnInput
 from .present import product_candidate_from_record, product_candidate_from_snapshot
-from ..dto.dialogue import DialogueAct, DialogueActKind, ThreadView, TurnCommand
 
 
 class MissionCommandService:

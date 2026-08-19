@@ -21,6 +21,7 @@ class PreferenceBelief(BaseModel):
     rejected_snapshot_ids: list[str] = Field(default_factory=list)
     critiques: list[Critique] = Field(default_factory=list)
     soft: list[SoftPref] = Field(default_factory=list)
+    price_sensitivity: str | None = None
 
     def reject(self, snapshot_id: str, *, kind: str = "reject_item") -> PreferenceBelief:
         rejected = list(self.rejected_snapshot_ids)
@@ -34,3 +35,12 @@ class PreferenceBelief(BaseModel):
         soft = [item for item in self.soft if item.attr != attr]
         soft.append(SoftPref(attr=attr, direction=direction, status="unsupported"))
         return self.model_copy(update={"soft": soft})
+
+    def mark_price_stance(self, stance: str) -> PreferenceBelief:
+        soft = [item for item in self.soft if item.attr != "price"]
+        soft.append(SoftPref(attr="price", direction="lower", status="active"))
+        critiques = list(self.critiques)
+        critiques.append(Critique(kind="price_stance", attr="price"))
+        return self.model_copy(
+            update={"soft": soft, "critiques": critiques, "price_sensitivity": stance}
+        )

@@ -14,7 +14,13 @@ class ModelBackend(Protocol):
 
     async def parse_intent(self, text: str) -> IntentPatch: ...
 
-    async def parse_turn(self, text: str, *, current_query: str | None = None) -> DialogueAct: ...
+    async def parse_turn(
+        self,
+        text: str,
+        *,
+        current_query: str | None = None,
+        context: dict | None = None,
+    ) -> DialogueAct: ...
 
     async def draft_recommendation(
         self,

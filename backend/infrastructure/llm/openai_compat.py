@@ -206,8 +206,16 @@ class OpenAICompatModelBackend:
             raise ModelUnavailableError("模型意图结构无法通过 Schema 校验") from exc
         return sanitize_intent_patch(patch)
 
-    async def parse_turn(self, text: str, *, current_query: str | None = None) -> DialogueAct:
-        user = f"当前检索词：{current_query or '（无）'}\n用户输入：{text.strip()}"
+    async def parse_turn(
+        self, text: str, *, current_query: str | None = None, context: dict | None = None
+    ) -> DialogueAct:
+        extra = ""
+        if context:
+            extra = "\n上下文：" + json.dumps(
+                {"belief": context.get("belief"), "ranked": context.get("ranked")},
+                ensure_ascii=False,
+            )
+        user = f"当前检索词：{current_query or '（无）'}\n用户输入：{text.strip()}{extra}"
         payload = await self._complete_json(system=_TURN_SYSTEM, user=user)
         try:
             act = DialogueAct.model_validate(payload)

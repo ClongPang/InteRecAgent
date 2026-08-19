@@ -29,7 +29,7 @@
       "query": "通勤降噪耳机",
       "budget_cny": 4000,
       "has_cache": true,
-      "expect": {"kind": "express_stance", "route": "rerank", "query": "通勤降噪耳机", "budget_cny": 3200}
+      "expect": {"kind": "express_stance", "route": "rerank", "query": "通勤降噪耳机", "budget_cny": 4000, "price_sensitivity": "too_expensive"}
     },
     {
       "id": "03-cheaper",
@@ -37,7 +37,7 @@
       "query": "通勤降噪耳机",
       "budget_cny": 3200,
       "has_cache": true,
-      "expect": {"kind": "express_stance", "route": "rerank", "query": "通勤降噪耳机", "budget_cny": 2560}
+      "expect": {"kind": "express_stance", "route": "rerank", "query": "通勤降噪耳机", "budget_cny": 3200, "price_sensitivity": "want_cheaper"}
     },
     {
       "id": "04-why",
@@ -189,7 +189,7 @@
       "budget_cny": null,
       "has_cache": true,
       "use_default_cache": true,
-      "expect": {"kind": "express_stance", "route": "rerank", "budget_cny": 2000, "query": "通勤降噪耳机"}
+      "expect": {"kind": "express_stance", "route": "rerank", "budget_cny": null, "query": "通勤降噪耳机", "price_sensitivity": "too_expensive"}
     },
     {
       "id": "25-first-shoes",

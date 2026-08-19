@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from ...domain.models import FxSnapshot, NormalizedProduct
+from ...domain.policies.score import title_matches_preference
 from ..dto.public import EstimatedCny, NativePrice, ProductCandidate
 from ..dto.runner import RecommendationDraft
 
@@ -21,6 +22,8 @@ def candidate_record(
     fx: FxSnapshot | None,
     rank: int,
     budget_cny: float | None,
+    preference: str = "balanced",
+    price_sensitive: bool = False,
 ) -> dict:
     """写入 candidate_sets 的稳定记录。比较/推荐只引用 snapshot_id。"""
     estimated = None
@@ -39,6 +42,10 @@ def candidate_record(
         reasons.append("lowest_estimated_cny")
     if product.in_stock is True:
         reasons.append("in_stock")
+    if preference in {"battery", "noise"} and title_matches_preference(product, preference):
+        reasons.append(f"matches_{preference}_cue")
+    if price_sensitive:
+        reasons.append("price_sensitive")
     return {
         "snapshot_id": snapshot_id,
         "source": "buywhere",

@@ -74,6 +74,10 @@ def test_eval_dialogues_match_policy() -> None:
             failures.append(f"{case['id']}: expected undo")
         if expect.get("reject_focus") and not decision.belief.rejected_snapshot_ids:
             failures.append(f"{case['id']}: expected rejected snapshot")
+        if expect.get("price_sensitivity") and decision.belief.price_sensitivity != expect["price_sensitivity"]:
+            failures.append(
+                f"{case['id']}: price_sensitivity {decision.belief.price_sensitivity} != {expect['price_sensitivity']}"
+            )
         if expect.get("unsupported") and not any(
             item.attr == expect["unsupported"] and item.status == "unsupported"
             for item in decision.belief.soft

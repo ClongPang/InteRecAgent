@@ -7,8 +7,9 @@ from ..dto.belief import PreferenceBelief
 from ..dto.dialogue import DialogueAct, DialogueActKind, TurnCommand, TurnRoute
 from ..dto.mission import DialogueState, MissionConstraints, ShoppingMission, TurnPhase
 from ..dto.runner import IntentPatch
-from .dialogue import apply_stance_budget, classify_turn, preview_merged_constraints, preview_turn, snapshot_ids_for_ranks
+from .nlu import classify_turn, preview_merged_constraints, snapshot_ids_for_ranks
 from .parse_intent import parse_intent
+from .route import preview_turn
 
 
 def supports_audio_preference(query: str | None) -> bool:
@@ -31,20 +32,6 @@ def sanitize_constraints(
         replies.append(f"当前候选没有{label}所需的规格字段，我不会假装已按这个依据排序。")
     sanitized = after.model_copy(update={"preference": preference})
     return sanitized, warnings, replies
-
-
-def implicit_budget_from_cache(payload: dict | None) -> float | None:
-    if not payload:
-        return None
-    ranked = payload.get("ranked") or []
-    if not ranked:
-        return None
-    estimated = ranked[0].get("estimated_cny") if isinstance(ranked[0], dict) else None
-    amount = estimated.get("amount") if isinstance(estimated, dict) else None
-    if amount is None:
-        return None
-    tightened = max(100.0, round(float(amount) * 0.8))
-    return tightened if tightened < float(amount) else None
 
 
 class TurnInput(BaseModel):
@@ -145,13 +132,7 @@ class DialoguePolicy:
         text = (turn.text or "").strip()
         act = classify_turn(text, current_query=mission.constraints.query)
         if act.kind == DialogueActKind.STANCE and act.stance in {"too_expensive", "want_cheaper"}:
-            if (act.patch is None or act.patch.budget_cny is None) and mission.constraints.budget_cny is None:
-                implicit = implicit_budget_from_cache(cache_payload)
-                if implicit is not None:
-                    act = act.model_copy(
-                        update={"patch": (act.patch or IntentPatch()).model_copy(update={"budget_cny": implicit})}
-                    )
-        act = apply_stance_budget(act, mission.constraints)
+            belief = belief.mark_price_stance(act.stance)
         if act.kind == DialogueActKind.REJECT:
             focus = dialogue.focus_snapshot_id
             if not focus and cache_payload:
@@ -223,6 +204,19 @@ class DialoguePolicy:
                     warnings=warnings,
                     belief=belief,
                 )
+            if has_cache:
+                return TurnDecision(
+                    act=act,
+                    route=TurnRoute.RERANK,
+                    phase=TurnPhase.REFILTERING,
+                    constraints=mission.constraints,
+                    dialogue=dialogue,
+                    dispatch=True,
+                    apply_constraints=False,
+                    agent_message=_stance_reply(act.stance),
+                    warnings=warnings,
+                    belief=belief,
+                )
             return TurnDecision(
                 act=act,
                 route=TurnRoute.TALK,
@@ -262,9 +256,9 @@ class DialoguePolicy:
 
 def _stance_reply(stance: str | None) -> str:
     if stance == "too_expensive":
-        return "可以说一个更明确的人民币预算，例如「预算 2000 元」，我会按当前候选重筛。"
+        return "已记下「太贵了」，会提高价格权重重排，但没有改硬预算。可以说具体上限，例如「预算 2000 元」。"
     if stance == "want_cheaper":
-        return "可以说目标预算，例如「预算 1500 元」。我不会把「再便宜一点」当成新品类去重搜。"
+        return "已记下「再便宜一点」，会按价格敏感重排。需要硬上限时请说「预算 1500 元」。"
     if stance == "want_lighter":
         return "快照没有重量字段，我不能按「更轻」排序或过滤，也不会编造规格。"
     return "我记下了这个态度，但还不能据此改检索。"

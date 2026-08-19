@@ -96,6 +96,7 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                     snapshot_map.setdefault(product.id, snapshot_map.get(product.id, product.id))
 
             budget = mission.constraints.budget_cny
+            belief = mission.belief
             ranked_records = [
                 candidate_record(
                     product,
@@ -103,6 +104,9 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                     fx=rates.get(product.native_currency),
                     rank=index + 1,
                     budget_cny=budget,
+                    preference=mission.constraints.preference,
+                    price_sensitive=getattr(belief, "price_sensitivity", None)
+                    in {"too_expensive", "want_cheaper"},
                 )
                 for index, product in enumerate(ranked)
             ]
@@ -157,7 +161,10 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
             event_type = "recommendation.ready" if stage == MissionStage.READY else "run.degraded"
             citations = citations_from_ranked(ranked_records)
             agent_text = state.get("agent_message") or compose_ready_reply(
-                ranked_records, mission.constraints
+                ranked_records,
+                mission.constraints,
+                belief=mission.belief,
+                recall_mode=getattr(state.get("search_plan"), "recall_mode", None),
             )
             await uow.events.append(
                 mission_id=mission.id,

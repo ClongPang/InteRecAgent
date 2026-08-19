@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from ...application.dto import MissionConstraints, MissionStage
+from ...application.services.rec import preference_hits, rank_with_belief, rec_state_from_mission
 from ...domain.models import NormalizedProduct
 from ...domain.policies import (
     apply_budget_filter,
@@ -9,7 +10,7 @@ from ...domain.policies import (
     apply_stock_filter,
     convert_products,
     dedupe_products,
-    score_and_rank,
+    derive_title_attrs,
 )
 from ..state import MissionGraphState
 from .parse_intent import CLARIFYING_QUESTION
@@ -103,7 +104,7 @@ def make_normalize_and_deduplicate():
     """去重 + 汇率换算（商品已由源归一化；汇率换算必须在预算过滤之前）。"""
 
     async def normalize_and_deduplicate(state: MissionGraphState) -> dict:
-        products = dedupe_products(state.get("products", []))
+        products = [derive_title_attrs(item) for item in dedupe_products(state.get("products", []))]
         products = convert_products(products, state.get("rates", {}))
         return {"products": products}
 
@@ -165,28 +166,28 @@ def _category_supports_audio_preference(query: str) -> bool:
 
 
 def make_rank_candidates():
-    """多目标排序。缺续航/降噪规格时只警告，不编造分数。"""
+    """多目标排序。信念与标题派生进入打分；无线索时只警告，不编造分数。"""
 
     async def rank_candidates(state: MissionGraphState) -> dict:
-        constraints = state["mission"].constraints
+        mission = state["mission"]
         products = state.get("products", [])
         warnings: list[str] = []
-
-        preference = constraints.preference
-        if preference in ("battery", "noise") and not _category_supports_audio_preference(
-            constraints.query or ""
-        ):
-            warnings.append(f"当前商品数据无法按「{preference}」维度排序，已按商品价排序")
+        rec = rec_state_from_mission(mission)
+        preference = rec.preference
+        if preference in {"battery", "noise"}:
+            hits = preference_hits(products, preference)
+            if hits == 0:
+                warnings.append(f"当前候选标题没有「{preference}」线索，已主要按商品价排序")
+            elif not _category_supports_audio_preference(rec.query or ""):
+                warnings.append(f"当前商品数据无法按「{preference}」维度排序，已按商品价排序")
 
         rejected = {
             source_id
             for source_id, snapshot_id in (state.get("snapshot_map") or {}).items()
-            if snapshot_id in set(getattr(state["mission"].belief, "rejected_snapshot_ids", []) or [])
+            if snapshot_id in rec.rejected_snapshot_ids
         }
-        ranked: list[NormalizedProduct] = score_and_rank(
-            products,
-            budget_cny=constraints.budget_cny,
-            rejected_source_ids=rejected,
+        ranked: list[NormalizedProduct] = rank_with_belief(
+            products, rec, rejected_source_ids=rejected
         )
         return {"ranked": ranked, "warnings": warnings}
 

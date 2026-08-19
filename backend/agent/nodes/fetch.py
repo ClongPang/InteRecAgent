@@ -3,11 +3,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ...application.dto import RunnerStatus, SearchPlan
+from ...application.dto import RunnerStatus
 from ...application.errors import UpstreamUnavailableError
 from ...application.ports import FxSource, ProductSource, UnitOfWork
 from ...application.services.market_search import gather_market_products
-from ...domain.models import VALID_MARKETS, FxSnapshot
+from ...application.services.rec import plan_search, rec_state_from_mission
+from ...domain.models import FxSnapshot
 from ..state import MissionGraphState
 
 _CONSTRAINT_TRIGGERS = frozenset({"constraints.updated", "constraints.undo", "run.accepted"})
@@ -64,16 +65,7 @@ def make_build_search_plan():
     """规划搜索：按当前约束生成搜索计划。"""
 
     async def build_search_plan(state: MissionGraphState) -> dict:
-        constraints = state["mission"].constraints
-        markets = [m for m in constraints.markets if m in VALID_MARKETS] or ["US"]
-        return {
-            "search_plan": SearchPlan(
-                query=constraints.query or "",
-                markets=markets,
-                mode="keyword",
-                budget_cny=constraints.budget_cny,
-            )
-        }
+        return {"search_plan": plan_search(rec_state_from_mission(state["mission"]))}
 
     return build_search_plan
 

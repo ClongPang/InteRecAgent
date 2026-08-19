@@ -20,7 +20,10 @@ class UnconfiguredModelBackend:
             "LLM 未配置（llm_provider=unconfigured），请使用确定性解析器"
         )
 
-    async def parse_turn(self, text: str, *, current_query: str | None = None) -> DialogueAct:
+    async def parse_turn(
+        self, text: str, *, current_query: str | None = None, context: dict | None = None
+    ) -> DialogueAct:
+        del context
         raise ModelUnavailableError(
             "LLM 未配置（llm_provider=unconfigured），请使用确定性对话分类"
         )

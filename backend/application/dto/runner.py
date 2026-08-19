@@ -14,6 +14,8 @@ class IntentPatch(BaseModel):
     preference: str | None = None  # balanced | battery | noise | lowest
     only_in_stock: bool | None = None
     exclude_terms: list[str] | None = None
+    use_case: str | None = None
+    price_stance: str | None = None
     confidence: float = 1.0
     source: str = "deterministic"  # deterministic | model
     requires_clarification: bool = False
@@ -31,13 +33,14 @@ class RecommendationDraft(BaseModel):
 
 
 class SearchPlan(BaseModel):
-    """确定性生成的搜索计划。"""
+    """确定性生成的搜索计划。mode 是 BuyWhere 参数；recall_mode 是对用户的质量承诺。"""
 
     query: str
     markets: list[str] = Field(default_factory=lambda: ["US"])
     mode: str = "keyword"
     limit: int = 20
     budget_cny: float | None = None
+    recall_mode: str = "exploratory"  # precise | exploratory
 
 
 class RunnerStatus(StrEnum):

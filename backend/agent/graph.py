@@ -52,7 +52,12 @@ def _route_after_turn(state: MissionGraphState) -> str:
 
 
 def _route_after_cache(state: MissionGraphState) -> str:
-    return "talk" if state.get("turn_route") == "talk" else "refilter"
+    route = state.get("turn_route")
+    if route == "talk":
+        return "talk"
+    if route == "rerank":
+        return "rerank"
+    return "refilter"
 
 
 def build_graph(
@@ -103,6 +108,7 @@ def build_graph(
         {
             "talk": "compose_grounded_reply",
             "refilter": "filter_hard_constraints",
+            "rerank": "rank_candidates",
         },
     )
     graph.add_edge("compose_grounded_reply", "persist_decision_snapshot")
