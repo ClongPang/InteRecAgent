@@ -24,6 +24,7 @@ from ..errors import (
 )
 from ..ports import RunDispatcher, UnitOfWork
 from .dialogue import next_moves_for, preview_turn, project_thread, stage_for_phase
+from .nlu import build_turn_context
 from .policy import DialoguePolicy, TurnDecision, TurnInput
 from .present import product_candidate_from_record, product_candidate_from_snapshot
 
@@ -79,6 +80,7 @@ class MissionCommandService:
         async with self._uow_factory() as uow:
             mission = await self._require_mission(uow, owner_id, mission_id, constraints_version)
             cache = await self._cache_payload(uow, mission)
+            events = await uow.events.list_since(mission_id=mission_id)
             decision = DialoguePolicy().decide(
                 mission=mission,
                 turn=TurnInput(
@@ -90,6 +92,7 @@ class MissionCommandService:
                 has_cache=bool(cache and cache.get("ranked")),
                 cache_reuse_key=(cache or {}).get("reuse_key"),
                 cache_payload=cache,
+                turn_context=build_turn_context(events, mission, cache),
             )
             if decision.undo:
                 await uow.events.append(
@@ -395,6 +398,7 @@ class MissionCommandService:
             has_query=bool(mission.constraints.query),
             has_candidates=bool(candidates.ranked),
             ranked=[item.model_dump(mode="json") for item in candidates.ranked],
+            belief=mission.belief,
         )
 
     async def _require_mission(
@@ -492,6 +496,7 @@ class MissionCommandService:
                             has_query=bool(after.query),
                             has_candidates=bool((cache_payload or {}).get("ranked")),
                             ranked=list((cache_payload or {}).get("ranked") or []),
+                            belief=decision.belief,
                         )
                     ],
                 },

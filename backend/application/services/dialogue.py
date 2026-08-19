@@ -4,6 +4,7 @@ from __future__ import annotations
 from .next_move import next_moves_for
 from .nlu import (
     apply_stance_budget,
+    build_turn_context,
     classify_turn,
     detect_ask_topic,
     detect_referent_hint,
@@ -20,6 +21,7 @@ from .thread import project_thread
 
 __all__ = [
     "apply_stance_budget",
+    "build_turn_context",
     "classify_turn",
     "detect_ask_topic",
     "detect_referent_hint",

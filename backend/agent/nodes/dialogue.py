@@ -44,13 +44,14 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
             }
         text = state.get("text") or ""
         current_query = state["mission"].constraints.query
-        act = classify_turn(text, current_query=current_query)
+        context = state.get("turn_context") or _turn_context(state)
+        act = classify_turn(text, current_query=current_query, context=context)
         if act.kind == DialogueActKind.UNKNOWN and model_backend.is_configured():
             try:
                 act = await model_backend.parse_turn(
                     text,
                     current_query=current_query,
-                    context=_turn_context(state),
+                    context=context,
                 )
                 return {
                     "dialogue_act": act,
@@ -61,7 +62,9 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
                 pass
         elif act.kind == DialogueActKind.REFINE and model_backend.is_configured():
             try:
-                patch = await model_backend.parse_intent(text)
+                patch = await model_backend.parse_intent(
+                    text, current_query=current_query, context=context
+                )
                 act = act.model_copy(update={"patch": patch, "source": "model"})
             except ModelUnavailableError:
                 pass
@@ -71,25 +74,9 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
 
 
 def _turn_context(state: MissionGraphState) -> dict:
-    mission = state.get("mission")
-    payload = state.get("cache_payload") or {}
-    ranked = []
-    for item in list(payload.get("ranked") or [])[:4]:
-        if isinstance(item, dict):
-            ranked.append(
-                {
-                    "snapshot_id": item.get("snapshot_id"),
-                    "title": item.get("title"),
-                    "estimated_cny": (item.get("estimated_cny") or {}).get("amount")
-                    if isinstance(item.get("estimated_cny"), dict)
-                    else item.get("estimated_cny"),
-                }
-            )
-    belief = getattr(mission, "belief", None) if mission is not None else None
-    return {
-        "belief": belief.model_dump() if belief is not None else {},
-        "ranked": ranked,
-    }
+    from ...application.services.nlu import build_turn_context
+
+    return build_turn_context([], state.get("mission"), state.get("cache_payload"))
 
 
 async def route_turn(state: MissionGraphState) -> dict:

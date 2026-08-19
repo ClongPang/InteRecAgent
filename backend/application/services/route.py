@@ -24,7 +24,7 @@ def plan_route(
     if kind == DialogueActKind.REJECT:
         if has_cache:
             return TurnRoute.RERANK
-        return TurnRoute.RESEARCH if has_query else TurnRoute.CLARIFY
+        return TurnRoute.TALK if has_query else TurnRoute.CLARIFY
     if kind == DialogueActKind.STANCE and constraints_changed and has_cache:
         return TurnRoute.RERANK
     if not has_query:

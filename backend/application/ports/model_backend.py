@@ -12,7 +12,13 @@ class ModelBackend(Protocol):
 
     def is_configured(self) -> bool: ...
 
-    async def parse_intent(self, text: str) -> IntentPatch: ...
+    async def parse_intent(
+        self,
+        text: str,
+        *,
+        current_query: str | None = None,
+        context: dict | None = None,
+    ) -> IntentPatch: ...
 
     async def parse_turn(
         self,

@@ -138,6 +138,7 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
             stage = MissionStage.READY if ranked else MissionStage.DEGRADED
             if state.get("fx_failed_currencies") or state.get("failed_markets"):
                 stage = MissionStage.DEGRADED
+            citations = citations_from_ranked(ranked_records)
             comparison_ids = state.get("comparison_snapshot_ids")
             updates = {
                 "stage": stage,
@@ -146,7 +147,7 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 "candidate_set_id": candidate_set_id,
                 "recommendation_run_id": run_id,
                 "warnings": warnings,
-                "dialogue": mission.dialogue,
+                "dialogue": _dialogue_with_mentions(mission.dialogue, citations),
                 "belief": mission.belief,
             }
             if comparison_ids:
@@ -159,7 +160,6 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 return {"status": RunnerStatus.SUPERSEDED, "warnings": ["运行基于旧版本约束，已标记 superseded"]}
 
             event_type = "recommendation.ready" if stage == MissionStage.READY else "run.degraded"
-            citations = citations_from_ranked(ranked_records)
             agent_text = state.get("agent_message") or compose_ready_reply(
                 ranked_records,
                 mission.constraints,
@@ -187,7 +187,7 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 payload={
                     "run_id": run_id,
                     "text": agent_text,
-                    "act": "refine_constraints",
+                    "act": state.get("agent_act") or mission.dialogue.last_act or "refine_constraints",
                     "constraints_version": constraints_version,
                     "snapshot_ids": [item["snapshot_id"] for item in citations],
                     "citations": citations,
@@ -226,7 +226,9 @@ async def _persist_talk(
             "recommendation_run_id": current.recommendation_run_id,
             "comparison_snapshot_ids": comparison_ids,
             "warnings": warnings or current.warnings,
-            "dialogue": mission.dialogue,
+            "dialogue": _dialogue_with_mentions(
+                mission.dialogue, list(state.get("agent_citations") or []), list(state.get("agent_snapshot_ids") or [])
+            ),
             "belief": mission.belief,
             "active_run_id": run_id,
         }
@@ -270,3 +272,16 @@ async def _persist_talk(
         "candidate_set_id": current.candidate_set_id,
         "recommendation_run_id": current.recommendation_run_id,
     }
+
+
+def _dialogue_with_mentions(dialogue, citations: list, snapshot_ids: list | None = None):
+    ids = [
+        str(item["snapshot_id"])
+        for item in citations
+        if isinstance(item, dict) and item.get("snapshot_id")
+    ]
+    if not ids:
+        ids = [str(item) for item in list(snapshot_ids or []) if item]
+    if not ids:
+        return dialogue
+    return dialogue.model_copy(update={"mentioned_snapshot_ids": ids[:4]})

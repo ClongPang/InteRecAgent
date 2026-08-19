@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ...domain.models import utcnow
 from .belief import PreferenceBelief
@@ -32,11 +32,13 @@ class TurnPhase(StrEnum):
 
 
 class DialogueState(BaseModel):
-    """挂在 Mission 上的对话信念：指称、态度、上一行为。"""
+    """指称状态。态度只写 PreferenceBelief，不在这里存第二份。"""
+
+    model_config = ConfigDict(extra="ignore")
 
     focus_snapshot_id: str | None = None
     last_act: str | None = None
-    stance: str | None = None
+    mentioned_snapshot_ids: list[str] = Field(default_factory=list)
 
 
 class MissionConstraints(BaseModel):

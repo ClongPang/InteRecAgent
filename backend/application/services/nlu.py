@@ -27,6 +27,63 @@ _REF_SONY = re.compile(r"那个索尼|索尼的?(?:那|这)?[个款]|that sony",
 _REF_BOSE = re.compile(r"那个bose|bose的?(?:那|这)?[个款]", re.I)
 _REF_CHEAP = re.compile(r"便宜那个|便宜的那|最便宜")
 _REF_FOCUS = re.compile(r"刚才那个|刚才的|刚刚那")
+_NOT_INEAR = re.compile(r"不是入耳|不要入耳|不要耳塞")
+_WANT_OVEREAR = re.compile(r"是头戴|要头戴|头戴式")
+
+
+def build_turn_context(
+    events: list[dict] | None,
+    mission,
+    cache_payload: dict | None = None,
+) -> dict:
+    """从事件切最近原话，给分类/指代，不进生成回复。"""
+    dialogue = getattr(mission, "dialogue", None)
+    belief = getattr(mission, "belief", None)
+    users: list[str] = []
+    last_act = getattr(dialogue, "last_act", None)
+    last_topic = None
+    mentioned = list(getattr(dialogue, "mentioned_snapshot_ids", None) or [])
+    for event in events or []:
+        payload = event.get("payload") if isinstance(event, dict) else {}
+        payload = payload if isinstance(payload, dict) else {}
+        kind = event.get("event_type") if isinstance(event, dict) else None
+        if kind == "message.received" and payload.get("text"):
+            users.append(str(payload["text"]))
+            last_act = payload.get("act") or last_act
+            last_topic = payload.get("topic") or last_topic
+        if kind == "agent.message":
+            last_act = payload.get("act") or last_act
+            last_topic = payload.get("topic") or last_topic
+            cited = [
+                str(item["snapshot_id"])
+                for item in list(payload.get("citations") or [])
+                if isinstance(item, dict) and item.get("snapshot_id")
+            ]
+            if not cited:
+                cited = [str(item) for item in list(payload.get("snapshot_ids") or []) if item]
+            if cited:
+                mentioned = cited
+    ranked = []
+    for item in list((cache_payload or {}).get("ranked") or [])[:4]:
+        if not isinstance(item, dict):
+            continue
+        estimated = item.get("estimated_cny") if isinstance(item.get("estimated_cny"), dict) else {}
+        ranked.append(
+            {
+                "snapshot_id": item.get("snapshot_id"),
+                "title": item.get("title"),
+                "estimated_cny": estimated.get("amount") if estimated else item.get("estimated_cny"),
+            }
+        )
+    return {
+        "recent_user_texts": users[-3:],
+        "last_act": last_act,
+        "last_topic": last_topic,
+        "focus_snapshot_id": getattr(dialogue, "focus_snapshot_id", None),
+        "mentioned_snapshot_ids": mentioned[:4],
+        "belief": belief.model_dump(mode="json") if belief is not None else {},
+        "ranked": ranked,
+    }
 
 
 def search_reuse_key(constraints: MissionConstraints) -> dict:
@@ -46,9 +103,15 @@ def reuse_key_matches(constraints: MissionConstraints, cached: dict | None) -> b
     }
 
 
-def classify_turn(text: str, *, current_query: str | None = None) -> DialogueAct:
+def classify_turn(
+    text: str,
+    *,
+    current_query: str | None = None,
+    context: dict | None = None,
+) -> DialogueAct:
     """先识别对话行为，再填约束增量。残句与态度不得覆盖 query。"""
     raw = (text or "").strip()
+    context = context or {}
     if not raw:
         return DialogueAct(
             kind=DialogueActKind.UNKNOWN,
@@ -84,6 +147,14 @@ def classify_turn(text: str, *, current_query: str | None = None) -> DialogueAct
         patch = parse_intent(raw, current_query=current_query)
         patch = _stance_patch(patch)
         return DialogueAct(kind=DialogueActKind.STANCE, patch=patch, stance=stance)
+    if current_query and _NOT_INEAR.search(raw):
+        return DialogueAct(
+            kind=DialogueActKind.REFINE,
+            patch=IntentPatch(query=current_query, exclude_terms=["入耳", "耳塞"]),
+        )
+    if current_query and _WANT_OVEREAR.search(raw):
+        query = current_query if "头戴" in current_query else f"{current_query} 头戴"
+        return DialogueAct(kind=DialogueActKind.REFINE, patch=IntentPatch(query=query))
     patch = parse_intent(raw, current_query=current_query)
     kind = DialogueActKind.UNKNOWN if patch.requires_clarification else DialogueActKind.REFINE
     return DialogueAct(kind=kind, patch=patch)
@@ -118,12 +189,16 @@ def resolve_referent_ids(
     ranked: list[dict],
     *,
     focus_snapshot_id: str | None = None,
+    mentioned_snapshot_ids: list[str] | None = None,
 ) -> list[str]:
     hint = detect_referent_hint(text)
-    if not hint or not ranked:
+    if not hint:
         return []
-    if hint == "focus" and focus_snapshot_id:
-        return [focus_snapshot_id]
+    if hint == "focus":
+        sid = focus_snapshot_id or ((mentioned_snapshot_ids or [None])[0])
+        return [sid] if sid else []
+    if not ranked:
+        return []
     if hint == "cheapest":
         priced = []
         for item in ranked:

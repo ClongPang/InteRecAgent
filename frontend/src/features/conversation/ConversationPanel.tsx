@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Citation, MissionView, NextMove, ProductCandidate, ThreadMessage } from '../../api/types'
+import { beliefOf, type Citation, type MissionView, type NextMove, type ThreadMessage } from '../../api/types'
 import { Icon } from '../../components/ui/Icon'
 import { BeliefBar } from './MissionBrief'
-import { timeLabel } from '../../lib/format'
+import { composerPlaceholder, timeLabel } from '../../lib/format'
 import { groupThread, lastUndoableChange } from '../../lib/thread'
-import type { Currency } from '../../lib/currency'
 
 function CitationChip({
   citation,
@@ -186,7 +185,7 @@ export function ConversationPanel({
               submit()
             }
           }}
-          placeholder={focusTitle ? `问问「${focusTitle}」的保修、价格或为什么推荐` : '例如：预算改为 2000 元，或再便宜一点'}
+          placeholder={composerPlaceholder(beliefOf(mission), focusTitle)}
           aria-label="选购对话输入"
           disabled={busy}
         />

@@ -5,7 +5,7 @@ import { Icon } from '../../components/ui/Icon'
 import { PlatformMark } from '../../components/ui/PlatformMark'
 import { categoryIconFor } from '../../lib/category'
 import { type Currency } from '../../lib/currency'
-import { availabilityText } from '../../lib/format'
+import { brandLabel, reasonsText } from '../../lib/format'
 import { platformName, platformTone } from '../../lib/platform'
 
 export function ProductDrawer({
@@ -14,12 +14,14 @@ export function ProductDrawer({
   currency,
   onClose,
   onToggle,
+  onTalk,
 }: {
   product: ProductCandidate
   selected: boolean
   currency: Currency
   onClose: () => void
   onToggle: () => void
+  onTalk?: (text: string) => void
 }) {
   const url = product.merchant_url
   let domain = platformName(product.merchant)
@@ -28,6 +30,8 @@ export function ProductDrawer({
   } catch {
     /* keep merchant name */
   }
+  const brand = brandLabel(product)
+  const reasons = reasonsText(product.decision_reasons)
   return (
     <div className="drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <aside className="product-drawer" aria-label="商品详情">
@@ -46,20 +50,22 @@ export function ProductDrawer({
             <span>{product.market ?? '市场未提供'}</span>
           </div>
           <h2>{product.title}</h2>
+          {brand ? <p className="drawer-description">{brand}</p> : null}
           <PriceEvidence product={product} currency={currency} />
           <section className="drawer-section">
             <div className="section-title">商品信息</div>
             {product.specs.length ? (
               <div className="spec-pills">{product.specs.map((spec) => <span key={spec}>{spec}</span>)}</div>
-            ) : (
-              <p className="drawer-description">结构化规格未提供</p>
-            )}
-            <p className="drawer-description">
-              评分未提供 · 评价数未提供 · 库存：{availabilityText(product.availability)}
-              {product.brand == null ? ' · 品牌未提供' : ''}
-            </p>
-            {product.decision_reasons[0] ? (
-              <p className="drawer-tradeoff"><b>排序依据</b>{product.decision_reasons[0]}</p>
+            ) : null}
+            {reasons ? (
+              <p className="drawer-tradeoff"><b>排序依据</b>{reasons}</p>
+            ) : null}
+            {onTalk ? (
+              <div className="drawer-talk">
+                <Button variant="quiet" onClick={() => onTalk('为什么推荐这款')}>为什么选它</Button>
+                <Button variant="quiet" onClick={() => onTalk('不要这款')}>不要这款</Button>
+                <Button variant="quiet" onClick={() => onTalk('帮我比前两个')}>和上一件比</Button>
+              </div>
             ) : null}
           </section>
           <section className="purchase-check">

@@ -1,6 +1,7 @@
 """事件流投影为对话线程。"""
 from __future__ import annotations
 
+from ..dto.belief import PreferenceBelief
 from ..dto.dialogue import (
     Citation,
     DialogueActKind,
@@ -21,11 +22,16 @@ def project_thread(
     has_query: bool = False,
     has_candidates: bool = False,
     ranked: list[dict] | None = None,
+    belief: PreferenceBelief | None = None,
 ) -> ThreadView:
     mapped = [item for item in (_map_event(event) for event in events) if item is not None]
     return ThreadView(
         messages=_fold_thread(
-            mapped, has_query=has_query, has_candidates=has_candidates, ranked=ranked
+            mapped,
+            has_query=has_query,
+            has_candidates=has_candidates,
+            ranked=ranked,
+            belief=belief,
         )
     )
 
@@ -36,6 +42,7 @@ def _fold_thread(
     has_query: bool,
     has_candidates: bool,
     ranked: list[dict] | None = None,
+    belief: PreferenceBelief | None = None,
 ) -> list[ThreadMessage]:
     dialogue_runs = {item.run_id for item in messages if item.kind != "change" and item.run_id}
     changes = {
@@ -63,6 +70,7 @@ def _fold_thread(
                 has_query=False if item.kind == "clarification" and not has_query else has_query,
                 has_candidates=has_candidates or bool(item.citations or item.snapshot_ids),
                 ranked=ranked,
+                belief=belief,
             )
             if not item.citations and item.snapshot_ids:
                 updates["citations"] = [

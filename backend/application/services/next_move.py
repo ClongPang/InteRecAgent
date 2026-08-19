@@ -47,11 +47,20 @@ def next_moves_for(
             NextMove(label="对比前两件", text="帮我比前两个"),
         ]
     if has_candidates:
-        return [
+        moves = [
             NextMove(label="为什么推荐", text="为什么推荐"),
             *delta_moves[:3],
         ]
+        return _with_price_budget_move(moves, belief)
     return []
+
+
+def _with_price_budget_move(moves: list[NextMove], belief: PreferenceBelief | None) -> list[NextMove]:
+    if not belief or belief.price_sensitivity not in {"too_expensive", "want_cheaper"}:
+        return moves
+    if any(item.text.startswith("预算") for item in moves):
+        return moves
+    return [NextMove(label="预算 2000 元", text="预算 2000 元"), *moves]
 
 
 def _moves_from_ranked(ranked: list[dict], *, skip_lighter: bool = False) -> list[NextMove]:

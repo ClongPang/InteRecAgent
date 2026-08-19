@@ -15,7 +15,10 @@ class UnconfiguredModelBackend:
     def is_configured(self) -> bool:
         return False
 
-    async def parse_intent(self, text: str) -> IntentPatch:
+    async def parse_intent(
+        self, text: str, *, current_query: str | None = None, context: dict | None = None
+    ) -> IntentPatch:
+        del current_query, context
         raise ModelUnavailableError(
             "LLM 未配置（llm_provider=unconfigured），请使用确定性解析器"
         )

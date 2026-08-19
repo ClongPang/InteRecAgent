@@ -45,6 +45,7 @@ class MissionGraphState(TypedDict, total=False):
     clarification_question: NotRequired[str | None]
     turn_route: NotRequired[str]
     cache_payload: NotRequired[dict | None]
+    turn_context: NotRequired[dict]
     snapshot_map: NotRequired[dict[str, str]]
     reuse_snapshots: NotRequired[bool]
     cached_fx_snapshot_ids: NotRequired[list[str]]

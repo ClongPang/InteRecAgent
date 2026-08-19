@@ -55,10 +55,12 @@ export function useMissionWorkspace(missionId: string | undefined) {
     })
   }
 
-  const send = (text: string) => {
+  const send = (text: string, options?: { focusSnapshotId?: string | null }) => {
+    const focus = options?.focusSnapshotId !== undefined ? options.focusSnapshotId : focusSnapshotId
+    if (options?.focusSnapshotId !== undefined) setFocusSnapshotId(options.focusSnapshotId)
     setPendingText(text)
     commands.sendMessage.mutate(
-      { text, focusSnapshotId },
+      { text, focusSnapshotId: focus },
       { onError: () => setPendingText(null) },
     )
   }

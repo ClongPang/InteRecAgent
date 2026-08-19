@@ -9,7 +9,7 @@ import { useMissionWorkspace } from '../features/missions/useMissionWorkspace'
 import { ProductDrawer } from '../features/products/ProductDrawer'
 import { type Currency } from '../lib/currency'
 import { stageText } from '../lib/format'
-import type { ProductCandidate } from '../api/types'
+import { beliefOf, type ProductCandidate } from '../api/types'
 
 export function MissionView({ currency }: { currency: Currency }) {
   const { missionId = '' } = useParams()
@@ -61,7 +61,7 @@ export function MissionView({ currency }: { currency: Currency }) {
           <div className="mission-subline">
             <span>{stageText(mission.stage, mission.turn_phase)}</span>
             {ranked.length > 0 ? <span>{ranked.length} 件可引用候选</span> : null}
-            {running ? <span>正在根据当前话轮更新</span> : null}
+            {running ? <span>{mission.turn_phase === 'refiltering' ? '正在按你的态度重排' : '正在检索'}</span> : null}
           </div>
         </div>
       </div>
@@ -83,11 +83,13 @@ export function MissionView({ currency }: { currency: Currency }) {
             candidates={ranked}
             focusId={workspace.focusSnapshotId}
             compareIds={workspace.draftCompare}
+            rejectedIds={beliefOf(mission).rejected_snapshot_ids}
             onFocus={(product) => {
               workspace.setFocusSnapshotId(product.snapshot_id)
               setDetail(product)
             }}
             onToggleCompare={workspace.toggleCompare}
+            onTalk={(product, text) => workspace.send(text, { focusSnapshotId: product.snapshot_id })}
           />
           <CompareStrip items={workspace.selected} onFocus={(product) => openSnapshot(product.snapshot_id)} />
         </section>
@@ -99,6 +101,10 @@ export function MissionView({ currency }: { currency: Currency }) {
           currency={currency}
           onClose={() => setDetail(null)}
           onToggle={() => workspace.toggleCompare(detail.snapshot_id)}
+          onTalk={(text) => {
+            workspace.send(text, { focusSnapshotId: detail.snapshot_id })
+            setDetail(null)
+          }}
         />
       ) : null}
     </main>

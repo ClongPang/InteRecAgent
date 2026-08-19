@@ -1,4 +1,15 @@
+import type { PreferenceBelief, ProductCandidate } from '../api/types'
+
 export type Preference = 'balanced' | 'noise' | 'battery' | 'lowest'
+
+const REASON_TEXT: Record<string, string> = {
+  within_budget: '预算内',
+  lowest_estimated_cny: '当前估算最低',
+  in_stock: '有货',
+  matches_noise_cue: '标题含降噪线索',
+  matches_battery_cue: '标题含续航线索',
+  price_sensitive: '按更便宜态度加权',
+}
 
 export function preferenceText(preference: Preference): string {
   return preference === 'battery'
@@ -14,9 +25,36 @@ export function budgetText(budget: number | null | undefined): string {
   return budget ? `¥${budget.toLocaleString()} 内` : '未设置预算'
 }
 
+export function reasonText(reason: string): string {
+  return REASON_TEXT[reason] ?? reason
+}
+
+export function reasonsText(reasons: string[] | undefined): string {
+  return (reasons ?? []).map(reasonText).filter(Boolean).join(' · ')
+}
+
+export function brandLabel(product: Pick<ProductCandidate, 'brand' | 'derived_fields'>): string | null {
+  if (!product.brand) return null
+  return product.derived_fields.includes('brand') ? `${product.brand}（标题解析）` : product.brand
+}
+
+export function priceStanceText(value: string | null | undefined): string | null {
+  if (value === 'too_expensive' || value === 'want_cheaper') return '觉得偏贵'
+  return null
+}
+
+export function composerPlaceholder(
+  belief: PreferenceBelief,
+  focusTitle?: string | null,
+): string {
+  if (focusTitle) return `问问「${focusTitle}」为什么推荐，或说不要这款`
+  if (priceStanceText(belief.price_sensitivity)) return '例如：预算 2000 元，或帮我比前两个'
+  return '例如：预算 2000 元，或再便宜一点'
+}
+
 export function stageText(stage: string, turnPhase?: string): string {
   if (turnPhase === 'researching') return '正在检索'
-  if (turnPhase === 'refiltering') return '正在按条件重排'
+  if (turnPhase === 'refiltering') return '正在按你的态度重排'
   if (turnPhase === 'responding') return '正在回答'
   switch (stage) {
     case 'clarifying':

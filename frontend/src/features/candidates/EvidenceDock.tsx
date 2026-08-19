@@ -1,22 +1,30 @@
 import type { ProductCandidate } from '../../api/types'
 import { Button } from '../../components/ui/Button'
 import { rmbAmount } from '../../lib/currency'
+import { brandLabel, reasonsText } from '../../lib/format'
 import { platformName } from '../../lib/platform'
 
 export function EvidenceDock({
   candidates,
   focusId,
   compareIds,
+  rejectedIds = [],
   onFocus,
   onToggleCompare,
+  onTalk,
 }: {
   candidates: ProductCandidate[]
   focusId: string | null
   compareIds: string[]
+  rejectedIds?: string[]
   onFocus: (product: ProductCandidate) => void
   onToggleCompare: (snapshotId: string) => void
+  onTalk?: (product: ProductCandidate, text: string) => void
 }) {
-  const items = candidates.slice(0, 5)
+  const rejected = new Set(rejectedIds)
+  const kept = candidates.filter((item) => !rejected.has(item.snapshot_id)).slice(0, 5)
+  const excluded = candidates.filter((item) => rejected.has(item.snapshot_id))
+  const items = [...kept, ...excluded]
   if (!items.length) {
     return (
       <section className="evidence-dock">
@@ -33,18 +41,38 @@ export function EvidenceDock({
           const amount = rmbAmount(product)
           const focused = product.snapshot_id === focusId
           const compared = compareIds.includes(product.snapshot_id)
+          const struck = rejected.has(product.snapshot_id)
+          const lead = !struck && product.rank === 1
+          const brand = brandLabel(product)
+          const reasons = reasonsText(product.decision_reasons)
           return (
-            <li key={product.snapshot_id} className={focused ? 'is-focus' : ''}>
-              <button type="button" className="dock-item" onClick={() => onFocus(product)}>
-                <b>{String(index + 1).padStart(2, '0')}</b>
+            <li key={product.snapshot_id} className={`${focused ? 'is-focus' : ''}${lead ? ' is-lead' : ''}${struck ? ' is-rejected' : ''}`}>
+              <button type="button" className={`dock-item${lead ? ' is-lead' : ''}${struck ? ' is-rejected' : ''}`} onClick={() => onFocus(product)}>
+                <b>{String(product.rank ?? index + 1).padStart(2, '0')}</b>
                 <span>
                   {product.title}
-                  <small>{platformName(product.merchant)}{amount != null ? ` · 约 ¥${Math.round(amount).toLocaleString()}` : ''}</small>
+                  <small>
+                    {platformName(product.merchant)}
+                    {amount != null ? ` · 约 ¥${Math.round(amount).toLocaleString()}` : ''}
+                    {brand ? ` · ${brand}` : ''}
+                  </small>
+                  {reasons ? <small className="dock-reasons">{reasons}</small> : null}
                 </span>
               </button>
-              <Button variant={compared ? 'primary' : 'quiet'} onClick={() => onToggleCompare(product.snapshot_id)}>
-                {compared ? '比较中' : '比较'}
-              </Button>
+              <div className="dock-actions">
+                <Button variant={compared ? 'primary' : 'quiet'} onClick={() => onToggleCompare(product.snapshot_id)}>
+                  {compared ? '比较中' : '比较'}
+                </Button>
+                {onTalk && !struck ? (
+                  <>
+                    <button type="button" onClick={() => onTalk(product, '为什么推荐这款')}>为什么选它</button>
+                    <button type="button" onClick={() => onTalk(product, '不要这款')}>不要这款</button>
+                    {index > 0 ? (
+                      <button type="button" onClick={() => onTalk(product, '帮我比前两个')}>和上一件比</button>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
             </li>
           )
         })}

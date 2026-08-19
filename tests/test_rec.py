@@ -28,6 +28,17 @@ def test_exact_model_is_precise_keyword() -> None:
     assert looks_like_exact_model("通勤降噪耳机") is False
 
 
+def test_chinese_exploratory_query_uses_hybrid() -> None:
+    mission = ShoppingMission(
+        owner_id="u",
+        title="t",
+        constraints=MissionConstraints(query="通勤降噪耳机"),
+    )
+    plan = plan_search(rec_state_from_mission(mission))
+    assert plan.mode == "hybrid"
+    assert plan.recall_mode == "exploratory"
+
+
 def test_referent_hint_resolves_brand_and_cheapest() -> None:
     ranked = [
         {"snapshot_id": "s1", "title": "Sony WH-1000XM5", "brand": "Sony", "estimated_cny": {"amount": 2500}},

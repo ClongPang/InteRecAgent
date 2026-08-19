@@ -284,8 +284,8 @@ async def test_stance_keeps_query_and_records_price_belief() -> None:
     assert stored.constraints.query == "降噪耳机"
     assert stored.constraints.budget_cny == 4000
     assert stored.constraints_version == 1
-    assert stored.dialogue.stance == "too_expensive"
     assert stored.belief.price_sensitivity == "too_expensive"
+    assert not hasattr(stored.dialogue, "stance") or getattr(stored.dialogue, "stance", None) is None
     assert dispatcher.calls[0][2] == run_id
     assert dispatcher.calls[0][3] == 1
     assert "constraints.updated" not in [item[1] for item in events.events]

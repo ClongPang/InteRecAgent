@@ -15,13 +15,17 @@ def make_parse_intent_patch(model_backend: ModelBackend):
         if state.get("skip_intent_patch"):
             return {}
         text = state.get("text", "")
+        current_query = state["mission"].constraints.query if state.get("mission") else None
+        context = state.get("turn_context")
         if model_backend.is_configured():
             try:
-                patch = await model_backend.parse_intent(text)
+                patch = await model_backend.parse_intent(
+                    text, current_query=current_query, context=context
+                )
                 return {"intent_patch": patch}
             except ModelUnavailableError:
                 pass  # 模型临时不可用 → 确定性 fallback，不阻塞验收
-        return {"intent_patch": parse_intent(text)}
+        return {"intent_patch": parse_intent(text, current_query=current_query)}
 
     return parse_intent_patch
 

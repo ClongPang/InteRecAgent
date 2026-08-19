@@ -7,6 +7,7 @@ from ...application.dto import RunnerStatus
 from ...application.errors import UpstreamUnavailableError
 from ...application.ports import FxSource, ProductSource, UnitOfWork
 from ...application.services.market_search import gather_market_products
+from ...application.services.nlu import build_turn_context
 from ...application.services.rec import plan_search, rec_state_from_mission
 from ...domain.models import FxSnapshot
 from ..state import MissionGraphState
@@ -30,6 +31,7 @@ def make_receive_message(uow_factory: Callable[[], UnitOfWork]):
                 cache_payload = await uow.candidate_sets.get(mission.candidate_set_id)
         bound = _bind_trigger(mission, events, state["run_id"])
         bound["cache_payload"] = cache_payload
+        bound["turn_context"] = build_turn_context(events, mission, cache_payload)
         return bound
 
     return receive_message

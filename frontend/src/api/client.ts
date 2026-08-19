@@ -11,7 +11,22 @@ import type {
   RunAccepted,
   ThreadView,
 } from './types'
+import { beliefOf } from './types'
 import { ApiError } from './errors'
+
+function withBelief(mission: MissionView): MissionView {
+  return { ...mission, belief: beliefOf(mission) }
+}
+
+function withCandidate(item: ProductCandidate): ProductCandidate {
+  return {
+    ...item,
+    brand: item.brand ?? null,
+    decision_reasons: item.decision_reasons ?? [],
+    derived_fields: item.derived_fields ?? [],
+    unavailable_fields: item.unavailable_fields ?? [],
+  }
+}
 
 async function readSse(
   missionId: string,
@@ -63,14 +78,18 @@ async function readSse(
 }
 
 export const httpMissionApi: MissionApi = {
-  listMissions: (limit = 20, offset = 0) =>
-    request<MissionListResponse>(`/missions?limit=${limit}&offset=${offset}`),
-  createMission: (text, title) =>
-    request<CreateMissionResponse>('/missions', {
+  listMissions: async (limit = 20, offset = 0) => {
+    const result = await request<MissionListResponse>(`/missions?limit=${limit}&offset=${offset}`)
+    return { ...result, missions: result.missions.map(withBelief) }
+  },
+  createMission: async (text, title) => {
+    const result = await request<CreateMissionResponse>('/missions', {
       method: 'POST',
       body: JSON.stringify({ text, title: title || undefined }),
-    }),
-  getMission: (missionId) => request<MissionView>(`/missions/${missionId}`),
+    })
+    return { ...result, mission: withBelief(result.mission) }
+  },
+  getMission: async (missionId) => withBelief(await request<MissionView>(`/missions/${missionId}`)),
   sendMessage: (missionId, text, focusSnapshotId) =>
     request<RunAccepted>(`/missions/${missionId}/turns`, {
       method: 'POST',
@@ -98,21 +117,31 @@ export const httpMissionApi: MissionApi = {
       method: 'POST',
       body: JSON.stringify({ constraints_version: constraintsVersion }),
     }),
-  setComparison: (missionId, constraintsVersion, snapshotIds) =>
-    request<MissionView>(`/missions/${missionId}/comparison`, {
-      method: 'PUT',
-      body: JSON.stringify({ constraints_version: constraintsVersion, snapshot_ids: snapshotIds }),
-    }),
-  getCandidates: (missionId) => request<CandidateSetView>(`/missions/${missionId}/candidates`),
+  setComparison: async (missionId, constraintsVersion, snapshotIds) =>
+    withBelief(
+      await request<MissionView>(`/missions/${missionId}/comparison`, {
+        method: 'PUT',
+        body: JSON.stringify({ constraints_version: constraintsVersion, snapshot_ids: snapshotIds }),
+      }),
+    ),
+  getCandidates: async (missionId) => {
+    const result = await request<CandidateSetView>(`/missions/${missionId}/candidates`)
+    return { ...result, ranked: result.ranked.map(withCandidate) }
+  },
   getRecommendation: async (missionId) => {
     try {
-      return await request<RecommendationView>(`/missions/${missionId}/recommendation`)
+      const rec = await request<RecommendationView>(`/missions/${missionId}/recommendation`)
+      return {
+        ...rec,
+        primary: rec.primary ? withCandidate(rec.primary) : null,
+        alternatives: rec.alternatives.map(withCandidate),
+      }
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) return null
       throw error
     }
   },
-  getSnapshot: (snapshotId) => request<ProductCandidate>(`/product-snapshots/${snapshotId}`),
+  getSnapshot: async (snapshotId) => withCandidate(await request<ProductCandidate>(`/product-snapshots/${snapshotId}`)),
   getThread: (missionId) => request<ThreadView>(`/missions/${missionId}/thread`),
   subscribeEvents: readSse,
 }

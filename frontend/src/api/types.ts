@@ -23,6 +23,54 @@ export type MissionConstraints = {
   excluded_terms: string[]
 }
 
+export type SoftPref = {
+  attr: string
+  direction: string
+  status: 'active' | 'unsupported'
+}
+
+export type Critique = {
+  kind: string
+  snapshot_id?: string | null
+  attr?: string | null
+}
+
+export type PreferenceBelief = {
+  use_case?: string | null
+  rejected_snapshot_ids: string[]
+  critiques: Critique[]
+  soft: SoftPref[]
+  price_sensitivity?: string | null
+}
+
+export type DialogueState = {
+  focus_snapshot_id?: string | null
+  last_act?: string | null
+  mentioned_snapshot_ids?: string[]
+}
+
+export function emptyBelief(): PreferenceBelief {
+  return {
+    use_case: null,
+    rejected_snapshot_ids: [],
+    critiques: [],
+    soft: [],
+    price_sensitivity: null,
+  }
+}
+
+export function beliefOf(mission: { belief?: PreferenceBelief | null }): PreferenceBelief {
+  const belief = mission.belief
+  if (!belief) return emptyBelief()
+  return {
+    use_case: belief.use_case ?? null,
+    rejected_snapshot_ids: belief.rejected_snapshot_ids ?? [],
+    critiques: belief.critiques ?? [],
+    soft: belief.soft ?? [],
+    price_sensitivity: belief.price_sensitivity ?? null,
+  }
+}
+
 export type MissionView = {
   id: string
   title: string
@@ -35,7 +83,8 @@ export type MissionView = {
   recommendation_run_id: string | null
   warnings: string[]
   turn_phase: TurnPhase
-  dialogue?: { focus_snapshot_id?: string | null; last_act?: string | null; stance?: string | null }
+  dialogue?: DialogueState
+  belief: PreferenceBelief
   created_at: string
   updated_at: string
 }
@@ -60,7 +109,7 @@ export type ProductCandidate = {
   native_price: NativePrice
   estimated_cny: EstimatedCny | null
   fx_failed: boolean
-  brand: null
+  brand: string | null
   rating: null
   review_count: null
   availability: 'in_stock' | 'limited' | 'out_of_stock' | 'unknown'

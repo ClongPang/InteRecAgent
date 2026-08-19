@@ -1,4 +1,4 @@
-"""由 RecState 生成 SearchPlan。hybrid/semantic 只标记探索，主检索仍走 keyword。"""
+"""由 RecState 生成 SearchPlan。精确型号走 keyword；中文探索检索走 hybrid。"""
 from __future__ import annotations
 
 import re
@@ -14,14 +14,20 @@ def looks_like_exact_model(query: str | None) -> bool:
     return bool(_MODEL_QUERY.search(query or ""))
 
 
+def query_has_cjk(query: str | None) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in query or "")
+
+
 def plan_search(rec: RecState, *, limit: int = 20) -> SearchPlan:
     markets = [code for code in rec.markets if code in VALID_MARKETS] or ["US"]
     query = (rec.query or "").strip()
     precise = looks_like_exact_model(query)
+    # BuyWhere keyword 对中文几乎不召回；hybrid 才能把「通勤降噪耳机」落到商品。
+    mode = "keyword" if precise or not query_has_cjk(query) else "hybrid"
     return SearchPlan(
         query=query,
         markets=markets,
-        mode="keyword",
+        mode=mode,
         limit=limit,
         budget_cny=rec.budget_cny,
         recall_mode="precise" if precise else "exploratory",

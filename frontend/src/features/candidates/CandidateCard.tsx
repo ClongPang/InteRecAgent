@@ -5,7 +5,7 @@ import { Icon } from '../../components/ui/Icon'
 import { PlatformMark } from '../../components/ui/PlatformMark'
 import { categoryIconFor } from '../../lib/category'
 import { rmbAmount, type Currency } from '../../lib/currency'
-import { availabilityText } from '../../lib/format'
+import { availabilityText, reasonText } from '../../lib/format'
 import { platformName } from '../../lib/platform'
 
 export function CandidateCard({
@@ -65,7 +65,7 @@ export function CandidateCard({
         ) : (
           <div className="spec-line"><span>结构化规格未提供</span></div>
         )}
-        {reason ? <p className="candidate-reason"><b>为什么排在这里</b>{reason}</p> : null}
+        {reason ? <p className="candidate-reason"><b>为什么排在这里</b>{reasonText(reason)}</p> : null}
         {overBudget && rmb != null && budget != null ? (
           <p className="budget-warning">超出预算 ¥{(rmb - budget).toLocaleString()}</p>
         ) : null}

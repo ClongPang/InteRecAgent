@@ -1,13 +1,16 @@
 """对话行为分类、检索失效与线程投影。"""
 from __future__ import annotations
 
+from backend.application.dto.belief import PreferenceBelief
 from backend.application.dto.dialogue import DialogueActKind, TurnCommand, TurnRoute
 from backend.application.dto.mission import MissionConstraints, ShoppingMission, TurnPhase
 from backend.application.services.dialogue import (
     classify_turn,
+    next_moves_for,
     plan_route,
     preview_turn,
     project_thread,
+    resolve_referent_ids,
     search_reuse_key,
     summarize_constraint_change,
 )
@@ -276,6 +279,8 @@ def test_policy_stance_records_belief_without_budget_change() -> None:
     assert decision.dispatch is True
     assert decision.route == TurnRoute.RERANK
     assert decision.belief.price_sensitivity == "too_expensive"
+    assert decision.dialogue.last_act == "express_stance"
+    assert "stance" not in decision.dialogue.model_dump()
 
 
 def test_sanitize_unsupported_capabilities() -> None:
@@ -330,6 +335,47 @@ def test_policy_expensive_without_budget_uses_cache_price() -> None:
     assert decision.constraints.budget_cny is None
     assert decision.route == TurnRoute.RERANK
     assert decision.belief.price_sensitivity == "too_expensive"
+
+
+def test_plan_route_reject_without_cache_talks() -> None:
+    assert (
+        plan_route(
+            kind=DialogueActKind.REJECT,
+            has_query=True,
+            has_cache=False,
+            reuse_matches=False,
+            skip_intent_patch=False,
+            constraints_changed=False,
+        )
+        == TurnRoute.TALK
+    )
+
+
+def test_classify_correction_keeps_query_and_excludes_inear() -> None:
+    act = classify_turn("不是入耳", current_query="通勤降噪耳机")
+    assert act.kind == DialogueActKind.REFINE
+    assert act.patch is not None
+    assert act.patch.query == "通勤降噪耳机"
+    assert "入耳" in (act.patch.exclude_terms or [])
+
+
+def test_resolve_focus_falls_back_to_mentioned() -> None:
+    assert resolve_referent_ids("刚才那个怎么样", [], mentioned_snapshot_ids=["snap-9"]) == ["snap-9"]
+
+
+def test_next_moves_keep_budget_when_price_sensitive() -> None:
+    moves = next_moves_for(
+        kind="refine_constraints",
+        topic=None,
+        has_query=True,
+        has_candidates=True,
+        ranked=[
+            {"snapshot_id": "a", "title": "A", "estimated_cny": {"amount": 200}},
+            {"snapshot_id": "b", "title": "B", "estimated_cny": {"amount": 300}},
+        ],
+        belief=PreferenceBelief(price_sensitivity="too_expensive"),
+    )
+    assert any(item.text == "预算 2000 元" for item in moves)
 
 
 def test_plan_route_reject_and_stance_use_rerank() -> None:

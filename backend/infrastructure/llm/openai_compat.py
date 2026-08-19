@@ -195,10 +195,21 @@ class OpenAICompatModelBackend:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def parse_intent(self, text: str) -> IntentPatch:
+    async def parse_intent(
+        self, text: str, *, current_query: str | None = None, context: dict | None = None
+    ) -> IntentPatch:
+        extra = f"\n当前检索词：{current_query or '（无）'}"
+        if context:
+            extra += "\n上下文：" + json.dumps(
+                {
+                    "belief": context.get("belief"),
+                    "recent_user_texts": context.get("recent_user_texts"),
+                },
+                ensure_ascii=False,
+            )
         payload = await self._complete_json(
             system=_INTENT_SYSTEM,
-            user=f"用户输入：{text.strip()}",
+            user=f"用户输入：{text.strip()}{extra}",
         )
         try:
             patch = IntentPatch.model_validate(payload)
@@ -215,7 +226,10 @@ class OpenAICompatModelBackend:
                 {"belief": context.get("belief"), "ranked": context.get("ranked")},
                 ensure_ascii=False,
             )
-        user = f"当前检索词：{current_query or '（无）'}\n用户输入：{text.strip()}{extra}"
+        recent = ""
+        if context and context.get("recent_user_texts"):
+            recent = "\n最近原话：" + " | ".join(str(item) for item in context.get("recent_user_texts") or [])
+        user = f"当前检索词：{current_query or '（无）'}\n用户输入：{text.strip()}{extra}{recent}"
         payload = await self._complete_json(system=_TURN_SYSTEM, user=user)
         try:
             act = DialogueAct.model_validate(payload)

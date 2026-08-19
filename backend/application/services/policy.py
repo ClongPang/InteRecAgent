@@ -67,11 +67,18 @@ class DialoguePolicy:
         has_cache: bool,
         cache_reuse_key: dict | None,
         cache_payload: dict | None = None,
+        turn_context: dict | None = None,
     ) -> TurnDecision:
         dialogue = mission.dialogue.model_copy()
         belief = mission.belief.model_copy()
+        context = turn_context or {}
+        mentioned = list(context.get("mentioned_snapshot_ids") or dialogue.mentioned_snapshot_ids)
+        if mentioned:
+            dialogue.mentioned_snapshot_ids = mentioned
         if turn.focus_snapshot_id:
             dialogue.focus_snapshot_id = turn.focus_snapshot_id
+        elif not dialogue.focus_snapshot_id and mentioned:
+            dialogue.focus_snapshot_id = mentioned[0]
 
         if turn.command == TurnCommand.UNDO:
             dialogue.last_act = DialogueActKind.UNDO.value
@@ -130,7 +137,7 @@ class DialoguePolicy:
             )
 
         text = (turn.text or "").strip()
-        act = classify_turn(text, current_query=mission.constraints.query)
+        act = classify_turn(text, current_query=mission.constraints.query, context=context)
         if act.kind == DialogueActKind.STANCE and act.stance in {"too_expensive", "want_cheaper"}:
             belief = belief.mark_price_stance(act.stance)
         if act.kind == DialogueActKind.REJECT:
@@ -143,7 +150,6 @@ class DialoguePolicy:
         if act.stance == "want_lighter":
             belief = belief.mark_unsupported("weight", "lower")
         dialogue.last_act = act.kind.value
-        dialogue.stance = act.stance or dialogue.stance
         if act.kind == DialogueActKind.UNDO:
             return TurnDecision(
                 act=act,
