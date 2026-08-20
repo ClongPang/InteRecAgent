@@ -28,7 +28,7 @@ from ..ports import MissionEventBroker, RunDispatcher, RunTextHub, UnitOfWork
 from .dialogue import preview_turn, project_thread, stage_for_phase
 from .nlu import is_undo_text
 from .policy import DialoguePolicy, TurnDecision, TurnInput
-from .present import product_candidate_from_record, product_candidate_from_snapshot
+from .present import image_url_of, product_candidate_from_record, product_candidate_from_snapshot
 from .uncertainty import moves_for_reply, select_probe
 
 
@@ -282,7 +282,27 @@ class MissionCommandService:
             if mission.candidate_set_id is None:
                 return CandidateSetView()
             payload = await uow.candidate_sets.get(mission.candidate_set_id)
+            if payload:
+                payload = await self._with_snapshot_images(uow, payload)
         return self._candidate_set_view(payload)
+
+    @staticmethod
+    async def _with_snapshot_images(uow: UnitOfWork, payload: dict) -> dict:
+        """旧候选集没有 image_url 时，从商品快照回填。"""
+        products = getattr(uow, "products", None)
+        ranked = list(payload.get("ranked") or [])
+        if products is None or not ranked:
+            return payload
+        filled: list[dict] = []
+        for item in ranked:
+            if not isinstance(item, dict) or image_url_of(item):
+                filled.append(item)
+                continue
+            sid = item.get("snapshot_id")
+            snap = await products.get(str(sid)) if sid else None
+            url = image_url_of(item, snap)
+            filled.append({**item, "image_url": url} if url else item)
+        return {**payload, "ranked": filled}
 
     async def get_recommendation(self, *, owner_id: str, mission_id: str) -> RecommendationView:
         async with self._uow_factory() as uow:

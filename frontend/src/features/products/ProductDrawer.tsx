@@ -2,8 +2,8 @@ import type { ProductCandidate } from '../../api/types'
 import { PriceEvidence } from '../../components/evidence/PriceEvidence'
 import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/ui/Icon'
+import { ProductPhoto } from '../../components/ui/ProductPhoto'
 import { PlatformMark } from '../../components/ui/PlatformMark'
-import { categoryIconFor } from '../../lib/category'
 import { type Currency, type SnapshotRates } from '../../lib/currency'
 import { brandLabel, reasonsText } from '../../lib/format'
 import { merchantHref, merchantHost } from '../../lib/merchant'
@@ -38,13 +38,7 @@ export function ProductDrawer({
           <button className="icon-button" onClick={onClose} aria-label="关闭"><Icon name="close" size={18} /></button>
         </div>
         <div className={`drawer-image tone-${platformTone(product.merchant)}`}>
-          {product.image_url ? (
-            <img src={product.image_url} alt="" className="drawer-photo" />
-          ) : (
-            <span className="category-icon" aria-hidden="true">
-              <Icon name={categoryIconFor(product.title)} size={56} />
-            </span>
-          )}
+          <ProductPhoto product={product} className="drawer-photo" iconSize={56} />
         </div>
         <div className="drawer-body">
           <div className="product-source">

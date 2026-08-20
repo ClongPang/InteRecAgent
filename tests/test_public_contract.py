@@ -9,6 +9,7 @@ from backend.application.services.present import (
     candidate_record,
     https_url,
     hydrate_candidate_payload,
+    image_url_of,
     product_candidate_from_record,
     product_candidate_from_snapshot,
     remap_draft,
@@ -25,6 +26,7 @@ def _product() -> NormalizedProduct:
         country_code="US",
         url="https://example.com/p",
         click_url="http://insecure.example/p",
+        image_url="https://cdn.example/sony.jpg",
         native_price_amount=100.0,
         native_currency="USD",
         rmb_price=720.0,
@@ -61,6 +63,15 @@ def test_https_url_rejects_http() -> None:
     assert https_url("http://no.example/a") is None
 
 
+def test_image_url_of_falls_back_to_snapshot() -> None:
+    record = {"title": "Sony"}
+    snap = {"normalized": {"image_url": "https://cdn.example/p.jpg"}}
+    assert image_url_of(record, snap) == "https://cdn.example/p.jpg"
+    assert image_url_of({"image_url": "https://ok.example/a.jpg"}, snap) == "https://ok.example/a.jpg"
+    assert image_url_of({"image_url": "http://insecure.example/a.jpg"}, snap) == "https://cdn.example/p.jpg"
+    assert image_url_of(record) is None
+
+
 def test_candidate_record_unwraps_buywhere_click() -> None:
     product = _product().model_copy(
         update={
@@ -87,11 +98,13 @@ def test_candidate_record_uses_snapshot_id_and_https_merchant_url() -> None:
     assert record["snapshot_id"] == "snap-uuid"
     assert record["source_product_id"] == "src-1"
     assert record["merchant_url"] == "https://example.com/p"
+    assert record["image_url"] == "https://cdn.example/sony.jpg"
     assert record["estimated_cny"]["rate"] == 7.2
     assert "within_budget" in record["decision_reasons"]
     candidate = product_candidate_from_record(record)
     assert candidate is not None
     assert candidate.snapshot_id == "snap-uuid"
+    assert candidate.image_url == "https://cdn.example/sony.jpg"
     assert candidate.availability == "unknown"
 
 
@@ -159,3 +172,4 @@ def test_snapshot_envelope_maps_to_candidate() -> None:
     assert candidate is not None
     assert candidate.snapshot_id == "snap-uuid"
     assert candidate.source_product_id == "src-1"
+    assert candidate.image_url == "https://cdn.example/sony.jpg"

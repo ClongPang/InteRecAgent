@@ -45,6 +45,13 @@ function derivedBrand(title: string): { brand: string | null; derived_fields: st
   return { brand, derived_fields: brand ? ['brand'] : [] }
 }
 
+const FIXTURE_IMAGES: Record<string, string> = {
+  'sony-xm5': 'https://cdn.shopify.com/s/files/1/0036/4806/1509/files/b73f824aaa21e37b422ae99d12023872287fc2d0_square3129229_1_6e0c1794-7f6e-4a1e-9b90-60ab71300eac.jpg?v=1770360676',
+  'bose-qc': 'https://cdn.shopify.com/s/files/1/0240/9337/files/1_JBudsOpen_Cloud.jpg?v=1773247734',
+  'senn-m4': 'https://cdn.shopify.com/s/files/1/0690/7201/files/Sony_Headphones_Audio_Cable_Original_1M_Black.png?v=1758987422',
+  q45: 'https://cdn.shopify.com/s/files/1/0036/4806/1509/files/b73f824aaa21e37b422ae99d12023872287fc2d0_square3129229_1_6e0c1794-7f6e-4a1e-9b90-60ab71300eac.jpg?v=1770360676',
+}
+
 function candidate(
   snapshotId: string,
   sourceId: string,
@@ -81,6 +88,7 @@ function candidate(
     derived_fields: derived.derived_fields,
     unavailable_fields: ['rating', 'review_count', 'availability', 'structured_specs'],
     merchant_url: `https://example.com/${sourceId}`,
+    image_url: FIXTURE_IMAGES[sourceId] ?? null,
     source_updated_at: '2026-08-15T14:32:00Z',
     rank: null,
     decision_reasons: [],

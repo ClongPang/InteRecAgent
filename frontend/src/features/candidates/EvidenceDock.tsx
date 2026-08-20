@@ -1,5 +1,6 @@
 import type { ProductCandidate } from '../../api/types'
 import { Button } from '../../components/ui/Button'
+import { ProductPhoto } from '../../components/ui/ProductPhoto'
 import { rmbAmount } from '../../lib/currency'
 import { availabilityText, brandLabel, reasonsText } from '../../lib/format'
 import { platformName } from '../../lib/platform'
@@ -48,6 +49,7 @@ export function EvidenceDock({
           return (
             <li key={product.snapshot_id} className={`${focused ? 'is-focus' : ''}${lead ? ' is-lead' : ''}${struck ? ' is-rejected' : ''}`}>
               <button type="button" className={`dock-item${lead ? ' is-lead' : ''}${struck ? ' is-rejected' : ''}`} onClick={() => onFocus(product)}>
+                <span className="dock-thumb"><ProductPhoto product={product} className="dock-photo" iconSize={18} /></span>
                 <b>{String(product.rank ?? index + 1).padStart(2, '0')}</b>
                 <span>
                   {product.title}
@@ -110,9 +112,12 @@ export function CompareStrip({
             return (
               <tr key={product.snapshot_id}>
                 <td>
-                  <button type="button" onClick={() => onFocus(product)}>
-                    <strong>{product.title}</strong>
-                    {product.brand ? <span>{product.brand}</span> : null}
+                  <button type="button" className="compare-item" onClick={() => onFocus(product)}>
+                    <span className="compare-thumb"><ProductPhoto product={product} className="compare-photo" iconSize={16} /></span>
+                    <span>
+                      <strong>{product.title}</strong>
+                      {product.brand ? <span>{product.brand}</span> : null}
+                    </span>
                   </button>
                 </td>
                 <td>{platformName(product.merchant)} · {product.market ?? '—'}</td>

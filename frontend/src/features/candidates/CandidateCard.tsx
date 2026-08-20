@@ -1,9 +1,8 @@
 import type { Preference, ProductCandidate } from '../../api/types'
 import { PriceEvidence } from '../../components/evidence/PriceEvidence'
 import { Button } from '../../components/ui/Button'
-import { Icon } from '../../components/ui/Icon'
+import { ProductPhoto } from '../../components/ui/ProductPhoto'
 import { PlatformMark } from '../../components/ui/PlatformMark'
-import { categoryIconFor } from '../../lib/category'
 import { rmbAmount, type Currency } from '../../lib/currency'
 import { availabilityText, reasonText } from '../../lib/format'
 import { platformName, platformTone } from '../../lib/platform'
@@ -41,13 +40,7 @@ export function CandidateCard({
       {lead ? <span className="candidate-focus">首选候选</span> : null}
       <button className="product-image-button" onClick={detail}>
         <div className={`product-image tone-${platformTone(product.merchant)}`}>
-          {product.image_url ? (
-            <img src={product.image_url} alt="" className="product-photo" />
-          ) : (
-            <span className="category-icon" aria-hidden="true">
-              <Icon name={categoryIconFor(product.title)} size={42} />
-            </span>
-          )}
+          <ProductPhoto product={product} className="product-photo" />
           <span className="image-tag">{availabilityText(product.availability)}</span>
         </div>
       </button>

@@ -16,6 +16,17 @@ def https_url(url: str | None) -> str | None:
     return None
 
 
+def image_url_of(record: dict, snapshot: dict | None = None) -> str | None:
+    """候选记录优先；旧 payload 没有图时回退商品快照。"""
+    url = https_url(record.get("image_url") if isinstance(record, dict) else None)
+    if url:
+        return url
+    if not snapshot:
+        return None
+    normalized = snapshot.get("normalized") if isinstance(snapshot.get("normalized"), dict) else snapshot
+    return https_url(normalized.get("image_url") if isinstance(normalized, dict) else None)
+
+
 def candidate_record(
     product: NormalizedProduct,
     *,
@@ -141,7 +152,7 @@ def product_candidate_from_record(item: dict, *, rank: int | None = None) -> Pro
             item.get("merchant_url"),
             item.get("click_url"),
         ),
-        image_url=https_url(item.get("image_url")),
+        image_url=image_url_of(item),
         source_updated_at=updated,
         rank=item.get("rank") if item.get("rank") is not None else rank,
         decision_reasons=list(item.get("decision_reasons") or []),
