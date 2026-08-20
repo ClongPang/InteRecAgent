@@ -20,6 +20,9 @@ export class ErrorBoundary extends Component<Props, State> {
         <main className="task-list-empty">
           <h2>工作区暂时无法打开</h2>
           <p>{this.state.message}</p>
+          <button type="button" className="button button-primary" onClick={() => window.location.reload()}>
+            重新打开
+          </button>
         </main>
       )
     }

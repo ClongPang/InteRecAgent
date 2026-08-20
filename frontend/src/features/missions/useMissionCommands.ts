@@ -20,7 +20,7 @@ export function useMissionQueries(missionId: string | undefined) {
   const recommendation = useQuery({
     queryKey: missionId ? queryKeys.recommendation(missionId) : ['recommendation', 'none'],
     queryFn: () => api.getRecommendation(missionId!),
-    enabled,
+    enabled: enabled && Boolean(mission.data?.recommendation_run_id),
   })
   const thread = useQuery({
     queryKey: missionId ? queryKeys.thread(missionId) : ['thread', 'none'],
@@ -98,8 +98,16 @@ export function useMissionCommands(missionId: string | undefined) {
     onSuccess: invalidate,
   })
 
+  const cancelRun = useMutation({
+    mutationFn: async (runId: string) => {
+      if (!missionId) throw new Error('没有进行中的选购')
+      return api.cancelRun(missionId, runId)
+    },
+    onSuccess: invalidate,
+  })
+
   const setPreference = (preference: Preference) => patchConstraints.mutate({ preference })
   const setOnlyInStock = (only_in_stock: boolean) => patchConstraints.mutate({ only_in_stock })
 
-  return { create, sendMessage, patchConstraints, undo, setComparison, setPreference, setOnlyInStock, invalidate }
+  return { create, sendMessage, patchConstraints, undo, setComparison, cancelRun, setPreference, setOnlyInStock, invalidate }
 }

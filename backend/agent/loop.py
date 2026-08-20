@@ -131,6 +131,7 @@ async def run_deterministic(ctx: ResearchContext, tools: ResearchTools) -> None:
             relaxed,
             ctx.converted_products,
             rejected_snapshot_ids=set(getattr(ctx.mission.belief, "rejected_snapshot_ids", []) or []),
+            rejected_listing_keys=set(getattr(ctx.mission.belief, "rejected_listing_keys", []) or []),
         )
         if products:
             ctx.add_warnings(["「仅看有货」导致空集，已按软条件放宽库存过滤"])

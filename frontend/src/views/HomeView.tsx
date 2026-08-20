@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
 import { PlatformMark } from '../components/ui/PlatformMark'
@@ -22,15 +22,22 @@ export function HomeView() {
   const { create } = useMissionCommands(undefined)
   const [query, setQuery] = useState('帮我找一副适合通勤的降噪耳机，预算 2500 元以内')
   const [error, setError] = useState<string | null>(null)
+  const starting = useRef(false)
+  const [locked, setLocked] = useState(false)
+  const busy = locked || create.isPending
 
   const start = async (text: string) => {
     const trimmed = text.trim()
-    if (!trimmed || create.isPending) return
+    if (!trimmed || starting.current) return
+    starting.current = true
+    setLocked(true)
     setError(null)
     try {
       const result = await create.mutateAsync(trimmed)
       navigate(`/missions/${result.mission.id}`)
     } catch (err) {
+      starting.current = false
+      setLocked(false)
       setError(err instanceof ApiError ? err.message : '创建选购失败，请确认后端已启动。')
     }
   }
@@ -52,8 +59,8 @@ export function HomeView() {
         <textarea value={query} onChange={(event) => setQuery(event.target.value)} rows={3} aria-label="描述购物需求" />
         <div className="composer-footer">
           <span>商品价换算为 RMB；运费与税费以商户结算页为准</span>
-          <Button variant="primary" type="submit" icon="arrow" disabled={!query.trim() || create.isPending}>
-            {create.isPending ? '正在创建…' : '开始选购'}
+          <Button variant="primary" type="submit" icon="arrow" disabled={!query.trim() || busy}>
+            {busy ? '正在创建…' : '开始选购'}
           </Button>
         </div>
       </form>

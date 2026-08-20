@@ -40,6 +40,49 @@ def apply_stock_filter(
     return kept, out, unknown
 
 
+_CATEGORY_CUES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("显示器", "屏幕", "monitor", "display"), ("monitor", "display", "显示器", "屏幕")),
+    (
+        ("耳机", "headphone", "earbuds", "earbud", "降噪"),
+        ("headphone", "headset", "earbuds", "earbud", "earphones", "耳机", "anc", "降噪"),
+    ),
+    (("徒步鞋", "登山鞋"), ("hiking", "trek", "徒步", "trail")),
+    (("运动鞋", "跑鞋"), ("running", "athletic", "sneaker", "跑鞋", "运动鞋")),
+    (("鞋", "shoe"), ("shoe", "boot", "sneaker", "trainer", "sandal", "hiking", "鞋")),
+)
+
+
+def relevance_cues(query: str | None) -> tuple[str, ...]:
+    text = (query or "").lower()
+    if not text:
+        return ()
+    for hints, cues in _CATEGORY_CUES:
+        if any(hint in text for hint in hints):
+            return cues
+    return ()
+
+
+def apply_relevance_filter(
+    products: Iterable[NormalizedProduct], query: str | None
+) -> tuple[list[NormalizedProduct], list[NormalizedProduct]]:
+    """标题与品类对不上的召回先丢掉；若会清空则原样返回，避免假空集。"""
+    items = list(products)
+    cues = relevance_cues(query)
+    if not cues:
+        return items, []
+    kept: list[NormalizedProduct] = []
+    dropped: list[NormalizedProduct] = []
+    for product in items:
+        title = (product.title or "").lower()
+        if any(cue in title for cue in cues):
+            kept.append(product)
+        else:
+            dropped.append(product)
+    if not kept:
+        return items, []
+    return kept, dropped
+
+
 def apply_exclusion_filter(
     products: Iterable[NormalizedProduct], terms: list[str]
 ) -> tuple[list[NormalizedProduct], list[NormalizedProduct]]:

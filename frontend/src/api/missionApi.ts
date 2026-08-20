@@ -34,8 +34,15 @@ export type MissionApi = {
   getRecommendation(missionId: string): Promise<RecommendationView | null>
   getSnapshot(snapshotId: string): Promise<ProductCandidate>
   getThread(missionId: string): Promise<ThreadView>
+  cancelRun(missionId: string, runId: string): Promise<RunAccepted>
   subscribeEvents(
     missionId: string,
+    onEvent: (eventType: string, payload: Record<string, unknown>) => void,
+    signal: AbortSignal,
+  ): Promise<void>
+  subscribeRunText(
+    missionId: string,
+    runId: string,
     onEvent: (eventType: string, payload: Record<string, unknown>) => void,
     signal: AbortSignal,
   ): Promise<void>

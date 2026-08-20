@@ -116,6 +116,7 @@ def make_filter_hard_constraints():
             mission.constraints,
             state.get("products", []),
             rejected_snapshot_ids=set(getattr(mission.belief, "rejected_snapshot_ids", []) or []),
+            rejected_listing_keys=set(getattr(mission.belief, "rejected_listing_keys", []) or []),
             snapshot_map=state.get("snapshot_map") or {},
         )
         return {"products": products, "warnings": warnings}

@@ -15,6 +15,7 @@ from ..application.errors import (
     ModelUnavailableError,
     NothingToUndo,
     RecommendationNotFound,
+    RunNotRunning,
     SnapshotNotFound,
     UpstreamUnavailableError,
 )
@@ -79,6 +80,19 @@ def register_exception_handlers(app: FastAPI) -> None:
                 code="mission_version_conflict",
                 category="user",
                 message="任务约束版本已变化，请刷新后重试",
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(RunNotRunning)
+    async def _run_not_running(request: Request, exc: RunNotRunning):
+        return JSONResponse(
+            status_code=409,
+            content=_payload(
+                request,
+                code="run_not_running",
+                category="user",
+                message="当前没有可停止的运行",
                 retryable=False,
             ),
         )

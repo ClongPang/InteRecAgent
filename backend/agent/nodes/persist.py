@@ -6,7 +6,7 @@ from collections.abc import Callable
 from ...application.dto import MissionStage, RunnerStatus, TurnPhase
 from ...application.dto.mission import next_constraints_version
 from ...application.errors import MissionVersionConflict
-from ...application.ports import UnitOfWork
+from ...application.ports import RunTextHub, UnitOfWork
 from ...application.services.dialogue import search_reuse_key
 from ...application.services.grounded import citations_from_ranked, compose_ready_reply
 from ...application.services.present import candidate_record, remap_draft
@@ -21,7 +21,23 @@ from ..state import MissionGraphState
 CONTRACT_VERSION = "1.0"
 
 
-def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
+def _finish_text(hub: RunTextHub | None, run_id: str, text: str | None = None) -> None:
+    if hub is None:
+        return
+    snap = hub.snapshot(run_id)
+    if snap and snap["text"]:
+        hub.complete(run_id)
+        return
+    if text:
+        hub.publish(run_id, text)
+    hub.complete(run_id, text=text)
+
+
+def make_persist_decision_snapshot(
+    uow_factory: Callable[[], UnitOfWork],
+    *,
+    text_hub: RunTextHub | None = None,
+):
     async def persist_decision_snapshot(state: MissionGraphState) -> dict:
         mission = state["mission"]
         run_id = state["run_id"]
@@ -51,6 +67,8 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                     await uow.missions.save(updated, expected_version=run_version)
                 except MissionVersionConflict:
                     await uow.rollback()
+                    if text_hub is not None:
+                        text_hub.abort(run_id)
                     return {
                         "status": RunnerStatus.SUPERSEDED,
                         "warnings": ["运行基于旧版本约束，已标记 superseded"],
@@ -68,6 +86,7 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                     mission_id=mission.id, run_id=run_id, payload={"status": "completed"}
                 )
                 await uow.commit()
+                _finish_text(text_hub, run_id, question)
                 return {"status": RunnerStatus.COMPLETED, "warnings": warnings}
 
             current = await uow.missions.get(owner_id=mission.owner_id, mission_id=mission.id)
@@ -81,6 +100,8 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                     mission_id=mission.id, run_id=run_id
                 )
                 await uow.commit()
+                if text_hub is not None:
+                    text_hub.abort(run_id)
                 return {"status": RunnerStatus.SUPERSEDED, "warnings": ["运行基于旧版本约束，已标记 superseded"]}
 
             constraints_version = next_constraints_version(
@@ -97,6 +118,7 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                     run_version=run_version,
                     constraints_version=constraints_version,
                     warnings=warnings,
+                    text_hub=text_hub,
                 )
 
             ranked = state.get("ranked", [])
@@ -194,6 +216,8 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 await uow.missions.save(updated, expected_version=run_version)
             except MissionVersionConflict:
                 await uow.rollback()
+                if text_hub is not None:
+                    text_hub.abort(run_id)
                 return {"status": RunnerStatus.SUPERSEDED, "warnings": ["运行基于旧版本约束，已标记 superseded"]}
 
             # 控制反转后约束合并在图内发生；补发 constraints.updated 以支撑 undo 回溯与线程投影。
@@ -241,6 +265,7 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 },
             )
             await uow.commit()
+            _finish_text(text_hub, run_id, agent_text)
 
             status = RunnerStatus.COMPLETED if stage == MissionStage.READY else RunnerStatus.DEGRADED
             return {
@@ -262,6 +287,7 @@ async def _persist_talk(
     run_version: int,
     constraints_version: int,
     warnings: list[str],
+    text_hub: RunTextHub | None = None,
 ) -> dict:
     comparison_ids = state.get("comparison_snapshot_ids") or mission.comparison_snapshot_ids
     ranked = list((state.get("cache_payload") or {}).get("ranked") or [])
@@ -294,6 +320,8 @@ async def _persist_talk(
         await uow.missions.save(updated, expected_version=run_version)
     except MissionVersionConflict:
         await uow.rollback()
+        if text_hub is not None:
+            text_hub.abort(run_id)
         return {"status": RunnerStatus.SUPERSEDED, "warnings": ["运行基于旧版本约束，已标记 superseded"]}
     await uow.recommendation_runs.save(
         mission_id=mission.id, run_id=run_id, payload={"status": "completed"}
@@ -324,6 +352,7 @@ async def _persist_talk(
             },
         )
     await uow.commit()
+    _finish_text(text_hub, run_id, text)
     return {
         "status": RunnerStatus.COMPLETED,
         "candidate_set_id": current.candidate_set_id,

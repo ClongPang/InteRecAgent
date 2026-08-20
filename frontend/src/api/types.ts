@@ -11,7 +11,7 @@ export type MissionStage =
 export type TurnPhase = 'idle' | 'responding' | 'refiltering' | 'researching'
 
 export function isBusyPhase(phase: TurnPhase | undefined): boolean {
-  return phase === 'researching' || phase === 'refiltering'
+  return phase === 'researching' || phase === 'refiltering' || phase === 'responding'
 }
 
 export type MissionConstraints = {

@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...application.dto import ToolCall, ToolSpec
-from ...application.ports import FxSource, ProductSource
+from ...application.ports import FxSource, ProductSource, RunProgress
 from ...application.services.rec import (
     market_native_caps,
     normalize_products,
@@ -42,11 +42,17 @@ class ResearchTools:
     """把确定性流水线暴露成 LLM 可调用的工具集合。"""
 
     def __init__(
-        self, products: ProductSource, fx: FxSource, *, max_concurrency: int = 3
+        self,
+        products: ProductSource,
+        fx: FxSource,
+        *,
+        max_concurrency: int = 3,
+        progress: RunProgress | None = None,
     ) -> None:
         self._products = products
         self._fx = fx
         self._max_concurrency = max_concurrency
+        self._progress = progress
 
     @property
     def specs(self) -> list[ToolSpec]:
@@ -109,7 +115,42 @@ class ResearchTools:
         }.get(call.name)
         if handler is None:
             return {"error": f"unknown_tool:{call.name}"}
-        return await handler(ctx, call.arguments or {})
+        args = call.arguments or {}
+        await self._emit_started(call.name, args, ctx)
+        result = await handler(ctx, args)
+        await self._emit_finished(call.name, result)
+        return result
+
+    async def _emit_started(self, tool: str, args: dict[str, Any], ctx: ResearchContext) -> None:
+        if self._progress is None or tool != "search_products":
+            return
+        query = str(args.get("query") or ctx.plan.query or "")
+        markets = [m for m in (args.get("markets") or ctx.plan.markets) if m]
+        await self._progress.started(
+            tool, {"query": query, "markets": markets or list(ctx.plan.markets)}
+        )
+
+    async def _emit_finished(self, tool: str, result: dict[str, Any]) -> None:
+        if self._progress is None:
+            return
+        if tool == "search_products":
+            await self._progress.finished(
+                tool,
+                {
+                    "count": result.get("found", 0),
+                    "markets": result.get("markets") or [],
+                    "failed_markets": result.get("failed_markets") or [],
+                },
+            )
+            return
+        if tool == "convert_fx":
+            await self._progress.finished(
+                tool,
+                {"converted": result.get("converted") or [], "failed": result.get("failed") or []},
+            )
+            return
+        if tool == "rank_candidates":
+            await self._progress.finished(tool, {"count": result.get("count", 0)})
 
     async def _search_products(self, ctx: ResearchContext, args: dict[str, Any]) -> dict[str, Any]:
         query = str(args.get("query") or ctx.plan.query or "")
@@ -172,11 +213,12 @@ class ResearchTools:
         del args
         if not ctx.converted:
             await self._convert_fx(ctx, {})
-        rejected = set(getattr(ctx.mission.belief, "rejected_snapshot_ids", []) or [])
+        belief = ctx.mission.belief
         products, warnings = run_filter(
             ctx.mission.constraints,
             ctx.products,
-            rejected_snapshot_ids=rejected,
+            rejected_snapshot_ids=set(getattr(belief, "rejected_snapshot_ids", []) or []),
+            rejected_listing_keys=set(getattr(belief, "rejected_listing_keys", []) or []),
             snapshot_map={},
         )
         ctx.products = products

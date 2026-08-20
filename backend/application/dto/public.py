@@ -20,6 +20,7 @@ SSE_PUBLIC_EVENTS = frozenset(
         "run.degraded",
         "run.superseded",
         "run.failed",
+        "run.cancelled",
         "agent.message",
         "message.received",
         "constraints.updated",

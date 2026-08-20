@@ -126,28 +126,40 @@ export function ConversationPanel({
   mission,
   messages,
   pendingText,
+  draftAgent,
+  progress,
   focusTitle,
   busy,
   onSend,
   onUndo,
+  onCancel,
   onOpen,
   onClearFocus,
 }: {
   mission: MissionView
   messages: ThreadMessage[]
   pendingText?: string | null
+  draftAgent?: string | null
+  progress?: string | null
   focusTitle?: string | null
   busy: boolean
   onSend: (text: string) => void
   onUndo: () => void
+  onCancel?: () => void
   onOpen: (snapshotId: string) => void
   onClearFocus?: () => void
 }) {
   const [draft, setDraft] = useState('')
   const undoable = lastUndoableChange(messages)
-  const visible = pendingText
-    ? [...messages, { sequence: 0, kind: 'user' as const, role: 'user', text: pendingText, constraints_version: null, snapshot_ids: [], created_at: null }]
-    : messages
+  const visible = [
+    ...messages,
+    ...(pendingText
+      ? [{ sequence: 0, kind: 'user' as const, role: 'user' as const, text: pendingText, constraints_version: null, snapshot_ids: [] as string[], created_at: null }]
+      : []),
+    ...(draftAgent
+      ? [{ sequence: 0.5, kind: 'agent' as const, role: 'agent' as const, text: draftAgent, constraints_version: null, snapshot_ids: [] as string[], created_at: null }]
+      : []),
+  ]
   const submit = (event?: { preventDefault(): void }, text = draft) => {
     event?.preventDefault()
     const value = text.trim()
@@ -174,6 +186,12 @@ export function ConversationPanel({
         </div>
       ) : null}
       <Thread messages={visible} onOpen={onOpen} onMove={(text) => submit(undefined, text)} onUndo={onUndo} />
+      {progress ? (
+        <div className="research-progress" role="status">
+          <Icon name="search" size={14} />
+          <span>{progress}</span>
+        </div>
+      ) : null}
       <form className="conversation-composer" onSubmit={submit}>
         <textarea
           rows={2}
@@ -190,6 +208,11 @@ export function ConversationPanel({
           disabled={busy}
         />
         <div className="composer-row">
+          {busy && onCancel ? (
+            <button type="button" className="cancel-run-button" onClick={onCancel}>
+              停止
+            </button>
+          ) : null}
           <button className="send-button" disabled={!draft.trim() || busy} aria-label="发送">
             <Icon name="arrow" size={16} />
           </button>

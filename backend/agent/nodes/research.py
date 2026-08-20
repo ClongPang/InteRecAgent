@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from ...application.ports import FxSource, ModelBackend, ProductSource, UnitOfWork
+from ...application.services.progress import DurableRunProgress
 from ...application.services.rec import plan_search, rec_state_from_mission
 from ..loop import run_agent, run_deterministic
 from ..state import MissionGraphState
@@ -26,7 +27,12 @@ def make_research(
         mission = state["mission"]
         plan = plan_search(rec_state_from_mission(mission))
         ctx = ResearchContext(mission=mission, plan=plan)
-        tools = ResearchTools(products, fx, max_concurrency=max_concurrency)
+        progress = DurableRunProgress(
+            uow_factory, mission_id=mission.id, run_id=state["run_id"]
+        )
+        tools = ResearchTools(
+            products, fx, max_concurrency=max_concurrency, progress=progress
+        )
 
         if model_backend.supports_tools():
             await run_agent(

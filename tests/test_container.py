@@ -63,6 +63,8 @@ def test_dispatcher_is_shared_with_command_service() -> None:
     service = c.build_command_service(sf)
     assert c.build_run_dispatcher(sf) is first
     assert service._dispatcher is first
+    assert service._broker is c.build_event_broker()
+    assert service._text_hub is c.build_text_hub()
 
 
 def test_settings_reads_interec_env_vars() -> None:

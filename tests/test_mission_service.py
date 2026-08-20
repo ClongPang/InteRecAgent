@@ -9,7 +9,7 @@ import pytest
 
 from backend.application.dto import MissionConstraints, MissionStage, ShoppingMission, TurnPhase
 from backend.application.dto.dialogue import TurnCommand
-from backend.application.errors import MissionNotFound, MissionVersionConflict
+from backend.application.errors import MissionNotFound, MissionVersionConflict, RunNotRunning
 from backend.application.services import MissionCommandService
 
 
@@ -91,12 +91,18 @@ class FakeUoW:
 class FakeDispatcher:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, str, int]] = []
+        self.cancels: list[str] = []
 
     async def start(self) -> None:
         pass
 
     async def dispatch(self, *, owner_id: str, mission_id: str, run_id: str, constraints_version: int) -> None:
         self.calls.append((owner_id, mission_id, run_id, constraints_version))
+
+    async def cancel(self, *, owner_id: str, mission_id: str, run_id: str) -> bool:
+        del owner_id, mission_id
+        self.cancels.append(run_id)
+        return True
 
     async def stop(self, grace_seconds: float = 5.0) -> None:
         pass
@@ -135,9 +141,9 @@ async def test_submit_message_dispatches_and_returns_run_id() -> None:
     # 事件已持久化（先于调度，保证可追溯）
     assert events.events[0][1] == "message.received"
     assert events.events[0][2]["run_id"] == run_id
-    # 控制反转：薄入口不再同步改 stage/phase（分类与路由在图内异步发生）
+    # 薄入口不改 stage（分类在图内），但先标 responding，避免前端在 202 后误以为空闲。
     assert missions.missions["m1"].stage.value == "collecting"
-    assert missions.missions["m1"].turn_phase.value == "idle"
+    assert missions.missions["m1"].turn_phase.value == "responding"
     assert missions.missions["m1"].active_run_id == run_id
 
 
@@ -235,9 +241,9 @@ async def test_submit_question_does_not_mark_searching() -> None:
     )
     assert dispatcher.calls[0][2] == run_id
     stored = missions.missions["m1"]
-    # 薄入口不改 stage/phase：既有的 ready 不被误置为 searching，phase 仍 idle（图内再定）
+    # 薄入口不改 stage；phase 先标 responding，图结束再回到 idle。
     assert stored.stage == MissionStage.READY
-    assert stored.turn_phase == TurnPhase.IDLE
+    assert stored.turn_phase == TurnPhase.RESPONDING
 
 
 @pytest.mark.asyncio
@@ -364,3 +370,19 @@ async def test_submit_turn_message_matches_send() -> None:
     )
     assert dispatcher.calls[0][2] == run_id
     assert missions.missions["m1"].dialogue.focus_snapshot_id == "snap-9"
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_delegates_to_dispatcher() -> None:
+    mission = _mission().model_copy(update={"active_run_id": "r1", "turn_phase": TurnPhase.RESEARCHING})
+    svc, _missions, _events, dispatcher = _make(mission=mission)
+    assert await svc.cancel_run(owner_id="u1", mission_id="m1", run_id="r1") == "r1"
+    assert dispatcher.cancels == ["r1"]
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_rejects_stale_run_id() -> None:
+    mission = _mission().model_copy(update={"active_run_id": "r1"})
+    svc, _missions, _events, _dispatcher = _make(mission=mission)
+    with pytest.raises(RunNotRunning):
+        await svc.cancel_run(owner_id="u1", mission_id="m1", run_id="r-other")

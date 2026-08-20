@@ -28,53 +28,106 @@ function withCandidate(item: ProductCandidate): ProductCandidate {
   }
 }
 
-async function readSse(
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(resolve, ms)
+    signal.addEventListener(
+      'abort',
+      () => {
+        window.clearTimeout(timer)
+        reject(new DOMException('Aborted', 'AbortError'))
+      },
+      { once: true },
+    )
+  })
+}
+
+async function readSseLoop(
+  urlFor: (after: number) => string,
+  onEvent: (eventType: string, payload: Record<string, unknown>) => void,
+  signal: AbortSignal,
+  options: { once?: boolean } = {},
+): Promise<void> {
+  const once = options.once === true
+  let after = 0
+  let delay = 1000
+  while (!signal.aborted) {
+    try {
+      const response = await fetch(urlFor(after), {
+        headers: {
+          ...authHeaders(),
+          Accept: 'text/event-stream',
+          ...(after > 0 ? { 'Last-Event-ID': String(after) } : {}),
+        },
+        signal,
+      })
+      if (!response.ok || !response.body) {
+        throw new Error(`SSE 连接失败（${response.status}）`)
+      }
+      delay = 1000
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let eventType = 'message'
+      let data = ''
+      let finished = false
+      while (!signal.aborted) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const chunks = buffer.split('\n')
+        buffer = chunks.pop() ?? ''
+        for (const line of chunks) {
+          if (line.startsWith('id:')) {
+            const seq = Number(line.slice(3).trim())
+            if (Number.isFinite(seq)) after = seq
+          } else if (line.startsWith('event:')) {
+            eventType = line.slice(6).trim()
+          } else if (line.startsWith('data:')) {
+            data += line.slice(5).trim()
+          } else if (line.trim() === '') {
+            if (data) {
+              try {
+                onEvent(eventType, JSON.parse(data) as Record<string, unknown>)
+              } catch {
+                /* heartbeat or non-json */
+              }
+            }
+            if (
+              eventType === 'agent.message.completed' ||
+              eventType === 'agent.message.aborted'
+            ) {
+              finished = true
+            }
+            eventType = 'message'
+            data = ''
+          }
+        }
+      }
+      if (once || finished) return
+    } catch (error) {
+      if (signal.aborted) return
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      try {
+        await sleep(delay, signal)
+      } catch {
+        return
+      }
+      delay = Math.min(delay * 2, 8000)
+    }
+  }
+}
+
+function readSse(
   missionId: string,
   onEvent: (eventType: string, payload: Record<string, unknown>) => void,
   signal: AbortSignal,
 ): Promise<void> {
-  let after = 0
-  while (!signal.aborted) {
-    const response = await fetch(`${apiBaseUrl()}/missions/${missionId}/events?after=${after}`, {
-      headers: { ...authHeaders(), Accept: 'text/event-stream' },
-      signal,
-    })
-    if (!response.ok || !response.body) {
-      throw new Error(`SSE 连接失败（${response.status}）`)
-    }
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let eventType = 'message'
-    let data = ''
-    while (!signal.aborted) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const chunks = buffer.split('\n')
-      buffer = chunks.pop() ?? ''
-      for (const line of chunks) {
-        if (line.startsWith('id:')) {
-          const seq = Number(line.slice(3).trim())
-          if (Number.isFinite(seq)) after = seq
-        } else if (line.startsWith('event:')) {
-          eventType = line.slice(6).trim()
-        } else if (line.startsWith('data:')) {
-          data += line.slice(5).trim()
-        } else if (line.trim() === '') {
-          if (data) {
-            try {
-              onEvent(eventType, JSON.parse(data) as Record<string, unknown>)
-            } catch {
-              /* heartbeat or non-json */
-            }
-          }
-          eventType = 'message'
-          data = ''
-        }
-      }
-    }
-  }
+  return readSseLoop(
+    (after) => `${apiBaseUrl()}/missions/${missionId}/events?after=${after}`,
+    onEvent,
+    signal,
+  )
 }
 
 export const httpMissionApi: MissionApi = {
@@ -143,5 +196,14 @@ export const httpMissionApi: MissionApi = {
   },
   getSnapshot: async (snapshotId) => withCandidate(await request<ProductCandidate>(`/product-snapshots/${snapshotId}`)),
   getThread: (missionId) => request<ThreadView>(`/missions/${missionId}/thread`),
+  cancelRun: (missionId, runId) =>
+    request<RunAccepted>(`/missions/${missionId}/runs/${runId}/cancel`, { method: 'POST' }),
   subscribeEvents: readSse,
+  subscribeRunText: (missionId, runId, onEvent, signal) =>
+    readSseLoop(
+      (after) => `${apiBaseUrl()}/missions/${missionId}/runs/${runId}/text?after=${after}`,
+      onEvent,
+      signal,
+      { once: true },
+    ),
 }

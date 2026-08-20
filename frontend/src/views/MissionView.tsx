@@ -74,10 +74,13 @@ export function MissionView({ currency }: { currency: Currency }) {
           mission={mission}
           messages={thread?.messages ?? []}
           pendingText={workspace.pendingText}
+          draftAgent={workspace.draftAgent}
+          progress={workspace.progress}
           focusTitle={workspace.focusProduct?.title ?? null}
           busy={workspace.busy}
           onSend={workspace.send}
           onUndo={() => workspace.undo.mutate()}
+          onCancel={workspace.cancel}
           onOpen={openSnapshot}
           onClearFocus={() => workspace.setFocusSnapshotId(null)}
         />

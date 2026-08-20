@@ -683,7 +683,19 @@ export function createFixtureApi(): MissionApi {
     async getThread(missionId) {
       return { messages: store.threads[missionId] ?? [] }
     },
+    async cancelRun() {
+      return { run_id: 'fixture-run', constraints_version: 1 }
+    },
     async subscribeEvents(_missionId, _onEvent, signal) {
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) {
+          resolve()
+          return
+        }
+        signal.addEventListener('abort', () => resolve(), { once: true })
+      })
+    },
+    async subscribeRunText(_missionId, _runId, _onEvent, signal) {
       await new Promise<void>((resolve) => {
         if (signal.aborted) {
           resolve()

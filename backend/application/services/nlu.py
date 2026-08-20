@@ -166,6 +166,60 @@ def classify_turn(
     return DialogueAct(kind=kind, patch=patch)
 
 
+_GROUNDABLE = {DialogueActKind.REFINE, DialogueActKind.UNKNOWN}
+_SPEECH_ACTS = {
+    DialogueActKind.COMPARE,
+    DialogueActKind.ASK_ITEM,
+    DialogueActKind.REJECT,
+    DialogueActKind.STANCE,
+    DialogueActKind.UNDO,
+    DialogueActKind.META,
+}
+
+
+def ground_dialogue_act(
+    act: DialogueAct,
+    text: str,
+    *,
+    current_query: str | None = None,
+) -> DialogueAct:
+    """用确定性品类/预算补模型漏抽。模型把态度/否定收成 refine 时，改回言语行为。"""
+    if act.kind in _GROUNDABLE:
+        deterministic = classify_turn(text, current_query=current_query)
+        if deterministic.kind in _SPEECH_ACTS:
+            patch = deterministic.patch
+            if act.patch and deterministic.kind == DialogueActKind.STANCE:
+                patch = _stance_patch(act.patch)
+            return act.model_copy(
+                update={
+                    "kind": deterministic.kind,
+                    "stance": deterministic.stance or act.stance,
+                    "referent_ranks": deterministic.referent_ranks or act.referent_ranks,
+                    "exclude_terms": deterministic.exclude_terms or act.exclude_terms,
+                    "topic": deterministic.topic or act.topic,
+                    "patch": patch,
+                }
+            )
+    if act.kind not in _GROUNDABLE:
+        return act
+    fallback = parse_intent(text, current_query=current_query)
+    patch = act.patch or IntentPatch()
+    updates: dict = {}
+    if not (patch.query or "").strip() and fallback.query:
+        updates["query"] = fallback.query
+        updates["requires_clarification"] = False
+        updates["clarification_question"] = None
+    if patch.budget_cny is None and fallback.budget_cny is not None:
+        updates["budget_cny"] = fallback.budget_cny
+    if not patch.markets and fallback.markets:
+        updates["markets"] = fallback.markets
+    if not updates:
+        return act
+    grounded = patch.model_copy(update=updates)
+    kind = DialogueActKind.REFINE if grounded.query else act.kind
+    return act.model_copy(update={"kind": kind, "patch": grounded})
+
+
 def is_undo_text(text: str) -> bool:
     """撤销是事务控制而非意图理解，命令层薄入口仍需在派单前识别以走 undo 回溯。"""
     return bool(_UNDO.search(text or ""))

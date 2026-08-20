@@ -48,6 +48,8 @@ def test_required_ports_exist_and_are_async() -> None:
         "FxSource",
         "ModelBackend",
         "MissionRepository",
+        "MissionEventBroker",
+        "RunTextHub",
         "UnitOfWork",
     ]
     for name in required:
@@ -57,8 +59,10 @@ def test_required_ports_exist_and_are_async() -> None:
     assert inspect.iscoroutinefunction(ports.FxSource.get_rate)
     assert inspect.iscoroutinefunction(ports.MissionRunner.run)
     assert inspect.iscoroutinefunction(ports.RunDispatcher.dispatch)
+    assert inspect.iscoroutinefunction(ports.RunDispatcher.cancel)
     assert inspect.iscoroutinefunction(ports.MissionRepository.get)
     assert inspect.iscoroutinefunction(ports.ModelBackend.parse_turn)
+    assert inspect.iscoroutinefunction(ports.MissionEventBroker.wait)
 
 
 def test_application_does_not_import_agent_or_infrastructure() -> None:

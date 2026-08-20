@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from backend.application.dto.belief import PreferenceBelief, SoftPref
-from backend.application.dto.dialogue import DialogueActKind, TurnRoute
+from backend.application.dto.dialogue import DialogueAct, DialogueActKind, TurnRoute
 from backend.application.dto.mission import MissionConstraints, ShoppingMission, TurnPhase
+from backend.application.dto.runner import IntentPatch
 from backend.application.services.dialogue import (
     classify_turn,
     next_moves_for,
@@ -14,6 +15,7 @@ from backend.application.services.dialogue import (
     search_reuse_key,
     summarize_constraint_change,
 )
+from backend.application.services.nlu import ground_dialogue_act
 from backend.application.services.parse_intent import extract_query
 from backend.application.services.policy import sanitize_constraints
 from backend.domain.models import NormalizedProduct
@@ -133,6 +135,18 @@ def test_project_thread_maps_user_and_agent_events() -> None:
     assert view.messages[1].role == "agent"
 
 
+def test_project_thread_maps_cancel_and_ignores_progress() -> None:
+    view = project_thread(
+        [
+            {"sequence": 1, "event_type": "search.started", "payload": {"run_id": "r1"}},
+            {"sequence": 2, "event_type": "products.received", "payload": {"run_id": "r1", "count": 3}},
+            {"sequence": 3, "event_type": "run.cancelled", "payload": {"run_id": "r1"}},
+        ]
+    )
+    assert [m.kind for m in view.messages] == ["warning"]
+    assert "停止" in view.messages[0].text
+
+
 def test_preview_question_is_responding_not_research() -> None:
     act = classify_turn("这款保修吗")
     _route, phase = preview_turn(
@@ -187,6 +201,25 @@ def test_summarize_and_project_constraint_change() -> None:
     assert view.messages[1].kind == "recommendation"
 
 
+def test_project_thread_keeps_one_reply_when_ready_and_agent_share_run() -> None:
+    view = project_thread(
+        [
+            {
+                "sequence": 1,
+                "event_type": "recommendation.ready",
+                "payload": {"run_id": "r1", "text": "推荐 A。", "count": 2},
+            },
+            {
+                "sequence": 2,
+                "event_type": "agent.message",
+                "payload": {"run_id": "r1", "text": "推荐 A。", "snapshot_ids": ["s1"]},
+            },
+        ]
+    )
+    assert [item.kind for item in view.messages] == ["agent"]
+    assert view.messages[0].text == "推荐 A。"
+
+
 def test_same_run_folds_constraint_change_into_user() -> None:
     before = MissionConstraints(query="耳机", budget_cny=4000)
     after = MissionConstraints(query="耳机", budget_cny=2000)
@@ -235,9 +268,41 @@ def test_same_run_folds_constraint_change_into_user() -> None:
     assert any(move.text == "为什么推荐" for move in view.messages[1].next_moves)
 
 
+def test_ground_recovers_wrapped_first_turn() -> None:
+    act = DialogueAct(
+        kind=DialogueActKind.UNKNOWN,
+        patch=IntentPatch(requires_clarification=True, clarification_question="您想买什么？"),
+    )
+    grounded = ground_dialogue_act(
+        act, "帮我找一副适合通勤的降噪耳机，预算 2500 元以内"
+    )
+    assert grounded.kind == DialogueActKind.REFINE
+    assert grounded.patch is not None
+    assert "降噪耳机" in (grounded.patch.query or "")
+    assert grounded.patch.budget_cny == 2500
+    assert grounded.patch.requires_clarification is False
+
+
+def test_ground_does_not_rewrite_compare() -> None:
+    act = DialogueAct(kind=DialogueActKind.COMPARE, referent_ranks=[1, 2])
+    grounded = ground_dialogue_act(act, "帮我比前两个耳机", current_query="降噪耳机")
+    assert grounded.kind == DialogueActKind.COMPARE
+    assert grounded.patch is None
+
+
+def test_ground_recovers_stance_when_model_returns_refine() -> None:
+    act = DialogueAct(kind=DialogueActKind.REFINE, patch=IntentPatch(query="降噪耳机"))
+    grounded = ground_dialogue_act(act, "太贵了", current_query="降噪耳机")
+    assert grounded.kind == DialogueActKind.STANCE
+    assert grounded.stance == "too_expensive"
+    assert grounded.patch is None or grounded.patch.query is None
+
+
 def test_leftover_does_not_overwrite_query() -> None:
     assert extract_query("太贵了", current_query="降噪耳机") is None
     assert extract_query("再便宜一点", current_query="降噪耳机") is None
+    assert extract_query("适合远程办公的 27 寸 4K 显示器，3000 元以内") == "27 寸 4K 显示器"
+    assert extract_query("帮我找一副适合通勤的降噪耳机，预算 2500 元以内") == "降噪耳机"
     act = classify_turn("太贵了", current_query="降噪耳机")
     assert act.kind == DialogueActKind.STANCE
     assert act.patch is None or act.patch.query is None
@@ -308,11 +373,23 @@ def test_reject_writes_belief_and_reranks() -> None:
     preview = deterministic_turn(
         mission,
         "不要这款",
-        cache_payload={"ranked": [{"snapshot_id": "snap-1", "estimated_cny": {"amount": 2100}}],
-                       "reuse_key": search_reuse_key(mission.constraints)},
+        cache_payload={
+            "ranked": [
+                {
+                    "snapshot_id": "snap-1",
+                    "source_product_id": "src-red",
+                    "title": "COWIN E7 Red",
+                    "merchant": "shopify",
+                    "estimated_cny": {"amount": 2100},
+                }
+            ],
+            "reuse_key": search_reuse_key(mission.constraints),
+        },
     )
     assert preview.route == "rerank"
     assert "snap-1" in preview.belief.rejected_snapshot_ids
+    assert "src:src-red" in preview.belief.rejected_listing_keys
+    assert "title:cowin e7 red|m:shopify" in preview.belief.rejected_listing_keys
 
 
 def test_expensive_without_budget_reranks() -> None:

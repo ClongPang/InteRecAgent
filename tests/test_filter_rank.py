@@ -5,6 +5,7 @@ import pytest
 from backend.domain.models import FxSnapshot, NormalizedProduct
 from backend.domain.policies import (
     apply_budget_filter,
+    apply_relevance_filter,
     apply_stock_filter,
     convert_products,
     dedupe_products,
@@ -74,6 +75,21 @@ class TestRank:
         )
         ranked = rank_products(products)
         assert ranked[-1].id == "no_fx"
+
+
+class TestRelevanceFilter:
+    def test_drops_off_category_cheapest_junk(self):
+        journal = _product("j", 10, title="Blood Pressure Log Book Daily Journal")
+        monitor = _product("m", 200, title="Dell 27 inch 4K UHD Monitor")
+        kept, dropped = apply_relevance_filter([journal, monitor], "27 寸 4K 显示器")
+        assert [p.id for p in kept] == ["m"]
+        assert [p.id for p in dropped] == ["j"]
+
+    def test_keeps_all_when_filter_would_empty(self):
+        journal = _product("j", 10, title="Blood Pressure Log Book")
+        kept, dropped = apply_relevance_filter([journal], "27 寸 4K 显示器")
+        assert [p.id for p in kept] == ["j"]
+        assert dropped == []
 
 
 class TestStockFilter:

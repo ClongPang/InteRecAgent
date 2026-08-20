@@ -8,6 +8,7 @@ from ...application.ports import ModelBackend
 from ...application.services.dialogue import (
     apply_act_effects,
     classify_turn,
+    ground_dialogue_act,
     plan_route,
     reuse_key_matches,
 )
@@ -54,6 +55,7 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
                 act = await model_backend.parse_turn(
                     text, current_query=current_query, context=context
                 )
+                act = ground_dialogue_act(act, text, current_query=current_query)
                 return {
                     "dialogue_act": act,
                     "intent_patch": act.patch or IntentPatch(),
@@ -62,6 +64,7 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
             except ModelUnavailableError:
                 pass
         act = classify_turn(text, current_query=current_query, context=context)
+        act = ground_dialogue_act(act, text, current_query=current_query)
         return {"dialogue_act": act, "intent_patch": act.patch or IntentPatch()}
 
     return classify_dialogue_act

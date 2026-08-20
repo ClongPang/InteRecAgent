@@ -101,6 +101,20 @@ async def test_graceful_stop_cancels_slow_run_and_marks_interrupted(db) -> None:
 
 
 @pytest.mark.asyncio
+async def test_user_cancel_marks_run_cancelled(db) -> None:
+    await _insert_mission(db)
+    dispatcher = InProcessRunDispatcher(SlowRunner(delay=10), db)
+    await dispatcher.start()
+    await dispatcher.dispatch(
+        owner_id=OWNER, mission_id=MISSION, run_id=RUN, constraints_version=1
+    )
+    await asyncio.sleep(0.1)
+    assert await dispatcher.cancel(owner_id=OWNER, mission_id=MISSION, run_id=RUN) is True
+    assert await _get_run_status(db) == "cancelled"
+    await dispatcher.stop(grace_seconds=0.1)
+
+
+@pytest.mark.asyncio
 async def test_dispatch_after_stop_is_rejected(db) -> None:
     await _insert_mission(db)
     dispatcher = InProcessRunDispatcher(SlowRunner(delay=0), db)

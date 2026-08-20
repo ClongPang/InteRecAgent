@@ -205,6 +205,19 @@ async def get_recommendation(
     return await svc.get_recommendation(owner_id=owner_id, mission_id=mission_id)
 
 
+@router.post("/{mission_id}/runs/{run_id}/cancel", status_code=202, response_model=RunAccepted)
+async def cancel_run(
+    mission_id: str,
+    run_id: str,
+    svc=Depends(get_command_service),
+    owner_id: str = Depends(get_anonymous_user_id),
+) -> RunAccepted:
+    """取消当前运行。不撤销已落库的候选；前端靠 run.cancelled 解锁输入。"""
+    await svc.cancel_run(owner_id=owner_id, mission_id=mission_id, run_id=run_id)
+    loaded = await svc.get_mission(owner_id=owner_id, mission_id=mission_id)
+    return RunAccepted(run_id=run_id, constraints_version=loaded.constraints_version)
+
+
 @router.get("/{mission_id}/thread", response_model=ThreadView)
 async def get_thread(
     mission_id: str,

@@ -9,6 +9,7 @@ from ..dto.mission import DialogueState, MissionConstraints, ShoppingMission, Tu
 from ..dto.runner import IntentPatch
 from .nlu import preview_merged_constraints, snapshot_ids_for_ranks
 from .parse_intent import parse_intent
+from .rec.identity import listing_keys_from_record, record_for_snapshot
 from .route import preview_turn
 
 
@@ -38,7 +39,10 @@ def apply_act_effects(
             )
             focus = ids[0] if ids else None
         if focus:
-            belief = belief.reject(focus)
+            ranked = list((cache_payload or {}).get("ranked") or [])
+            belief = belief.reject(
+                focus, listing_keys=listing_keys_from_record(record_for_snapshot(ranked, focus))
+            )
     if act.stance == "want_lighter":
         belief = belief.mark_unsupported("weight", "lower")
     dialogue = dialogue.model_copy(update={"last_act": act.kind.value})

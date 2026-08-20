@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from uuid import uuid4
 
@@ -20,9 +21,10 @@ from ..errors import (
     MissionVersionConflict,
     NothingToUndo,
     RecommendationNotFound,
+    RunNotRunning,
     SnapshotNotFound,
 )
-from ..ports import RunDispatcher, UnitOfWork
+from ..ports import MissionEventBroker, RunDispatcher, RunTextHub, UnitOfWork
 from .dialogue import preview_turn, project_thread, stage_for_phase
 from .nlu import is_undo_text
 from .policy import DialoguePolicy, TurnDecision, TurnInput
@@ -42,9 +44,13 @@ class MissionCommandService:
         *,
         uow_factory: Callable[[], UnitOfWork],
         dispatcher: RunDispatcher,
+        broker: MissionEventBroker | None = None,
+        text_hub: RunTextHub | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._dispatcher = dispatcher
+        self._broker = broker
+        self._text_hub = text_hub
 
     async def get_mission(self, *, owner_id: str, mission_id: str) -> ShoppingMission:
         async with self._uow_factory() as uow:
@@ -95,7 +101,12 @@ class MissionCommandService:
             if focus_snapshot_id:
                 dialogue = dialogue.model_copy(update={"focus_snapshot_id": focus_snapshot_id})
             updated = mission.model_copy(
-                update={"active_run_id": run_id, "dialogue": dialogue, "updated_at": utcnow()}
+                update={
+                    "active_run_id": run_id,
+                    "dialogue": dialogue,
+                    "turn_phase": TurnPhase.RESPONDING,
+                    "updated_at": utcnow(),
+                }
             )
             await uow.missions.save(updated, expected_version=constraints_version)
             await uow.events.append(
@@ -340,6 +351,44 @@ class MissionCommandService:
             if mission is None:
                 raise MissionNotFound(mission_id)
             return await uow.events.list_since(mission_id=mission_id, sequence=after)
+
+    async def wait_for_events(
+        self, *, owner_id: str, mission_id: str, after: int, timeout: float
+    ) -> bool:
+        """门铃等待。无 broker 时退回短睡眠，由调用方再 list_events。"""
+        del owner_id
+        if self._broker is None:
+            await asyncio.sleep(min(timeout, 0.5))
+            return True
+        return await self._broker.wait(mission_id=mission_id, after=after, timeout=timeout)
+
+    @property
+    def text_hub(self) -> RunTextHub | None:
+        return self._text_hub
+
+    async def replay_run_text(self, *, owner_id: str, mission_id: str, run_id: str) -> str | None:
+        """hub 已过期时，从 durable 事件回放本轮终稿。"""
+        events = await self.list_events(owner_id=owner_id, mission_id=mission_id, after=0)
+        for event in reversed(events):
+            payload = event.get("payload") or {}
+            if str(payload.get("run_id") or "") != run_id:
+                continue
+            if event["event_type"] == "agent.message":
+                return str(payload.get("text") or "")
+            if event["event_type"] == "clarification.required":
+                return str(payload.get("question") or "")
+        return None
+
+    async def cancel_run(self, *, owner_id: str, mission_id: str, run_id: str) -> str:
+        mission = await self.get_mission(owner_id=owner_id, mission_id=mission_id)
+        if mission.active_run_id != run_id:
+            raise RunNotRunning(run_id)
+        cancelled = await self._dispatcher.cancel(
+            owner_id=owner_id, mission_id=mission_id, run_id=run_id
+        )
+        if not cancelled:
+            raise RunNotRunning(run_id)
+        return run_id
 
     async def submit_turn(
         self,

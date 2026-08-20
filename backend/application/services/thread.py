@@ -48,6 +48,7 @@ def _fold_thread(
     budget_cny: float | None = None,
 ) -> list[ThreadMessage]:
     dialogue_runs = {item.run_id for item in messages if item.kind != "change" and item.run_id}
+    agent_runs = {item.run_id for item in messages if item.kind == "agent" and item.run_id}
     changes = {
         item.run_id: item
         for item in messages
@@ -56,6 +57,8 @@ def _fold_thread(
     out: list[ThreadMessage] = []
     for item in messages:
         if item.kind == "change" and item.run_id and item.run_id in dialogue_runs:
+            continue
+        if item.kind == "recommendation" and item.run_id and item.run_id in agent_runs:
             continue
         updates: dict = {}
         if item.run_id and item.run_id in changes and item.kind != "change":
@@ -161,6 +164,16 @@ def _map_event(event: dict) -> ThreadMessage | None:
             constraints_version=version,
             snapshot_ids=snapshot_ids or [item.snapshot_id for item in citations],
             citations=citations,
+            run_id=run_id,
+            created_at=created,
+        )
+    if event_type == "run.cancelled":
+        return ThreadMessage(
+            sequence=sequence,
+            kind="warning",
+            role="system",
+            text="已停止本轮检索。",
+            constraints_version=version,
             run_id=run_id,
             created_at=created,
         )

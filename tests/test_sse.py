@@ -114,6 +114,53 @@ async def test_sse_delivers_incremental_events(live_server) -> None:
             done.set()
 
     assert "run.accepted" in types
+    assert "search.started" in types
+    assert "products.received" in types
     assert "recommendation.ready" in types
     # 序号递增且无重复
     assert seen_ids == sorted(seen_ids)
+
+
+async def test_sse_resumes_from_last_event_id(live_server) -> None:
+    """重连认 Last-Event-ID，不必只靠 query after。"""
+    async with httpx.AsyncClient(base_url=live_server, timeout=15.0) as c:
+        created = await c.post("/api/v1/missions", json={"text": "通勤降噪耳机，预算 4000 元"}, headers=_H)
+        mission_id = created.json()["mission"]["id"]
+        await _wait_ready(c, mission_id)
+
+        types: list[str] = []
+        async with c.stream(
+            "GET",
+            f"/api/v1/missions/{mission_id}/events",
+            headers={**_H, "Last-Event-ID": "1"},
+        ) as resp:
+            assert resp.status_code == 200
+            async for line in resp.aiter_lines():
+                if line.startswith("event: "):
+                    types.append(line.split(": ", 1)[1])
+                    if "recommendation.ready" in types or len(types) >= 3:
+                        break
+
+    assert types
+
+
+async def test_run_text_replays_completed_message(live_server) -> None:
+    async with httpx.AsyncClient(base_url=live_server, timeout=15.0) as c:
+        created = await c.post("/api/v1/missions", json={"text": "通勤降噪耳机，预算 4000 元"}, headers=_H)
+        body = created.json()
+        mission_id = body["mission"]["id"]
+        run_id = body["run_id"]
+        await _wait_ready(c, mission_id)
+
+        types: list[str] = []
+        async with c.stream(
+            "GET", f"/api/v1/missions/{mission_id}/runs/{run_id}/text", headers=_H
+        ) as resp:
+            assert resp.status_code == 200
+            async for line in resp.aiter_lines():
+                if line.startswith("event: "):
+                    types.append(line.split(": ", 1)[1])
+                    if "agent.message.completed" in types:
+                        break
+
+    assert "agent.message.completed" in types

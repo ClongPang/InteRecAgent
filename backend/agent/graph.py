@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 from langgraph.graph import END, START, StateGraph
 
-from ..application.ports import FxSource, ModelBackend, ProductSource, UnitOfWork
+from ..application.ports import FxSource, ModelBackend, ProductSource, RunTextHub, UnitOfWork
 from .nodes.decide import (
     make_filter_hard_constraints,
     make_merge_mission_state,
@@ -61,6 +61,7 @@ def build_graph(
     model_backend: ModelBackend,
     uow_factory: Callable[[], UnitOfWork],
     max_concurrency: int = 3,
+    text_hub: RunTextHub | None = None,
 ):
     """组装完整状态图。依赖通过参数注入；节点不直接实例化任何基础设施。"""
     graph = StateGraph(MissionGraphState)
@@ -80,7 +81,10 @@ def build_graph(
     graph.add_node("rank_candidates", make_rank_candidates())
     graph.add_node("verify_evidence", make_verify_evidence())
     graph.add_node("compose_recommendation", make_compose_recommendation(model_backend))
-    graph.add_node("persist_decision_snapshot", make_persist_decision_snapshot(uow_factory))
+    graph.add_node(
+        "persist_decision_snapshot",
+        make_persist_decision_snapshot(uow_factory, text_hub=text_hub),
+    )
 
     graph.add_edge(START, "receive_message")
     graph.add_edge("receive_message", "classify_dialogue_act")

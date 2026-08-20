@@ -23,6 +23,7 @@ class Critique(BaseModel):
 class PreferenceBelief(BaseModel):
     use_case: str | None = None
     rejected_snapshot_ids: list[str] = Field(default_factory=list)
+    rejected_listing_keys: list[str] = Field(default_factory=list)
     critiques: list[Critique] = Field(default_factory=list)
     soft: list[SoftPref] = Field(default_factory=list)
     price_sensitivity: str | None = None
@@ -30,13 +31,33 @@ class PreferenceBelief(BaseModel):
     skipped_slots: list[str] = Field(default_factory=list)
     pending_slot: str | None = None
 
-    def reject(self, snapshot_id: str, *, kind: str = "reject_item") -> PreferenceBelief:
+    def reject(
+        self,
+        snapshot_id: str,
+        *,
+        kind: str = "reject_item",
+        listing_keys: list[str] | None = None,
+    ) -> PreferenceBelief:
         rejected = list(self.rejected_snapshot_ids)
         if snapshot_id and snapshot_id not in rejected:
             rejected.append(snapshot_id)
+        keys = list(self.rejected_listing_keys)
+        for key in listing_keys or []:
+            if key and key not in keys:
+                keys.append(key)
+        if snapshot_id:
+            snap_key = f"snap:{snapshot_id}"
+            if snap_key not in keys:
+                keys.append(snap_key)
         critiques = list(self.critiques)
         critiques.append(Critique(kind=kind, snapshot_id=snapshot_id))
-        return self.model_copy(update={"rejected_snapshot_ids": rejected, "critiques": critiques})
+        return self.model_copy(
+            update={
+                "rejected_snapshot_ids": rejected,
+                "rejected_listing_keys": keys,
+                "critiques": critiques,
+            }
+        )
 
     def with_soft_prefs(self, dims: list[SoftPref]) -> PreferenceBelief:
         """并入 LLM 解析出的通用软偏好维度（按 attr 去重，新维度覆盖旧同名维度）。

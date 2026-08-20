@@ -4,6 +4,7 @@ from .derive_attrs import derive_title_attrs
 from .filter_rank import (
     apply_budget_filter,
     apply_exclusion_filter,
+    apply_relevance_filter,
     apply_stock_filter,
     convert_products,
     dedupe_products,
@@ -15,6 +16,7 @@ from .score import score_and_rank
 __all__ = [
     "apply_budget_filter",
     "apply_exclusion_filter",
+    "apply_relevance_filter",
     "apply_stock_filter",
     "convert_products",
     "dedupe_products",

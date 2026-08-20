@@ -39,6 +39,10 @@ class DispatcherNotAccepting(ApplicationError):
     """调度器已停止接收新运行（进程正在关闭）。"""
 
 
+class RunNotRunning(ApplicationError):
+    """当前没有可取消的运行（已结束、已 supersede，或不是 active_run）。"""
+
+
 class ModelUnavailableError(ApplicationError):
     """模型后端未配置或能力不可用。Agent 捕获后走确定性 fallback。"""
 

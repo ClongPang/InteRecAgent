@@ -13,7 +13,9 @@ from backend.application.services.rec import (
     looks_like_exact_model,
     plan_search,
     rec_state_from_mission,
+    run_filter,
 )
+from backend.domain.models import NormalizedProduct
 
 
 def test_exact_model_is_precise_keyword() -> None:
@@ -79,3 +81,31 @@ def test_talk_reply_uses_brand_referent() -> None:
     )
     assert "Sony" in reply.text
     assert reply.snapshot_ids == ["s1"]
+
+
+def test_run_filter_honors_listing_keys_after_new_snapshots() -> None:
+    red = NormalizedProduct(
+        id="src-red",
+        title="COWIN E7 Red",
+        merchant="shopify",
+        native_price_amount=47,
+        native_currency="USD",
+        rmb_price=317,
+    )
+    white = NormalizedProduct(
+        id="src-white",
+        title="COWIN E7 White",
+        merchant="shopify",
+        native_price_amount=47,
+        native_currency="USD",
+        rmb_price=317,
+    )
+    kept, warnings = run_filter(
+        MissionConstraints(query="降噪耳机", budget_cny=2500),
+        [red, white],
+        rejected_snapshot_ids={"old-snap-red"},
+        rejected_listing_keys={"src:src-red", "title:cowin e7 red|m:shopify"},
+        snapshot_map={"src-red": "new-snap-red", "src-white": "new-snap-white"},
+    )
+    assert [item.id for item in kept] == ["src-white"]
+    assert any("否定" in item for item in warnings)

@@ -15,6 +15,10 @@ from ..infrastructure.persistence.database import create_engine, session_factory
 from ..infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
 from ..infrastructure.product_sources.buywhere import BuyWhereProductSource
 from ..infrastructure.product_sources.fixture import FixtureProductSource
+from ..infrastructure.runtime.in_process_broker import (
+    InProcessMissionEventBroker,
+    InProcessRunTextHub,
+)
 from ..infrastructure.runtime.in_process_dispatcher import InProcessRunDispatcher
 from .settings import Settings
 
@@ -39,6 +43,8 @@ class Container:
         self._fx_source: FxSource | None = None
         self._model_backend: ModelBackend | None = None
         self._dispatcher: InProcessRunDispatcher | None = None
+        self._event_broker: InProcessMissionEventBroker | None = None
+        self._text_hub: InProcessRunTextHub | None = None
 
     def build_session_factory(self) -> async_sessionmaker[AsyncSession]:
         """共享 AsyncEngine 驱动的会话工厂（请求级会话）。"""
@@ -49,6 +55,8 @@ class Container:
     async def aclose(self) -> None:
         """关闭共享资源（lifespan 结束时调用）。"""
         self._dispatcher = None
+        self._event_broker = None
+        self._text_hub = None
         for source in (self._product_source, self._fx_source, self._model_backend):
             closer = getattr(source, "aclose", None)
             if closer is not None:
@@ -115,6 +123,20 @@ class Container:
                 raise ConfigurationError(str(exc)) from exc
         return self._model_backend
 
+    def build_event_broker(self) -> InProcessMissionEventBroker:
+        if self._event_broker is None:
+            self._event_broker = InProcessMissionEventBroker()
+        return self._event_broker
+
+    def build_text_hub(self) -> InProcessRunTextHub:
+        if self._text_hub is None:
+            self._text_hub = InProcessRunTextHub()
+        return self._text_hub
+
+    def _uow_factory(self, session_factory: async_sessionmaker[AsyncSession]):
+        broker = self.build_event_broker()
+        return lambda: SqlAlchemyUnitOfWork(session_factory, broker=broker)
+
     def build_mission_runner(
         self, session_factory: async_sessionmaker[AsyncSession]
     ) -> LangGraphMissionRunner:
@@ -123,8 +145,9 @@ class Container:
             products=self.build_product_source(),
             fx=self.build_fx_source(),
             model_backend=self.build_model_backend(),
-            uow_factory=lambda: SqlAlchemyUnitOfWork(session_factory),
+            uow_factory=self._uow_factory(session_factory),
             max_concurrency=self.settings.search_max_concurrency,
+            text_hub=self.build_text_hub(),
         )
         return LangGraphMissionRunner(graph)
 
@@ -133,15 +156,20 @@ class Container:
     ) -> InProcessRunDispatcher:
         if self._dispatcher is None:
             self._dispatcher = InProcessRunDispatcher(
-                self.build_mission_runner(session_factory), session_factory
+                self.build_mission_runner(session_factory),
+                session_factory,
+                broker=self.build_event_broker(),
+                text_hub=self.build_text_hub(),
             )
         return self._dispatcher
 
     def build_command_service(
         self, session_factory: async_sessionmaker[AsyncSession]
     ) -> MissionCommandService:
-        """装配 HTTP Command Service；与 lifespan 共用同一 RunDispatcher。"""
+        """装配 HTTP Command Service；与 lifespan 共用同一 RunDispatcher / 门铃。"""
         return MissionCommandService(
-            uow_factory=lambda: SqlAlchemyUnitOfWork(session_factory),
+            uow_factory=self._uow_factory(session_factory),
             dispatcher=self.build_run_dispatcher(session_factory),
+            broker=self.build_event_broker(),
+            text_hub=self.build_text_hub(),
         )

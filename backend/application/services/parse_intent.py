@@ -67,6 +67,8 @@ def _strip_known_slots(text: str) -> str:
     )
     s = re.sub(r"^(?:帮我找|帮我买|帮我挑|帮我|我想买|我要买|我要找|我想|想买|请帮我|给我|要买|买|找)\s*", "", s)
     s = re.sub(r"^一[副个台件双只]\s*", "", s)
+    s = re.sub(r"^适合.+?的\s*", "", s)
+    s = re.sub(r"\d{3,6}\s*(?:元|块|人民币|rmb)?\s*(?:以内|之内)?", "", s, flags=re.I)
     s = re.sub(r"[，,。；;、]+", " ", s)
     return s.strip()
 
