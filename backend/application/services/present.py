@@ -53,7 +53,7 @@ def candidate_record(
     if rank == 1 and not product.fx_failed:
         reasons.append("lowest_estimated_cny")
     if product.in_stock is True:
-        reasons.append("in_stock")
+        reasons.append("merchant_marked_in_stock" if product.stock_source == "metadata" else "in_stock")
     if preference in {"battery", "noise"} and title_matches_preference(product, preference):
         reasons.append(f"matches_{preference}_cue")
     if price_sensitive:
@@ -75,6 +75,7 @@ def candidate_record(
         "availability": availability_label(product),
         "in_stock": product.in_stock,
         "availability_status": product.availability_status,
+        "stock_source": product.stock_source,
         "attrs": dict(product.attrs or {}),
         "derived_fields": list(product.derived_fields),
         "unavailable_fields": list(product.unavailable),
@@ -145,6 +146,7 @@ def product_candidate_from_record(item: dict, *, rank: int | None = None) -> Pro
         fx_failed=bool(item.get("fx_failed")),
         brand=item.get("brand") or attrs.get("brand"),
         availability=_availability_from_record(item),
+        stock_source=_stock_source_of(item),
         derived_fields=list(item.get("derived_fields") or []),
         unavailable_fields=list(item.get("unavailable_fields") or item.get("unavailable") or []),
         merchant_url=merchant_page_url(
@@ -222,6 +224,7 @@ def hydrate_candidate_payload(payload: dict | None) -> tuple[list[NormalizedProd
                 fx_failed=fx_failed,
                 in_stock=in_stock,
                 availability_status=status,
+                stock_source=_stock_source_of(item),
                 attrs=attrs,
                 derived_fields=list(item.get("derived_fields") or []),
                 unavailable=list(item.get("unavailable_fields") or item.get("unavailable") or []),
@@ -230,6 +233,13 @@ def hydrate_candidate_payload(payload: dict | None) -> tuple[list[NormalizedProd
         )
     fx_ids = [str(i) for i in (payload.get("fx_snapshot_ids") or [])]
     return products, snapshot_map, rates, fx_ids
+
+
+def _stock_source_of(item: dict) -> str | None:
+    raw = item.get("stock_source")
+    if raw in {"top_level", "metadata"}:
+        return str(raw)
+    return None
 
 
 def _availability_from_record(item: dict) -> str:

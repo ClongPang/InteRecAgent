@@ -54,6 +54,7 @@ class CitedFacts:
     unavailable: list[str]
     merchant_url: str | None
     availability: str = "unknown"
+    stock_source: str | None = None
     brand: str | None = None
     derived_fields: list[str] = field(default_factory=list)
 
@@ -89,6 +90,7 @@ def cited_facts(record: dict) -> CitedFacts | None:
         unavailable=list(record.get("unavailable_fields") or record.get("unavailable") or []),
         merchant_url=record.get("merchant_url") or record.get("click_url") or record.get("url"),
         availability=_availability_of(record),
+        stock_source=record.get("stock_source") if record.get("stock_source") in {"top_level", "metadata"} else None,
         brand=record.get("brand") or attrs.get("brand"),
         derived_fields=list(record.get("derived_fields") or []),
     )
@@ -276,16 +278,18 @@ def _warranty_reply(item: CitedFacts) -> str:
 
 
 def _stock_reply(item: CitedFacts) -> str:
+    merchant = item.stock_source == "metadata"
     if item.availability == "in_stock":
-        stock = "快照记录为有货。"
+        stock = "店家标注为有货，这是 BuyWhere 转述，不是实时库存。" if merchant else "快照记录为有货。"
     elif item.availability == "out_of_stock":
-        stock = "快照记录为无货。"
+        stock = "店家标注为无货，这是 BuyWhere 转述，不是实时库存。" if merchant else "快照记录为无货。"
     elif item.availability == "limited":
-        stock = "快照记录库存有限。"
+        stock = "店家标注库存有限，这是 BuyWhere 转述，不是实时库存。" if merchant else "快照记录库存有限。"
     else:
         stock = "快照没有库存或可买性字段，我不能判断现在是否有货。"
+    confirm = "请到商户页确认。" if merchant or item.availability == "unknown" else ""
     return (
-        f"{item.title}：{stock}"
+        f"{item.title}：{stock}{confirm}"
         f"已经记录的是{_price_clause(item)}{_place_clause(item)}。"
         f"{_merchant_check(item)}"
     )

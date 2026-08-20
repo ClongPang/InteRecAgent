@@ -43,9 +43,42 @@ def test_availability_is_normalized_when_present():
     p = normalize_item(_item(availability={"in_stock": True, "status": "in_stock"}))
     assert p.in_stock is True
     assert p.availability_status == "in_stock"
+    assert p.stock_source == "top_level"
     assert "availability" not in p.unavailable
     assert p.attrs.get("brand") == "Sony"
     assert "brand" in p.derived_fields
+
+
+def test_metadata_stock_is_merchant_hint():
+    p = normalize_item(_item(metadata={"in_stock": True, "is_available": True, "availability": "in_stock"}))
+    assert p.in_stock is True
+    assert p.availability_status == "in_stock"
+    assert p.stock_source == "metadata"
+    assert "availability" not in p.unavailable
+
+
+def test_metadata_availability_string_only():
+    p = normalize_item(_item(metadata={"availability": "in_stock"}))
+    assert p.in_stock is True
+    assert p.stock_source == "metadata"
+
+
+def test_conflicting_stock_signals_stay_unknown():
+    p = normalize_item(_item(metadata={"in_stock": True, "availability": "out_of_stock"}))
+    assert p.in_stock is None
+    assert p.stock_source is None
+    assert "availability" in p.unavailable
+
+
+def test_top_level_stock_wins_over_metadata():
+    p = normalize_item(
+        _item(
+            availability={"in_stock": True, "status": "in_stock"},
+            metadata={"in_stock": False, "availability": "out_of_stock"},
+        )
+    )
+    assert p.in_stock is True
+    assert p.stock_source == "top_level"
 
 
 def test_nullable_fields_stay_none():

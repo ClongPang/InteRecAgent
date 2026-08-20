@@ -222,8 +222,8 @@ async def test_undo_restores_constraints(client) -> None:
 
     # 撤销 → 恢复到 4000，版本继续单调递增
     undo = await client.post(
-        f"/api/v1/missions/{mission_id}/undo",
-        json={"constraints_version": new_version},
+        f"/api/v1/missions/{mission_id}/turns",
+        json={"command": "undo", "constraints_version": new_version},
         headers=_headers(),
     )
     assert undo.status_code == 202
@@ -241,8 +241,8 @@ async def test_undo_without_constraint_change_returns_409(client) -> None:
     data = await _create_mission(client, "通勤降噪耳机，预算 4000 元")
     mission = await _wait_terminal(client, data["mission"]["id"])
     resp = await client.post(
-        f"/api/v1/missions/{mission['id']}/undo",
-        json={"constraints_version": mission["constraints_version"]},
+        f"/api/v1/missions/{mission['id']}/turns",
+        json={"command": "undo", "constraints_version": mission["constraints_version"]},
         headers=_headers(),
     )
     assert resp.status_code == 409

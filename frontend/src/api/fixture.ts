@@ -633,13 +633,6 @@ export function createFixtureApi(): MissionApi {
     },
     async submitTurn(missionId, body) {
       if (body.command === 'undo') return this.undo(missionId, body.constraintsVersion ?? find(missionId).constraints_version)
-      if (body.command === 'patch') {
-        return this.updateConstraints(missionId, {
-          constraints_version: body.constraintsVersion ?? find(missionId).constraints_version,
-          preference: body.preference ?? undefined,
-          budget_cny: body.budgetCny ?? undefined,
-        })
-      }
       return this.sendMessage(missionId, body.text || '按当前条件继续', body.focusSnapshotId)
     },
     async sendMessage(missionId, text, focusSnapshotId) {

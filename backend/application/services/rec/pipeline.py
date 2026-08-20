@@ -120,7 +120,7 @@ def run_filter(
     spec_gates: list | None = None,
     snapshot_map: dict[str, str] | None = None,
 ) -> tuple[list[NormalizedProduct], list[str]]:
-    """硬过滤：否定候选、有货事实、排除词、预算。无库存事实时不筛。"""
+    """硬过滤：否定候选、已确认无货、排除词、预算。库存未知的商品留下。"""
     warnings: list[str] = []
     original = list(products)
     rejected = set(rejected_snapshot_ids or set())
@@ -147,14 +147,13 @@ def run_filter(
 
     if constraints.only_in_stock:
         kept, out, unknown = apply_stock_filter(products)
-        if any(item.in_stock is not None for item in original):
-            products = kept
-            if out:
-                warnings.append(f"{len(out)} 件无货，已按「仅看有货」去掉")
-            if unknown:
-                warnings.append(f"{len(unknown)} 件没有库存事实，未列入仅看有货结果")
-        else:
-            warnings.append("当前候选没有库存事实，「仅看有货」未生效")
+        products = kept
+        if out:
+            warnings.append(f"{len(out)} 件快照为无货，已按「仅看有货」去掉")
+        if unknown:
+            warnings.append(f"{len(unknown)} 件没有库存事实，仍列出")
+        elif not out and not any(item.in_stock is not None for item in original):
+            warnings.append("当前候选没有库存事实，「仅看有货」未去掉任何商品")
 
     if constraints.query:
         products, irrelevant = apply_relevance_filter(products, constraints.query)

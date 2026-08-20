@@ -85,7 +85,10 @@ async def stream_run_text(
     svc=Depends(get_command_service),
     owner_id: str = Depends(get_anonymous_user_id),
 ):
-    """本轮 ephemeral token。结束后关连接；错过则回放 ``agent.message``。"""
+    """
+    本轮 ephemeral token。
+    结束后关连接；错过则回放 ``agent.message``。
+    """
     await svc.get_mission(owner_id=owner_id, mission_id=mission_id)
     hub = svc.text_hub
 

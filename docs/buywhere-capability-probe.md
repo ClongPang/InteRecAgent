@@ -10,6 +10,8 @@
 1. **详情 / 比较不能富化候选。** `/v1/products/{id}` 与 `/v1/products/compare` 的商品对象与搜索结果同形，`detail_adds_keys_over_search = []`。阶段 4 不得假设「对 top-K 拉详情就能得到规格、评分、品牌」。
 2. **价格历史经常为空。** 本次 2 个有价商品 `history = []`、`stats` 为空。价格提醒 / 「值不值得买」不能作为对话主路径。
 3. **库存字段已经出现。** 与 2026-08-16 切片不同：搜索 / 详情 / 比较均返回 `availability: { in_stock: bool, status: string }`。本次 16 条搜索全部非空；US 抽样 8 条均为 `status=in_stock`。这是**观测事实**，可以进硬过滤；当前 Adapter 的 `BuyWhereProduct` 未声明该字段，Pydantic 会丢掉，阶段 2 必须纳入归一化。
+
+    **2026-08-20 复测**：顶层 `availability` 已从搜索 / 详情 / 比较消失。部分商户把碎片放进 `metadata`（`in_stock` 布尔、`is_available` 布尔、`availability` 字符串），覆盖不全，且只见到有货。现处理：顶层优先，否则读 metadata 白名单并标 `stock_source`；冲突则未知；`only_in_stock` 只丢掉已确认无货，未知留下。不得把 metadata 当实时库存。
 4. **品牌、评分、规格、折扣仍不存在。** `brand / rating / review_count / structured_specs / comparison_attributes / original_price / discount_pct / domain` 均未出现。对话式推荐的属性批评与规格解释，只能走标题派生（并标 `derived_fields`）。
 5. **`country_code` 不可靠。** 16 条搜索仅 4 条非空（覆盖率 0.25）。`country_code=US` 的请求里，商品对象经常是 `null`。不得把请求参数当成商品市场事实；展示层可回退「本次检索市场」，但必须标明不是商品自带字段。
 6. **DeepSeek-V4-Flash 结构化 JSON 稳定。** 3 条 `parse_intent` 均通过 Schema。`太贵了` 没有写成 query。`帮我比前两个` 被当成意图槽位解析并追问商品名——这证明还需要 `parse_turn`，不是模型连不通。

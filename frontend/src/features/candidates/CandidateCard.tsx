@@ -33,7 +33,7 @@ export function CandidateCard({
   const rmb = rmbAmount(product)
   const overBudget = budget != null && rmb != null && rmb > budget
   const reason = product.decision_reasons[0]
-  const unknownStock = product.availability === 'unknown' || product.unavailable_fields.includes('availability')
+  const stockLabel = availabilityText(product.availability, product.stock_source)
   return (
     <article className={`product-card evidence-card ${selected ? 'is-selected' : ''} ${lead ? 'is-lead' : ''} ${rejected ? 'is-rejected' : ''}`}>
       <span className="candidate-rank">{String(rank).padStart(2, '0')}</span>
@@ -41,7 +41,7 @@ export function CandidateCard({
       <button className="product-image-button" onClick={detail}>
         <div className={`product-image tone-${platformTone(product.merchant)}`}>
           <ProductPhoto product={product} className="product-photo" />
-          <span className="image-tag">{availabilityText(product.availability)}</span>
+          {stockLabel ? <span className="image-tag">{stockLabel}</span> : null}
         </div>
       </button>
       <div className="product-card-body">
@@ -65,9 +65,11 @@ export function CandidateCard({
           <p className="budget-warning">超出预算 ¥{(rmb - budget).toLocaleString()}</p>
         ) : null}
         <div className="card-bottom">
-          <span className={unknownStock ? 'stock pending' : product.availability === 'in_stock' ? 'stock confirmed' : 'stock pending'}>
-            {availabilityText(product.availability)}
-          </span>
+          {stockLabel ? (
+            <span className={product.availability === 'out_of_stock' ? 'stock pending' : 'stock confirmed'}>
+              {stockLabel}
+            </span>
+          ) : <span />}
           <Button variant={selected ? 'primary' : 'secondary'} onClick={toggle} icon={selected ? 'check' : 'plus'}>
             {selected ? '已加入备选' : '加入备选'}
           </Button>

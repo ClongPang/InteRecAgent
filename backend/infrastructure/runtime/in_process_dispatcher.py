@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 
 
 class InProcessRunDispatcher:
-    """进程内调度：后台任务执行注入的 MissionRunner，运行状态持久化到推荐运行表。
-
+    """
+    进程内调度：后台任务执行注入的 MissionRunner，运行状态持久化到推荐运行表。
     单进程假设：start() 将遗留 accepted/running 标为 interrupted（崩溃恢复）。
     多 worker 需换成外部队列，不可共享这套 interrupt_stale。
     """

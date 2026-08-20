@@ -123,6 +123,7 @@ export type ProductCandidate = {
   rating: null
   review_count: null
   availability: 'in_stock' | 'limited' | 'out_of_stock' | 'unknown'
+  stock_source?: 'top_level' | 'metadata' | null
   specs: string[]
   derived_fields: string[]
   unavailable_fields: string[]

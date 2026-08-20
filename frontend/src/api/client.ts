@@ -156,8 +156,6 @@ export const httpMissionApi: MissionApi = {
         text: body.text || undefined,
         focus_snapshot_id: body.focusSnapshotId || undefined,
         constraints_version: body.constraintsVersion,
-        preference: body.preference || undefined,
-        budget_cny: body.budgetCny,
       }),
     }),
   updateConstraints: (missionId, patch: ConstraintsPatch) =>
@@ -166,9 +164,9 @@ export const httpMissionApi: MissionApi = {
       body: JSON.stringify(patch),
     }),
   undo: (missionId, constraintsVersion) =>
-    request<RunAccepted>(`/missions/${missionId}/undo`, {
+    request<RunAccepted>(`/missions/${missionId}/turns`, {
       method: 'POST',
-      body: JSON.stringify({ constraints_version: constraintsVersion }),
+      body: JSON.stringify({ command: 'undo', constraints_version: constraintsVersion }),
     }),
   setComparison: async (missionId, constraintsVersion, snapshotIds) =>
     withBelief(

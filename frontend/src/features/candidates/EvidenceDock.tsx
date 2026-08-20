@@ -126,7 +126,7 @@ export function CompareStrip({
                   {amount != null ? `约 ¥${Math.round(amount).toLocaleString()}` : '待确认'}
                   {fx ? <small>汇率 {fx.rate} · {fx.rate_date}</small> : null}
                 </td>
-                <td>{availabilityText(product.availability)}</td>
+                <td>{availabilityText(product.availability, product.stock_source) || '—'}</td>
                 <td>{product.source_updated_at ? product.source_updated_at.replace('T', ' ').slice(0, 16) : '—'}</td>
               </tr>
             )

@@ -6,6 +6,7 @@ const REASON_TEXT: Record<string, string> = {
   within_budget: '预算内',
   lowest_estimated_cny: '当前估算最低',
   in_stock: '有货',
+  merchant_marked_in_stock: '店家标注有货',
   matches_noise_cue: '标题含降噪线索',
   matches_battery_cue: '标题含续航线索',
   price_sensitive: '按更便宜态度加权',
@@ -83,9 +84,14 @@ export function timeLabel(iso: string | null | undefined): string {
     : { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
 }
 
-export function availabilityText(value: string): string {
-  if (value === 'in_stock') return '有货'
-  if (value === 'limited') return '库存有限'
-  if (value === 'out_of_stock') return '无货'
-  return '暂无库存信息'
+export function availabilityText(
+  value: string,
+  source?: ProductCandidate['stock_source'],
+): string {
+  if (value === 'unknown' || !value) return ''
+  const merchant = source === 'metadata'
+  if (value === 'in_stock') return merchant ? '店家标注有货' : '有货'
+  if (value === 'limited') return merchant ? '店家标注库存有限' : '库存有限'
+  if (value === 'out_of_stock') return merchant ? '店家标注无货' : '无货'
+  return ''
 }

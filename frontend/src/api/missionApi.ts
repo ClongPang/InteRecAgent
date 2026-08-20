@@ -4,7 +4,6 @@ import type {
   CreateMissionResponse,
   MissionListResponse,
   MissionView,
-  Preference,
   ProductCandidate,
   RecommendationView,
   RunAccepted,
@@ -19,12 +18,10 @@ export type MissionApi = {
   submitTurn(
     missionId: string,
     body: {
-      command?: 'message' | 'patch' | 'undo'
+      command?: 'message' | 'undo'
       text?: string | null
       focusSnapshotId?: string | null
       constraintsVersion?: number
-      preference?: Preference | null
-      budgetCny?: number | null
     },
   ): Promise<RunAccepted>
   updateConstraints(missionId: string, patch: ConstraintsPatch): Promise<RunAccepted>

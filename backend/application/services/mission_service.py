@@ -419,9 +419,8 @@ class MissionCommandService:
         command: TurnCommand = TurnCommand.MESSAGE,
         text: str | None = None,
         focus_snapshot_id: str | None = None,
-        patch: MissionConstraints | None = None,
     ) -> str:
-        """用户可感知动作的唯一入口：说话、改约束或撤销。"""
+        """用户可感知动作的入口：说话或撤销。结构化改约束走 update_constraints。"""
         if command == TurnCommand.UNDO:
             run_id, _ = await self.undo(
                 owner_id=owner_id,
@@ -429,16 +428,6 @@ class MissionCommandService:
                 constraints_version=constraints_version,
             )
             return run_id
-        if command == TurnCommand.PATCH:
-            mission = await self.get_mission(owner_id=owner_id, mission_id=mission_id)
-            spoken = (text or "").strip() or _spoken_patch(mission.constraints, patch)
-            return await self.submit_message(
-                owner_id=owner_id,
-                mission_id=mission_id,
-                text=spoken,
-                constraints_version=constraints_version,
-                focus_snapshot_id=focus_snapshot_id,
-            )
         return await self.submit_message(
             owner_id=owner_id,
             mission_id=mission_id,
@@ -604,14 +593,3 @@ class MissionCommandService:
         }
 
 
-def _spoken_patch(current: MissionConstraints, patch: MissionConstraints | None) -> str:
-    if patch is None:
-        return "按当前条件继续"
-    if patch.preference and patch.preference != current.preference:
-        labels = {"lowest": "最低商品价", "noise": "优先降噪", "battery": "优先续航", "balanced": "综合推荐"}
-        return labels.get(patch.preference, patch.preference)
-    if patch.budget_cny is not None and patch.budget_cny != current.budget_cny:
-        return f"预算 {patch.budget_cny:.0f} 元"
-    if patch.query and patch.query != current.query:
-        return f"改找{patch.query}"
-    return "按当前条件继续"

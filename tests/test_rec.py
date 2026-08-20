@@ -192,3 +192,25 @@ def test_run_filter_aligns_buywhere_duplicate_listing() -> None:
     )
     assert [item.id for item in kept] == ["aoc-1"]
     assert any("否定" in item for item in warnings)
+
+
+def test_run_filter_only_drops_confirmed_out_of_stock() -> None:
+    known = NormalizedProduct(
+        id="a", title="In stock", merchant="jlab",
+        native_price_amount=99, native_currency="USD", rmb_price=700, in_stock=True,
+    )
+    unknown = NormalizedProduct(
+        id="b", title="Unknown", merchant="decathlon",
+        native_price_amount=80, native_currency="USD", rmb_price=560,
+    )
+    gone = NormalizedProduct(
+        id="c", title="Gone", merchant="shop",
+        native_price_amount=50, native_currency="USD", rmb_price=350, in_stock=False,
+    )
+    kept, warnings = run_filter(
+        MissionConstraints(query="耳机", only_in_stock=True),
+        [known, unknown, gone],
+    )
+    assert [item.id for item in kept] == ["a", "b"]
+    assert any("无货" in item for item in warnings)
+    assert any("仍列出" in item for item in warnings)

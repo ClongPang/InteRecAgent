@@ -19,10 +19,8 @@ from ..schemas import (
     ComparisonRequest,
     ConstraintsUpdateRequest,
     CreateMissionRequest,
-    MessageRequest,
     RunAccepted,
     TurnRequest,
-    UndoRequest,
 )
 
 router = APIRouter(tags=["missions"])
@@ -71,26 +69,6 @@ async def get_mission(
     return await svc.get_mission_view(owner_id=owner_id, mission_id=mission_id)
 
 
-@router.post("/{mission_id}/messages", status_code=202, response_model=RunAccepted)
-async def submit_message(
-    mission_id: str,
-    body: MessageRequest,
-    svc=Depends(get_command_service),
-    owner_id: str = Depends(get_anonymous_user_id),
-) -> RunAccepted:
-    """追加消息并启动新运行。"""
-    mission = await svc.get_mission(owner_id=owner_id, mission_id=mission_id)
-    run_id = await svc.submit_message(
-        owner_id=owner_id,
-        mission_id=mission_id,
-        text=body.text,
-        constraints_version=mission.constraints_version,
-        focus_snapshot_id=body.focus_snapshot_id,
-    )
-    loaded = await svc.get_mission(owner_id=owner_id, mission_id=mission_id)
-    return RunAccepted(run_id=run_id, constraints_version=loaded.constraints_version)
-
-
 @router.post("/{mission_id}/turns", status_code=202, response_model=RunAccepted)
 async def submit_turn(
     mission_id: str,
@@ -98,19 +76,9 @@ async def submit_turn(
     svc=Depends(get_command_service),
     owner_id: str = Depends(get_anonymous_user_id),
 ) -> RunAccepted:
-    """对话轮次入口。聊天、约束和撤销走同一政策。"""
+    """对话轮次入口。聊天和撤销走同一政策。"""
     mission = await svc.get_mission(owner_id=owner_id, mission_id=mission_id)
     version = body.constraints_version or mission.constraints_version
-    patch = None
-    if body.command == "patch":
-        patch = MissionConstraints(
-            query=body.query if body.query is not None else mission.constraints.query,
-            budget_cny=body.budget_cny if body.budget_cny is not None else mission.constraints.budget_cny,
-            markets=mission.constraints.markets,
-            preference=body.preference or mission.constraints.preference,
-            only_in_stock=mission.constraints.only_in_stock,
-            excluded_terms=list(mission.constraints.excluded_terms),
-        )
     run_id = await svc.submit_turn(
         owner_id=owner_id,
         mission_id=mission_id,
@@ -118,7 +86,6 @@ async def submit_turn(
         command=TurnCommand(body.command),
         text=body.text,
         focus_snapshot_id=body.focus_snapshot_id,
-        patch=patch,
     )
     loaded = await svc.get_mission(owner_id=owner_id, mission_id=mission_id)
     return RunAccepted(run_id=run_id, constraints_version=loaded.constraints_version)
@@ -148,22 +115,6 @@ async def update_constraints(
         mission_id=mission_id,
         constraints_version=body.constraints_version,
         constraints=constraints,
-    )
-    return RunAccepted(run_id=run_id, constraints_version=version)
-
-
-@router.post("/{mission_id}/undo", status_code=202, response_model=RunAccepted)
-async def undo(
-    mission_id: str,
-    body: UndoRequest,
-    svc=Depends(get_command_service),
-    owner_id: str = Depends(get_anonymous_user_id),
-) -> RunAccepted:
-    """撤销最近一次可撤销条件变更。仅恢复后的约束与当前不同时递增版本。"""
-    run_id, version = await svc.undo(
-        owner_id=owner_id,
-        mission_id=mission_id,
-        constraints_version=body.constraints_version,
     )
     return RunAccepted(run_id=run_id, constraints_version=version)
 

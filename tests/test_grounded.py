@@ -71,6 +71,26 @@ def test_stock_does_not_invent_availability() -> None:
     assert "保修" not in text
 
 
+def test_stock_reply_marks_metadata_as_merchant_hint() -> None:
+    ranked = [
+        {
+            **_ranked()[0],
+            "availability": "in_stock",
+            "stock_source": "metadata",
+            "unavailable_fields": ["rating", "brand"],
+        }
+    ]
+    text = compose_talk_reply(
+        act=classify_turn("有货吗", current_query="降噪耳机"),
+        text="有货吗",
+        ranked=ranked,
+        constraints=MissionConstraints(query="降噪耳机", budget_cny=4000),
+    ).text
+    assert "店家标注为有货" in text
+    assert "不是实时库存" in text
+    assert "商户页确认" in text
+
+
 def test_why_cites_price_not_rating() -> None:
     text = _reply("为什么推荐")
     assert "2100" in text

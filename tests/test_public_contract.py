@@ -111,20 +111,30 @@ def test_candidate_record_uses_snapshot_id_and_https_merchant_url() -> None:
 def test_candidate_record_keeps_stock_and_derived_brand() -> None:
     fx = FxSnapshot(base="USD", quote="CNY", rate=7.2, date="2026-08-15", source="frankfurter-ecb")
     product = _product().model_copy(
-        update={"in_stock": True, "availability_status": "in_stock", "attrs": {"brand": "Sony"}, "derived_fields": ["brand"]}
+        update={
+            "in_stock": True,
+            "availability_status": "in_stock",
+            "stock_source": "metadata",
+            "attrs": {"brand": "Sony"},
+            "derived_fields": ["brand"],
+        }
     )
     record = candidate_record(product, snapshot_id="snap-uuid", fx=fx, rank=1, budget_cny=1000)
     assert record["availability"] == "in_stock"
+    assert record["stock_source"] == "metadata"
+    assert "merchant_marked_in_stock" in record["decision_reasons"]
     assert record["brand"] == "Sony"
     assert "brand" in record["derived_fields"]
     candidate = product_candidate_from_record(record)
     assert candidate is not None
     assert candidate.availability == "in_stock"
+    assert candidate.stock_source == "metadata"
     assert candidate.brand == "Sony"
     products, *_ = hydrate_candidate_payload(
         {"ranked": [record], "snapshot_map": {"src-1": "snap-uuid"}}
     )
     assert products[0].in_stock is True
+    assert products[0].stock_source == "metadata"
     assert products[0].attrs.get("brand") == "Sony"
 
 

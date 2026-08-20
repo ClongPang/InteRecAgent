@@ -11,7 +11,7 @@ from .belief import PreferenceBelief
 
 
 class MissionStage(StrEnum):
-    """任务阶段（规格 §6.2 允许集合）。searching 只表示商品源在跑。"""
+    """任务阶段。searching 只表示商品源在跑。"""
 
     COLLECTING = "collecting"
     CLARIFYING = "clarifying"
@@ -58,7 +58,7 @@ def next_constraints_version(current: int, before: MissionConstraints, after: Mi
 
 
 class ShoppingMission(BaseModel):
-    """任务业务聚合根（跨层表示；P2 持久化时 ORM 映射到 shopping_missions 表）。"""
+    """任务业务聚合根（跨层表示 shopping_missions 表）。"""
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     owner_id: str

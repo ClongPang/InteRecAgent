@@ -31,7 +31,10 @@ SSE_PUBLIC_EVENTS = frozenset(
 
 
 class MissionView(BaseModel):
-    """任务投影。不含 owner_id，避免把隔离键当成对外身份。"""
+    """
+    任务投影
+    不含 owner_id，避免把隔离键当成对外身份
+    """
 
     id: str
     title: str
@@ -79,6 +82,7 @@ class ProductCandidate(BaseModel):
     rating: None = None
     review_count: None = None
     availability: str = "unknown"
+    stock_source: str | None = None
     specs: list[str] = Field(default_factory=list)
     derived_fields: list[str] = Field(default_factory=list)
     unavailable_fields: list[str] = Field(default_factory=list)

@@ -141,7 +141,7 @@ class TestStockFilter:
             _product("c", 30),
         ]
         kept, out, unknown = apply_stock_filter(items)
-        assert [p.id for p in kept] == ["a"]
+        assert [p.id for p in kept] == ["a", "c"]
         assert [p.id for p in out] == ["b"]
         assert [p.id for p in unknown] == ["c"]
 

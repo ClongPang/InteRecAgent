@@ -75,6 +75,7 @@ class NormalizedProduct(BaseModel):
     fx_failed: bool = False  # 换算失败，保留原币
     in_stock: bool | None = None
     availability_status: str | None = None
+    stock_source: str | None = None  # top_level | metadata；无信号则为 None
     attrs: dict[str, str] = Field(default_factory=dict)
     derived_fields: list[str] = Field(default_factory=list)
 
