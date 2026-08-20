@@ -3,6 +3,7 @@ import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/ui/Icon'
 import { CURRENCY_SYMBOL, displayAmount, nativePriceText, rmbAmount, type Currency, type SnapshotRates } from '../../lib/currency'
 import { preferenceText } from '../../lib/format'
+import { merchantHref } from '../../lib/merchant'
 
 export function DecisionCard({
   recommendation,
@@ -20,15 +21,24 @@ export function DecisionCard({
   const product = recommendation?.primary
   if (!product) return null
   const amount = displayAmount(rmbAmount(product), currency, rates)
+  const href = merchantHref(product.merchant_url)
   return (
     <section className="decision-card">
       <div className="decision-icon"><Icon name="spark" size={20} /></div>
       <div className="decision-copy">
         <span>当前推荐 · V{mission.constraints_version}</span>
         <h2>{onOpen ? <button type="button" className="decision-title-button" onClick={() => onOpen(product.snapshot_id)}>{product.title}</button> : product.title}</h2>
-        <p>{recommendation?.rationale[0] ?? '已按当前约束给出首选。'} {recommendation?.tradeoffs[0] ?? ''}</p>
+        <p>{recommendation?.rationale[0] ?? '已按当前约束给出首选。'}</p>
+        {recommendation?.tradeoffs[0] ? <p className="decision-tradeoff">{recommendation.tradeoffs[0]}</p> : null}
         {recommendation?.alternatives.length ? (
-          <p className="decision-alts">备选：{recommendation.alternatives.map((item) => item.title).join('；')}</p>
+          <div className="decision-alts">
+            <span>备选</span>
+            {recommendation.alternatives.slice(0, 2).map((item) => (
+              <button key={item.snapshot_id} type="button" onClick={() => onOpen?.(item.snapshot_id)}>
+                {item.title}
+              </button>
+            ))}
+          </div>
         ) : null}
         <div className="decision-tags">
           {[mission.constraints.budget_cny ? '商品价在预算内' : '未设置预算', preferenceText(mission.constraints.preference)].map((tag) => (
@@ -40,6 +50,11 @@ export function DecisionCard({
         <span>商品价估算</span>
         <strong>{amount == null ? '未提供' : `${CURRENCY_SYMBOL[currency]}${amount}`}</strong>
         <small>{nativePriceText(product)}</small>
+        {href ? (
+          <a className="merchant-link decision-jump" href={href} target="_blank" rel="noreferrer">
+            前往商户 <Icon name="external" size={13} />
+          </a>
+        ) : null}
       </div>
     </section>
   )

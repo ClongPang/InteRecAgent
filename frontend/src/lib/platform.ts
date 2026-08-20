@@ -7,9 +7,16 @@ export function platformTone(merchant: string | null | undefined): string {
 }
 
 export function platformName(merchant: string | null | undefined): string {
-  const tone = platformTone(merchant)
+  const value = (merchant || '').trim()
+  const tone = platformTone(value)
   if (tone === 'lazada') return 'Lazada'
   if (tone === 'bestbuy') return 'Best Buy'
-  if ((merchant || '').toLowerCase().includes('amazon')) return 'Amazon'
-  return merchant || '商户'
+  if (value.toLowerCase().includes('amazon')) return 'Amazon'
+  const shopify = value.match(/^shopify[_-](.+)$/i)
+  if (shopify) {
+    const host = shopify[1].replace(/_/g, '.').replace(/^www\./, '')
+    if (host.includes('decathlon')) return 'Decathlon'
+    return host
+  }
+  return value || '商户'
 }

@@ -6,7 +6,7 @@ import { PlatformMark } from '../../components/ui/PlatformMark'
 import { categoryIconFor } from '../../lib/category'
 import { rmbAmount, type Currency } from '../../lib/currency'
 import { availabilityText, reasonText } from '../../lib/format'
-import { platformName } from '../../lib/platform'
+import { platformName, platformTone } from '../../lib/platform'
 
 export function CandidateCard({
   product,
@@ -18,6 +18,7 @@ export function CandidateCard({
   lowest = false,
   currency = 'RMB',
   lead = false,
+  rejected = false,
 }: {
   product: ProductCandidate
   rank: number
@@ -28,20 +29,25 @@ export function CandidateCard({
   lowest?: boolean
   currency?: Currency
   lead?: boolean
+  rejected?: boolean
 }) {
   const rmb = rmbAmount(product)
   const overBudget = budget != null && rmb != null && rmb > budget
   const reason = product.decision_reasons[0]
   const unknownStock = product.availability === 'unknown' || product.unavailable_fields.includes('availability')
   return (
-    <article className={`product-card evidence-card ${selected ? 'is-selected' : ''} ${lead ? 'is-lead' : ''}`}>
+    <article className={`product-card evidence-card ${selected ? 'is-selected' : ''} ${lead ? 'is-lead' : ''} ${rejected ? 'is-rejected' : ''}`}>
       <span className="candidate-rank">{String(rank).padStart(2, '0')}</span>
       {lead ? <span className="candidate-focus">首选候选</span> : null}
       <button className="product-image-button" onClick={detail}>
-        <div className={`product-image tone-${product.merchant ? product.merchant.toLowerCase().includes('lazada') ? 'lazada' : product.merchant.toLowerCase().includes('best') ? 'bestbuy' : 'amazon' : 'amazon'}`}>
-          <span className="category-icon" aria-hidden="true">
-            <Icon name={categoryIconFor(product.title)} size={42} />
-          </span>
+        <div className={`product-image tone-${platformTone(product.merchant)}`}>
+          {product.image_url ? (
+            <img src={product.image_url} alt="" className="product-photo" />
+          ) : (
+            <span className="category-icon" aria-hidden="true">
+              <Icon name={categoryIconFor(product.title)} size={42} />
+            </span>
+          )}
           <span className="image-tag">{availabilityText(product.availability)}</span>
         </div>
       </button>
@@ -53,10 +59,6 @@ export function CandidateCard({
           <span>{product.market ?? '市场未提供'}</span>
         </div>
         <button className="product-title" onClick={detail}>{product.title}</button>
-        <div className="rating-line">
-          <span>评分未提供</span>
-          <span>评价数未提供</span>
-        </div>
         <PriceEvidence product={product} compact lowest={lowest} currency={currency} />
         {product.specs.length ? (
           <div className="spec-line">

@@ -33,25 +33,49 @@ def listing_keys_of(
     return keys
 
 
-def page_key(url: str | None) -> str | None:
-    """BuyWhere 会换 click 包装与 product_id；商户商品页路径才是同一条 listing。"""
+def _unwrap_click(url: str | None) -> str:
     raw = (url or "").strip()
     if not raw:
-        return None
+        return ""
     parsed = urlparse(raw)
     host = (parsed.netloc or "").lower()
     if "buywhere." in host and parsed.path.startswith("/api/click"):
         inner = parse_qs(parsed.query).get("url", [None])[0]
-        if inner:
-            raw = unquote(inner)
-            parsed = urlparse(raw)
-            host = (parsed.netloc or "").lower()
+        return unquote(inner) if inner else ""
+    return raw
+
+
+def unwrap_merchant_url(url: str | None) -> str | None:
+    """用户跳转必须是商户 PDP。BuyWhere /api/click 在浏览器里 403，不能当外链。"""
+    raw = _unwrap_click(url)
+    parsed = urlparse(raw)
+    host = (parsed.netloc or "").lower()
+    if parsed.scheme != "https" or not host or "buywhere." in host:
+        return None
+    return raw
+
+
+def page_key(url: str | None) -> str | None:
+    """BuyWhere 会换 click 包装与 product_id；商户商品页路径才是同一条 listing。"""
+    raw = _unwrap_click(url) or (url or "").strip()
+    if not raw:
+        return None
+    parsed = urlparse(raw)
+    host = (parsed.netloc or "").lower()
     if not host:
         return None
     if host.startswith("www."):
         host = host[4:]
     path = (parsed.path or "").rstrip("/").lower()
     return f"page:{host}{path}" if path else None
+
+
+def merchant_page_url(*candidates: str | None) -> str | None:
+    for raw in candidates:
+        page = unwrap_merchant_url(raw)
+        if page:
+            return page
+    return None
 
 
 def expand_listing_keys(keys: Iterable[str]) -> set[str]:

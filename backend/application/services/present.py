@@ -7,6 +7,7 @@ from ...domain.models import FxSnapshot, NormalizedProduct
 from ...domain.policies.score import title_matches_preference
 from ..dto.public import EstimatedCny, NativePrice, ProductCandidate
 from ..dto.runner import RecommendationDraft
+from .rec.identity import merchant_page_url
 
 
 def https_url(url: str | None) -> str | None:
@@ -66,7 +67,7 @@ def candidate_record(
         "attrs": dict(product.attrs or {}),
         "derived_fields": list(product.derived_fields),
         "unavailable_fields": list(product.unavailable),
-        "merchant_url": https_url(product.click_url) or https_url(product.url),
+        "merchant_url": merchant_page_url(product.url, product.click_url),
         "image_url": https_url(product.image_url),
         "source_updated_at": product.updated_at.isoformat() if product.updated_at else None,
         "rank": rank,
@@ -135,9 +136,11 @@ def product_candidate_from_record(item: dict, *, rank: int | None = None) -> Pro
         availability=_availability_from_record(item),
         derived_fields=list(item.get("derived_fields") or []),
         unavailable_fields=list(item.get("unavailable_fields") or item.get("unavailable") or []),
-        merchant_url=https_url(item.get("merchant_url"))
-        or https_url(item.get("click_url"))
-        or https_url(item.get("url")),
+        merchant_url=merchant_page_url(
+            item.get("url"),
+            item.get("merchant_url"),
+            item.get("click_url"),
+        ),
         image_url=https_url(item.get("image_url")),
         source_updated_at=updated,
         rank=item.get("rank") if item.get("rank") is not None else rank,
@@ -153,7 +156,7 @@ def product_candidate_from_snapshot(snapshot: dict, *, rank: int | None = None) 
         "source_product_id": snapshot.get("source_product_id") or normalized.get("id"),
         **normalized,
         "market": normalized.get("country_code"),
-        "merchant_url": normalized.get("click_url") or normalized.get("url"),
+        "merchant_url": merchant_page_url(normalized.get("url"), normalized.get("click_url")),
         "source_updated_at": normalized.get("updated_at"),
         "unavailable_fields": normalized.get("unavailable") or [],
     }

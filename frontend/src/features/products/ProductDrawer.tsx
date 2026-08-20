@@ -6,6 +6,7 @@ import { PlatformMark } from '../../components/ui/PlatformMark'
 import { categoryIconFor } from '../../lib/category'
 import { type Currency, type SnapshotRates } from '../../lib/currency'
 import { brandLabel, reasonsText } from '../../lib/format'
+import { merchantHref, merchantHost } from '../../lib/merchant'
 import { platformName, platformTone } from '../../lib/platform'
 
 export function ProductDrawer({
@@ -25,13 +26,8 @@ export function ProductDrawer({
   onToggle: () => void
   onTalk?: (text: string) => void
 }) {
-  const url = product.merchant_url
-  let domain = platformName(product.merchant)
-  try {
-    if (url) domain = new URL(url).hostname
-  } catch {
-    /* keep merchant name */
-  }
+  const url = merchantHref(product.merchant_url)
+  const domain = merchantHost(product.merchant_url) || platformName(product.merchant)
   const brand = brandLabel(product)
   const reasons = reasonsText(product.decision_reasons)
   return (
@@ -79,7 +75,7 @@ export function ProductDrawer({
             <p>本服务只负责比较；{domain} 将提供商品详情与交易。</p>
             {url ? (
               <a className="button button-primary merchant-link" href={url} target="_blank" rel="noreferrer">
-                前往 {platformName(product.merchant)} 查看
+                前往 {domain} 查看
                 <Icon name="external" size={15} />
               </a>
             ) : (

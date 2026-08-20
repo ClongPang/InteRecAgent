@@ -319,3 +319,5 @@ title+merchant 对不上，click URL 里的 `product_id` 也换了。肉眼是�
 7. **比较集是封闭工作集。** 集内找不到的颜色 / 品牌，不要回落到全局第一件。
 
 这七条是本轮方案变迁收束后的约束。下一轮若要动记忆、检索身份或过滤，先对照这里的失败案例，并回看 [live-hardening-scheme-evolution.md](./live-hardening-scheme-evolution.md) 里尚未失效的六条。
+
+商户跳转 403 与工作台视觉层次的后续变迁见 [workspace-surface-scheme-evolution.md](./workspace-surface-scheme-evolution.md)。

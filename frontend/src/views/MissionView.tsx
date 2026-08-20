@@ -3,12 +3,13 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { FxStrip } from '../components/evidence/FxStrip'
 import { Button } from '../components/ui/Button'
 import { Icon } from '../components/ui/Icon'
+import { CandidateCard } from '../features/candidates/CandidateCard'
 import { DecisionCard } from '../features/candidates/DecisionCard'
-import { CompareStrip, EvidenceDock } from '../features/candidates/EvidenceDock'
+import { CompareStrip } from '../features/candidates/EvidenceDock'
 import { ConversationPanel } from '../features/conversation/ConversationPanel'
 import { useMissionWorkspace } from '../features/missions/useMissionWorkspace'
 import { ProductDrawer } from '../features/products/ProductDrawer'
-import { ratesFromCandidates, type Currency } from '../lib/currency'
+import { ratesFromCandidates, rmbAmount, type Currency } from '../lib/currency'
 import { stageText } from '../lib/format'
 import { beliefOf, type ProductCandidate } from '../api/types'
 
@@ -22,6 +23,15 @@ export function MissionView({ currency }: { currency: Currency }) {
   const thread = workspace.queries.thread.data
   const recommendation = workspace.queries.recommendation.data
   const rates = ratesFromCandidates(ranked)
+  const rejected = new Set(beliefOf(mission ?? { belief: null }).rejected_snapshot_ids)
+  const lowestId = ranked.reduce<string | null>((best, item) => {
+    const amount = rmbAmount(item)
+    if (amount == null) return best
+    const current = ranked.find((row) => row.snapshot_id === best)
+    const bestAmount = current ? rmbAmount(current) : null
+    if (bestAmount == null || amount < bestAmount) return item.snapshot_id
+    return best
+  }, null)
   const running = mission?.turn_phase === 'researching' || mission?.turn_phase === 'refiltering'
 
   const openSnapshot = (snapshotId: string) => {
@@ -92,18 +102,34 @@ export function MissionView({ currency }: { currency: Currency }) {
             rates={rates}
             onOpen={openSnapshot}
           />
-          <EvidenceDock
-            candidates={ranked}
-            focusId={workspace.focusSnapshotId}
-            compareIds={workspace.draftCompare}
-            rejectedIds={beliefOf(mission).rejected_snapshot_ids}
-            onFocus={(product) => {
-              workspace.setFocusSnapshotId(product.snapshot_id)
-              setDetail(product)
-            }}
-            onToggleCompare={workspace.toggleCompare}
-            onTalk={(product, text) => workspace.send(text, { focusSnapshotId: product.snapshot_id })}
-          />
+          {ranked.length ? (
+            <div className="products-grid" aria-label="当前候选">
+              {ranked.map((product) => (
+                <CandidateCard
+                  key={product.snapshot_id}
+                  product={product}
+                  rank={product.rank ?? 0}
+                  selected={workspace.draftCompare.includes(product.snapshot_id)}
+                  toggle={() => workspace.toggleCompare(product.snapshot_id)}
+                  detail={() => {
+                    workspace.setFocusSnapshotId(product.snapshot_id)
+                    setDetail(product)
+                  }}
+                  budget={mission.constraints.budget_cny}
+                  lowest={lowestId === product.snapshot_id}
+                  currency={currency}
+                  lead={product.rank === 1 && !rejected.has(product.snapshot_id)}
+                  rejected={rejected.has(product.snapshot_id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <section className="empty-result is-waiting">
+              <Icon name="search" size={24} />
+              <h2>还没有可引用的商品</h2>
+              <p>先在对话里说明品类和预算，检索完成后会在这里摊开候选。</p>
+            </section>
+          )}
           <CompareStrip items={workspace.selected} onFocus={(product) => openSnapshot(product.snapshot_id)} />
         </section>
       </div>

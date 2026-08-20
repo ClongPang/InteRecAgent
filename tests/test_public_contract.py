@@ -13,6 +13,7 @@ from backend.application.services.present import (
     product_candidate_from_snapshot,
     remap_draft,
 )
+from backend.application.services.rec.identity import merchant_page_url, page_key, unwrap_merchant_url
 from backend.domain.models import FxSnapshot, NormalizedProduct
 
 
@@ -42,9 +43,42 @@ def test_mission_view_omits_owner_id() -> None:
     assert dumped["id"] == "m1"
 
 
+def test_unwrap_merchant_url_rejects_click_wrapper() -> None:
+    click = (
+        "https://buywhere.ai/api/click?url=https%3A%2F%2Fwww.decathlon.com"
+        "%2Fproducts%2Fquechua-mens-mh100-hiking-shoes-307854&product_id=1"
+    )
+    page = "https://www.decathlon.com/products/quechua-mens-mh100-hiking-shoes-307854"
+    assert unwrap_merchant_url(click) == page
+    assert unwrap_merchant_url(page) == page
+    assert unwrap_merchant_url("https://buywhere.ai/api/click?product_id=1") is None
+    assert merchant_page_url(None, click) == page
+    assert page_key(click) == "page:decathlon.com/products/quechua-mens-mh100-hiking-shoes-307854"
+
+
 def test_https_url_rejects_http() -> None:
     assert https_url("https://ok.example/a") == "https://ok.example/a"
     assert https_url("http://no.example/a") is None
+
+
+def test_candidate_record_unwraps_buywhere_click() -> None:
+    product = _product().model_copy(
+        update={
+            "url": None,
+            "click_url": (
+                "https://buywhere.ai/api/click?url=https%3A%2F%2Fwww.decathlon.com"
+                "%2Fproducts%2Fquechua-mens-mh100-hiking-shoes-307854&product_id=1"
+            ),
+        }
+    )
+    fx = FxSnapshot(base="USD", quote="CNY", rate=7.2, date="2026-08-15", source="frankfurter-ecb")
+    record = candidate_record(product, snapshot_id="snap-uuid", fx=fx, rank=1, budget_cny=1000)
+    assert record["merchant_url"] == "https://www.decathlon.com/products/quechua-mens-mh100-hiking-shoes-307854"
+    candidate = product_candidate_from_record(
+        {**record, "merchant_url": product.click_url}
+    )
+    assert candidate is not None
+    assert candidate.merchant_url == record["merchant_url"]
 
 
 def test_candidate_record_uses_snapshot_id_and_https_merchant_url() -> None:
