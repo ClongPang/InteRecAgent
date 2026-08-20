@@ -179,11 +179,11 @@ class ResearchTools:
             max_prices=caps or None,
         )
         ctx.products = list(outcome.products)
+        ctx.batch = []
         ctx.recall_count = len(ctx.products)
         ctx.failed_markets = list(outcome.failed_markets)
         ctx.searched = True
         ctx.converted = False
-        ctx.ranked = []
         ctx.add_warnings(outcome.warnings)
         stats = catalog_stats(
             ctx.products,
@@ -229,6 +229,7 @@ class ResearchTools:
             snapshot_map={},
         )
         ctx.products = products
+        ctx.batch = list(products)
         ctx.add_warnings(warnings)
         stats = catalog_stats(products, gates=list(getattr(belief, "spec_gates", []) or []))
         return {"kept": len(products), "warnings": warnings, **stats.as_payload()}
@@ -242,6 +243,9 @@ class ResearchTools:
         ctx.add_warnings(warnings)
         stats = catalog_stats(ranked, gates=list(getattr(ctx.mission.belief, "spec_gates", []) or []))
         return {"count": len(ranked), "ranked": stats.sample, **stats.as_payload()}
+
+    async def emit_ranked(self, count: int) -> None:
+        await self._emit_finished("rank_candidates", {"count": count})
 
     async def _finalize(self, ctx: ResearchContext, args: dict[str, Any]) -> dict[str, Any]:
         ctx.finalized = True

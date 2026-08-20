@@ -33,24 +33,24 @@ const NOISE_CUES = ['降噪', 'noise', 'cancelling', 'anc', 'wh-1000', 'wh1000',
 const BATTERY_CUES = ['续航', 'battery', '小时', 'hours', 'hrs']
 const TITLE_BRANDS = ['Sony', 'Bose', 'Sennheiser', 'Soundcore', 'Apple', 'Samsung', 'Dell']
 
-const CATALOG: ProductCandidate[] = [
-  candidate('snap-sony', 'sony-xm5', 'Sony WH-1000XM5 Wireless', 'amazon', 'US', 'USD', 299, 2149, 7.1882),
-  candidate('snap-bose', 'bose-qc', 'Bose QuietComfort Ultra', 'lazada', 'SG', 'SGD', 399, 2118, 5.3083),
-  candidate('snap-m4', 'senn-m4', 'Sennheiser Momentum 4 Wireless', 'bestbuy', 'US', 'USD', 329.95, 2378, 7.1882),
-  candidate('snap-q45', 'q45', 'Soundcore Space Q45', 'amazon', 'US', 'USD', 149.99, 1078, 7.1882),
-]
-
-function derivedBrand(title: string): { brand: string | null; derived_fields: string[] } {
-  const brand = TITLE_BRANDS.find((token) => title.toLowerCase().includes(token.toLowerCase())) ?? null
-  return { brand, derived_fields: brand ? ['brand'] : [] }
-}
-
 const FIXTURE_IMAGES: Record<string, string> = {
   'sony-xm5': 'https://cdn.shopify.com/s/files/1/0036/4806/1509/files/b73f824aaa21e37b422ae99d12023872287fc2d0_square3129229_1_6e0c1794-7f6e-4a1e-9b90-60ab71300eac.jpg?v=1770360676',
   'bose-qc': 'https://cdn.shopify.com/s/files/1/0240/9337/files/1_JBudsOpen_Cloud.jpg?v=1773247734',
   'senn-m4': 'https://cdn.shopify.com/s/files/1/0690/7201/files/Sony_Headphones_Audio_Cable_Original_1M_Black.png?v=1758987422',
   q45: 'https://cdn.shopify.com/s/files/1/0036/4806/1509/files/b73f824aaa21e37b422ae99d12023872287fc2d0_square3129229_1_6e0c1794-7f6e-4a1e-9b90-60ab71300eac.jpg?v=1770360676',
 }
+
+function derivedBrand(title: string): { brand: string | null; derived_fields: string[] } {
+  const brand = TITLE_BRANDS.find((token) => title.toLowerCase().includes(token.toLowerCase())) ?? null
+  return { brand, derived_fields: brand ? ['brand'] : [] }
+}
+
+const CATALOG: ProductCandidate[] = [
+  candidate('snap-sony', 'sony-xm5', 'Sony WH-1000XM5 Wireless', 'amazon', 'US', 'USD', 299, 2149, 7.1882),
+  candidate('snap-bose', 'bose-qc', 'Bose QuietComfort Ultra', 'lazada', 'SG', 'SGD', 399, 2118, 5.3083),
+  candidate('snap-m4', 'senn-m4', 'Sennheiser Momentum 4 Wireless', 'bestbuy', 'US', 'USD', 329.95, 2378, 7.1882),
+  candidate('snap-q45', 'q45', 'Soundcore Space Q45', 'amazon', 'US', 'USD', 149.99, 1078, 7.1882),
+]
 
 function candidate(
   snapshotId: string,

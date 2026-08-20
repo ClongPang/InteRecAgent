@@ -5,6 +5,8 @@ Agent 捕获后走确定性解析/模板解释，保证无模型 Key 时完整�
 """
 from __future__ import annotations
 
+from typing import Any
+
 from ...application.dto import (
     AssistantTurn,
     ChatMessage,
@@ -29,6 +31,12 @@ class UnconfiguredModelBackend:
         self, *, messages: list[ChatMessage], tools: list[ToolSpec]
     ) -> AssistantTurn:
         del messages, tools
+        raise ModelUnavailableError(
+            "LLM 未配置（llm_provider=unconfigured），研究循环请走确定性驱动"
+        )
+
+    async def complete_json(self, *, system: str, user: str) -> dict[str, Any]:
+        del system, user
         raise ModelUnavailableError(
             "LLM 未配置（llm_provider=unconfigured），研究循环请走确定性驱动"
         )

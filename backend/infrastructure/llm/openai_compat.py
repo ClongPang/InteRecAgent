@@ -267,6 +267,9 @@ class OpenAICompatModelBackend:
             raise ModelUnavailableError("无法连接模型服务") from exc
         return _decode_turn(body)
 
+    async def complete_json(self, *, system: str, user: str) -> dict[str, Any]:
+        return await self._complete_json(system=system, user=user)
+
     async def parse_intent(
         self, text: str, *, current_query: str | None = None, context: dict | None = None
     ) -> IntentPatch:

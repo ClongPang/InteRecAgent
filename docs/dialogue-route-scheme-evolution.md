@@ -170,9 +170,9 @@ REFINE
 
 模型只输出一个 `DialogueAct` JSON。禁止输出价格、库存、链接、汇率。失败或 Schema 不过则当模型不可用，改走确定性分类。
 
-### 4.2 研究：当轮工具轨迹
+### 4.2 研究：三次单次 JSON，不是工具聊天
 
-仅 `research` 支路。`run_agent` 维护的 `messages` 是：系统提示 → 当前约束 JSON → 工具调用 / 工具结果，最多 8 步。这是**本趟研究**的轨迹，看不到「上一句不要索尼」。候选对象在 `ResearchContext`，回给模型的是统计和 sample。详见 [research-tool-use-scheme-evolution.md](./research-tool-use-scheme-evolution.md)。
+仅 `research` 支路。后端控环，模型最多三次 `complete_json`：本轮 keep、改写 query、从累加池选 TopK。每次都是系统提示 + 一条 user JSON，看不到用户聊天历史，也看不到「上一句不要索尼」。候选对象在 `ResearchContext.pool`，回给模型的是 ID + brief。详见 [research-tool-use-scheme-evolution.md](./research-tool-use-scheme-evolution.md)。
 
 ### 4.3 起草：`draft_recommendation`
 
@@ -214,7 +214,7 @@ REFINE
 1. **研究不是默认路径。** 不要为了实现简单让每句话都进 `research`。  
 2. **态度重排，排除过滤，品类/预算重搜。** 不要把「太贵了」收成改 query，也不要在预算放宽时复用旧召回。  
 3. **分类是单次 JSON + 投影，不是 chat 历史。** 不要把 `thread.messages` 编进 `parse_turn`。  
-4. **研究 messages 只属于当轮工具循环。** 不要把上一轮用户原话拼进 `_initial_user`。  
+4. **研究 JSON 只属于当轮控环。** 不要把上一轮用户原话拼进 keep / 改写 / TopK 的 user payload。  
 5. **talk 不交给模型写事实句。** 保修、库存、价格只引用快照。
 
 下一轮若要加「多轮澄清对话」，先扩 DST 槽和邻接对，不要先上 transcript。并回看 [working-memory-scheme-evolution.md](./working-memory-scheme-evolution.md) 的视图切片约束。

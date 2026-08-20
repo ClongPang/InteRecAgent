@@ -27,7 +27,7 @@ from .identity import expand_listing_keys, listing_keys_from_product
 from .rank import preference_hits, rank_with_belief
 from .state import rec_state_from_mission
 
-MAX_RANKED_CANDIDATES = 8
+MAX_RANKED_CANDIDATES = 6
 
 
 def native_budget_cap(budget_cny: float, rate: float) -> float:

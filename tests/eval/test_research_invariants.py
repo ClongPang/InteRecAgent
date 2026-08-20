@@ -19,7 +19,7 @@ from backend.application.dto.mission import MissionConstraints, ShoppingMission
 from backend.application.services.rec import plan_search, rec_state_from_mission
 from backend.infrastructure.fx_sources.fixed import FixedFxSource
 from backend.infrastructure.product_sources.fixture import FixtureProductSource
-from tests.fakes import FakeModelBackend, tool_turn
+from tests.fakes import FakeModelBackend
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "buywhere"
 OWNER = "dddddddd-dddd-dddd-dddd-dddddddddddd"
@@ -34,15 +34,6 @@ CASES = [
     ("wireless earbuds", 2000, ["US"]),
     ("sony", 5000, ["US"]),
 ]
-
-_SCRIPT = [
-    tool_turn(("search_products", {})),
-    tool_turn(("convert_fx", {})),
-    tool_turn(("filter_candidates", {})),
-    tool_turn(("rank_candidates", {})),
-    tool_turn(("finalize", {})),
-]
-
 
 def _context(query: str, budget: float | None, markets: list[str]) -> ResearchContext:
     mission = ShoppingMission(
@@ -83,6 +74,6 @@ async def test_agent_driver_holds_invariants() -> None:
     failures: list[str] = []
     for query, budget, markets in CASES:
         ctx = _context(query, budget, markets)
-        await run_agent(ctx, _tools(), FakeModelBackend(list(_SCRIPT)))
+        await run_agent(ctx, _tools(), FakeModelBackend())
         failures += [f"[llm:{query}/{budget}] {p}" for p in _violations(ctx, budget)]
     assert not failures, "LLM 驱动违反不变量:\n" + "\n".join(failures)

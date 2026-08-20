@@ -62,6 +62,7 @@ def test_required_ports_exist_and_are_async() -> None:
     assert inspect.iscoroutinefunction(ports.RunDispatcher.cancel)
     assert inspect.iscoroutinefunction(ports.MissionRepository.get)
     assert inspect.iscoroutinefunction(ports.ModelBackend.parse_turn)
+    assert inspect.iscoroutinefunction(ports.ModelBackend.complete_json)
     assert inspect.iscoroutinefunction(ports.MissionEventBroker.wait)
 
 

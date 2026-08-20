@@ -57,6 +57,9 @@ class _NeverInvoked:
     async def chat(self, *a, **k):
         raise AssertionError("结构测试不应执行节点")
 
+    async def complete_json(self, *a, **k):
+        raise AssertionError("结构测试不应执行节点")
+
     async def parse_intent(self, *a, **k):
         raise AssertionError("结构测试不应执行节点")
 

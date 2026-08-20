@@ -65,7 +65,7 @@
 
 - 不改 LangGraph 外层边：`classify → effects → merge → route → … → persist`
 - persist 仍是唯一写库
-- 不把研究沙箱的工具白名单或 8 步上限改成「让模型自己翻历史」
+- 不把研究沙箱的后端控环改成「让模型自己翻历史」或自由点工具
 
 ---
 
@@ -112,9 +112,9 @@
 
 **旧方案**：工具回传前 5 条 title brief。样本难看时，研究者会再搜一次，即使目录里已经有足够 4K 显示器。这是规划盲视，不是召回不足。
 
-**新方案**：`search` / `filter` / `rank` 回传统计：`found`、`kept`、价格 min/p50/max、`gate_hits`、簇计数、跨簇 sample。初始 user payload 带一句 hint：已有可用候选且规格命中时，不要只因为 sample 不好看而重搜。
+**新方案**：停搜由池子件数和环境阈值决定，不再因为 sample 难看就重搜。keep / TopK 只看 ID + brief。
 
-关键文件：`backend/agent/tools/catalog.py`、`backend/agent/loop.py` `_initial_user`。
+关键文件：`backend/agent/tools/catalog.py`、`backend/agent/loop.py`、`backend/agent/judges.py`。
 
 ### 3.3 起草窗口：`draft_candidates`
 
@@ -266,7 +266,7 @@ title+merchant 对不上，click URL 里的 `product_id` 也换了。肉眼是�
            talk     → 读缓存 → grounded 回复 → persist
            rerank   → 读缓存 → 排序 → 校验 → 起草 → persist
            refilter → 读缓存 → 过滤 → 排序 → 校验 → 起草 → persist
-           research → 工具循环 → 校验 → 起草 → persist
+           research → 检索/规则/keep/累加 → TopK → 校验 → 起草 → persist
 ```
 
 `plan_route` 按 kind + 缓存 + 复用键（query/市场/预算）顺序命中。问和比走 talk；态度 rerank；排除和软过滤 refilter；换品类或改预算才 research。完整判定表见 [dialogue-route-scheme-evolution.md](./dialogue-route-scheme-evolution.md)。
@@ -293,7 +293,7 @@ title+merchant 对不上，click URL 里的 `product_id` 也换了。肉眼是�
 
 | 变迁 | 新增 | 主要改动 |
 |---|---|---|
-| 投影层 | `backend/application/services/model_context.py`、`tests/test_model_context.py` | `nlu.build_turn_context`、`openai_compat.parse_turn`、`loop._initial_user`、`evidence.compose`、`catalog` 工具回传 |
+| 投影层 | `backend/application/services/model_context.py`、`tests/test_model_context.py` | `nlu.build_turn_context`、`openai_compat.parse_turn`、`judges.py`、`evidence.compose`、`catalog` 工具回传 |
 | DST 槽 | — | `dto/belief.py`（`RejectReason` / `SpecGate` / `Critique.reason`）、`dto/runner.py` `IntentPatch`、`parse_intent.py`、`policy.py`、`decide.py` |
 | 规格与检索 | — | `domain/policies/filter_rank.py` `apply_spec_gates`、`score.py`、`rec/state.py`、`retrieve.py`、`pipeline.py` |
 | 否定身份 | — | `rec/identity.py` `page_key` / `expand_listing_keys` |

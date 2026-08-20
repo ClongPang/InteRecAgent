@@ -4,7 +4,7 @@
 商品用脱敏 fixture、汇率用固定源，只把「LLM 是否真的能驱动新链路」暴露出来：
   1. parse_intent 抽取开放式 soft_prefs（Phase 2）。
   2. parse_turn 分类 + 开放式 soft_prefs（Phase 2/3）。
-  3. chat 原生 tool-calling 探针 + run_agent 端到端研究循环（Phase 1 控制反转核心）。
+  3. complete_json 探针 + run_agent 端到端研究环（keep / 改写 / TopK）。
 
 用法（PowerShell）：uv run python scripts/live_smoke.py
 """
@@ -15,7 +15,6 @@ from pathlib import Path
 
 from backend.agent.loop import run_agent
 from backend.agent.tools import ResearchContext, ResearchTools
-from backend.application.dto import ChatMessage
 from backend.application.dto.mission import MissionConstraints, ShoppingMission
 from backend.application.services.rec import plan_search, rec_state_from_mission
 from backend.bootstrap.settings import Settings
@@ -78,19 +77,16 @@ async def main() -> int:
         plan = plan_search(rec_state_from_mission(mission))
         tools = ResearchTools(FixtureProductSource(FIXTURES), FixedFxSource())
 
-        print("\n[3a] chat 原生 tool-calling 探针（应发起 search_products 调用）")
-        turn = await backend.chat(
-            messages=[
-                ChatMessage(role="system", content="你是跨境购物研究员，请调用工具检索商品，不要直接编造。"),
-                ChatMessage(role="user", content="帮我找降噪耳机，预算 4000 元，美国市场"),
-            ],
-            tools=tools.specs,
+        print("\n[3a] complete_json keep 探针")
+        judged = await backend.complete_json(
+            system="只输出 JSON：{\"keep\":[\"id1\"]}。只能勾选输入 id。",
+            user='{"task":"keep","query":"降噪耳机","candidates":[{"id":"x1","title":"Sony WH-1000XM5"}]}',
         )
-        print(f"    tool_calls={[(c.name, c.arguments) for c in turn.tool_calls]} content={turn.content!r}")
-        if not turn.tool_calls:
-            failures.append("[3a] chat 未发起任何 tool_call（模型原生工具调用不可用）")
+        print(f"    keep={judged}")
+        if "keep" not in judged:
+            failures.append("[3a] complete_json 未返回 keep 字段")
 
-        print("\n[3b] run_agent 端到端（真实 LLM 编排 + fixture 商品/固定汇率）")
+        print("\n[3b] run_agent 端到端（后端控环 + fixture 商品/固定汇率）")
         ctx = ResearchContext(mission=mission, plan=plan)
         await run_agent(ctx, tools, backend)
         over_budget = [p.rmb_price for p in ctx.ranked if p.rmb_price and p.rmb_price > 4000]

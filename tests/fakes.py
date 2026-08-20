@@ -1,17 +1,18 @@
 """测试替身：脚本化 ModelBackend。
 
-放弃无 Key 底线后运行时不再有确定性编排 fallback，但 CI 仍须 hermetic：
-FakeModelBackend 按预置的 tool-call 轨迹逐步吐出 AssistantTurn，让 Agent 研究循环
-在不联网、可确定性回归的前提下被断言（守住硬约束 / 证据可追溯）。
+CI 须 hermetic：FakeModelBackend 按预置 JSON 或默认 keep-all / 不改写 / 先到先得 TopK
+驱动研究环，不联网。
 """
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
+from typing import Any
 
 from backend.agent.nodes.decide import make_merge_mission_state
 from backend.agent.nodes.dialogue import apply_turn_effects, route_turn
-from backend.application.dto import AssistantTurn, ChatMessage, IntentPatch, ToolCall, ToolSpec
+from backend.application.dto import AssistantTurn, ChatMessage, IntentPatch, ToolSpec
 from backend.application.dto.belief import PreferenceBelief
 from backend.application.dto.mission import MissionConstraints, ShoppingMission
 from backend.application.errors import ModelUnavailableError
@@ -68,22 +69,18 @@ def deterministic_turn(
     return asyncio.run(_drive_turn(mission, text, cache_payload))
 
 
-def tool_turn(*calls: tuple[str, dict]) -> AssistantTurn:
-    """构造一次发起若干工具调用的模型应答。"""
-    return AssistantTurn(
-        tool_calls=[
-            ToolCall(id=f"call_{index}", name=name, arguments=args)
-            for index, (name, args) in enumerate(calls)
-        ]
-    )
-
-
 class FakeModelBackend:
-    """按脚本轨迹应答的 ModelBackend。轨迹耗尽后返回终稿（无 tool_calls）。"""
+    """按脚本应答的 ModelBackend。json_replies 耗尽后：keep 全留、改写 null、TopK 取前 k。"""
 
-    def __init__(self, turns: list[AssistantTurn] | None = None) -> None:
+    def __init__(
+        self,
+        turns: list[AssistantTurn] | None = None,
+        json_replies: list[dict[str, Any]] | None = None,
+    ) -> None:
         self._turns = list(turns or [])
+        self._json_replies = list(json_replies or [])
         self.chat_calls: list[list[ChatMessage]] = []
+        self.json_calls: list[tuple[str, str]] = []
 
     def is_configured(self) -> bool:
         return True
@@ -99,6 +96,28 @@ class FakeModelBackend:
         if self._turns:
             return self._turns.pop(0)
         return AssistantTurn(content="done")
+
+    async def complete_json(self, *, system: str, user: str) -> dict[str, Any]:
+        self.json_calls.append((system, user))
+        if self._json_replies:
+            return self._json_replies.pop(0)
+        try:
+            payload = json.loads(user) if user.lstrip().startswith("{") else {}
+        except json.JSONDecodeError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        task = payload.get("task")
+        candidates = payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
+        ids = [str(item.get("id")) for item in candidates if isinstance(item, dict) and item.get("id")]
+        if task == "keep":
+            return {"keep": ids}
+        if task == "rewrite":
+            return {"query": None}
+        if task == "select_topk":
+            k = int(payload.get("k") or 6)
+            return {"ranked": ids[:k]}
+        return {"keep": ids, "query": None, "ranked": ids[:6]}
 
     async def parse_intent(self, *args, **kwargs):
         raise ModelUnavailableError("fake backend: parse_intent 未脚本化")

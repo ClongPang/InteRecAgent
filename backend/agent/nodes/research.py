@@ -1,8 +1,7 @@
-"""研究节点：LLM 自主编排 + 动态 tool-use 的检索子图（AGT-001）。
+"""研究节点：后端控环的检索子图。
 
-替代原「build_search_plan → fetch_products → fetch_fx → normalize → filter → rank」线性链。
-配置了 tool-calling 的模型走 LLM 自主循环；否则退回确定性驱动。产物（ranked/rates/…）
-交给下游 verify_evidence → compose_recommendation → persist（确定性 commit gate）。
+有配置模型时走 keep / 改写 / TopK 三次 JSON；否则同一条环跳过模型步。
+产物交给下游 verify_evidence → compose_recommendation → persist。
 """
 from __future__ import annotations
 
@@ -34,7 +33,7 @@ def make_research(
             products, fx, max_concurrency=max_concurrency, progress=progress
         )
 
-        if model_backend.supports_tools():
+        if model_backend.is_configured():
             await run_agent(
                 ctx,
                 tools,

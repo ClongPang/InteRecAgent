@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from ..dto import (
     AssistantTurn,
@@ -16,11 +16,11 @@ from ..dto import (
 class ModelBackend(Protocol):
     """LLM 后端 Port（AGT-003：只允许输出结构化 DTO / tool_call，不得直接输出最终价格/库存/链接）。
 
-    编排接缝分两代（绞杀式迁移）：
-    - 动态 tool-use：``supports_tools`` + ``chat`` 驱动 LLM 自主编排的研究循环（AGT-001）。
-    - 受约束增强（遗留）：``parse_intent`` / ``parse_turn`` / ``draft_recommendation``，
-      供尚未反转控制流的对话/推荐路径使用，Phase 3 完成后移除。
-    未配置时由 UnconfiguredModelBackend 抛出 ModelUnavailableError，研究循环退回确定性驱动。
+    编排接缝：
+    - 研究环：``complete_json`` 做 keep / 改写 / TopK；未配置则跳过模型步。
+    - 对话 / 起草：``parse_intent`` / ``parse_turn`` / ``draft_recommendation``。
+    - ``chat`` + ``supports_tools`` 仍可用于探测原生 tool-calling，研究控环不再依赖它。
+    未配置时由 UnconfiguredModelBackend 抛出 ModelUnavailableError。
     """
 
     def is_configured(self) -> bool: ...
@@ -33,6 +33,10 @@ class ModelBackend(Protocol):
         self, *, messages: list[ChatMessage], tools: list[ToolSpec]
     ) -> AssistantTurn:
         """一步对话：模型基于消息与工具签名，发起 tool_call 或给出终稿文本。"""
+        ...
+
+    async def complete_json(self, *, system: str, user: str) -> dict[str, Any]:
+        """单次结构化 JSON 补全。研究环的 keep / 改写 / TopK 走这里，不走自由 tool-calling。"""
         ...
 
     async def parse_intent(

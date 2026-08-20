@@ -64,6 +64,12 @@ async def test_unconfigured_parse_turn_raises_clear_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unconfigured_complete_json_raises() -> None:
+    with pytest.raises(ModelUnavailableError):
+        await UnconfiguredModelBackend().complete_json(system="s", user="{}")
+
+
+@pytest.mark.asyncio
 async def test_unconfigured_draft_recommendation_raises() -> None:
     with pytest.raises(ModelUnavailableError):
         await UnconfiguredModelBackend().draft_recommendation(
