@@ -10,6 +10,12 @@ from ...application.ports import UnitOfWork
 from ...application.services.dialogue import search_reuse_key
 from ...application.services.grounded import citations_from_ranked, compose_ready_reply
 from ...application.services.present import candidate_record, remap_draft
+from ...application.services.uncertainty import (
+    bind_emitted_probe,
+    present_probe,
+    probe_event_fields,
+    select_probe,
+)
 from ..state import MissionGraphState
 
 CONTRACT_VERSION = "1.0"
@@ -25,8 +31,21 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
 
         async with uow_factory() as uow:
             if state.get("requires_clarification") or turn_route == "clarify":
+                probe = select_probe(
+                    constraints=mission.constraints,
+                    belief=mission.belief,
+                    last_act=state.get("dialogue_act"),
+                )
+                belief = bind_emitted_probe(mission.belief, probe)
+                question = state.get("clarification_question")
+                if probe is not None:
+                    question = probe.question
                 updated = mission.model_copy(
-                    update={"stage": MissionStage.CLARIFYING, "turn_phase": TurnPhase.IDLE}
+                    update={
+                        "stage": MissionStage.CLARIFYING,
+                        "turn_phase": TurnPhase.IDLE,
+                        "belief": belief,
+                    }
                 )
                 try:
                     await uow.missions.save(updated, expected_version=run_version)
@@ -39,7 +58,11 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 await uow.events.append(
                     mission_id=mission.id,
                     event_type="clarification.required",
-                    payload={"run_id": run_id, "question": state.get("clarification_question")},
+                    payload={
+                        "run_id": run_id,
+                        "question": question,
+                        **probe_event_fields(probe),
+                    },
                 )
                 await uow.recommendation_runs.save(
                     mission_id=mission.id, run_id=run_id, payload={"status": "completed"}
@@ -140,6 +163,20 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 stage = MissionStage.DEGRADED
             citations = citations_from_ranked(ranked_records)
             comparison_ids = state.get("comparison_snapshot_ids")
+            agent_text = state.get("agent_message") or compose_ready_reply(
+                ranked_records,
+                mission.constraints,
+                belief=mission.belief,
+                recall_mode=getattr(state.get("search_plan"), "recall_mode", None),
+            )
+            probe = select_probe(
+                constraints=mission.constraints,
+                belief=mission.belief,
+                ranked=ranked_records,
+                last_act=state.get("dialogue_act"),
+            )
+            agent_text, _ = present_probe(probe, agent_text)
+            belief = bind_emitted_probe(mission.belief, probe)
             updates = {
                 "stage": stage,
                 "turn_phase": TurnPhase.IDLE,
@@ -148,7 +185,7 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 "recommendation_run_id": run_id,
                 "warnings": warnings,
                 "dialogue": _dialogue_with_mentions(mission.dialogue, citations),
-                "belief": mission.belief,
+                "belief": belief,
             }
             if comparison_ids:
                 updates["comparison_snapshot_ids"] = comparison_ids
@@ -173,12 +210,7 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                 )
 
             event_type = "recommendation.ready" if stage == MissionStage.READY else "run.degraded"
-            agent_text = state.get("agent_message") or compose_ready_reply(
-                ranked_records,
-                mission.constraints,
-                belief=mission.belief,
-                recall_mode=getattr(state.get("search_plan"), "recall_mode", None),
-            )
+            probe_fields = probe_event_fields(probe)
             await uow.events.append(
                 mission_id=mission.id,
                 event_type=event_type,
@@ -192,6 +224,7 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                     "snapshot_ids": [item["snapshot_id"] for item in citations],
                     "citations": citations,
                     "title": citations[0]["title"] if citations else None,
+                    **probe_fields,
                 },
             )
             await uow.events.append(
@@ -204,6 +237,7 @@ def make_persist_decision_snapshot(uow_factory: Callable[[], UnitOfWork]):
                     "constraints_version": constraints_version,
                     "snapshot_ids": [item["snapshot_id"] for item in citations],
                     "citations": citations,
+                    **probe_fields,
                 },
             )
             await uow.commit()
@@ -230,6 +264,16 @@ async def _persist_talk(
     warnings: list[str],
 ) -> dict:
     comparison_ids = state.get("comparison_snapshot_ids") or mission.comparison_snapshot_ids
+    ranked = list((state.get("cache_payload") or {}).get("ranked") or [])
+    text = state.get("agent_message") or "已根据当前候选回答。"
+    probe = select_probe(
+        constraints=mission.constraints,
+        belief=mission.belief,
+        ranked=ranked,
+        last_act=state.get("dialogue_act"),
+    )
+    text, _ = present_probe(probe, text)
+    belief = bind_emitted_probe(mission.belief, probe)
     updated = mission.model_copy(
         update={
             "stage": current.stage,
@@ -242,7 +286,7 @@ async def _persist_talk(
             "dialogue": _dialogue_with_mentions(
                 mission.dialogue, list(state.get("agent_citations") or []), list(state.get("agent_snapshot_ids") or [])
             ),
-            "belief": mission.belief,
+            "belief": belief,
             "active_run_id": run_id,
         }
     )
@@ -254,7 +298,6 @@ async def _persist_talk(
     await uow.recommendation_runs.save(
         mission_id=mission.id, run_id=run_id, payload={"status": "completed"}
     )
-    text = state.get("agent_message") or "已根据当前候选回答。"
     snapshot_ids = list(state.get("agent_snapshot_ids") or [])
     citations = list(state.get("agent_citations") or [])
     await uow.events.append(
@@ -268,6 +311,7 @@ async def _persist_talk(
             "constraints_version": constraints_version,
             "snapshot_ids": snapshot_ids,
             "citations": citations,
+            **probe_event_fields(probe),
         },
     )
     if state.get("comparison_snapshot_ids"):

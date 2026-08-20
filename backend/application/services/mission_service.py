@@ -23,10 +23,11 @@ from ..errors import (
     SnapshotNotFound,
 )
 from ..ports import RunDispatcher, UnitOfWork
-from .dialogue import next_moves_for, preview_turn, project_thread, stage_for_phase
+from .dialogue import preview_turn, project_thread, stage_for_phase
 from .nlu import is_undo_text
 from .policy import DialoguePolicy, TurnDecision, TurnInput
 from .present import product_candidate_from_record, product_candidate_from_snapshot
+from .uncertainty import moves_for_reply, select_probe
 
 
 class MissionCommandService:
@@ -479,7 +480,13 @@ class MissionCommandService:
                     "constraints_version": new_version,
                     "next_moves": [
                         item.model_dump()
-                        for item in next_moves_for(
+                        for item in moves_for_reply(
+                            select_probe(
+                                constraints=after,
+                                belief=decision.belief,
+                                ranked=list((cache_payload or {}).get("ranked") or []),
+                                last_act=decision.act,
+                            ),
                             kind=decision.act.kind.value,
                             topic=decision.act.topic.value if decision.act.topic else None,
                             has_query=bool(after.query),

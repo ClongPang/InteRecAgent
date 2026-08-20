@@ -138,6 +138,7 @@ def _map_event(event: dict) -> ThreadMessage | None:
             role="agent",
             text=str(payload.get("question") or CLARIFYING_QUESTION),
             act=DialogueActKind.UNKNOWN.value,
+            next_moves=next_moves,
             run_id=run_id,
             created_at=created,
         )

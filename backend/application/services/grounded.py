@@ -151,8 +151,6 @@ def compose_ready_reply(
     text = _why_reply(item, constraints, belief=belief)
     if recall_mode == "exploratory" and not _looks_precise(constraints.query):
         text += "这是按关键词检索的探索结果，不是精确型号匹配。"
-    if constraints.budget_cny is None and _price_spread_large(ranked):
-        text += "当前没有预算约束，价差较大；可以说一个人民币上限，我会按预算重筛。"
     return text
 
 
@@ -365,16 +363,3 @@ def _looks_precise(query: str | None) -> bool:
     from .rec.retrieve import looks_like_exact_model
 
     return looks_like_exact_model(query)
-
-
-def _price_spread_large(ranked: list[dict]) -> bool:
-    amounts: list[float] = []
-    for record in ranked[:4]:
-        estimated = record.get("estimated_cny") if isinstance(record.get("estimated_cny"), dict) else {}
-        amount = estimated.get("amount")
-        if amount is not None:
-            amounts.append(float(amount))
-    if len(amounts) < 2:
-        return False
-    lo, hi = min(amounts), max(amounts)
-    return hi - lo >= 400

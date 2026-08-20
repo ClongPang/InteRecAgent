@@ -22,6 +22,7 @@ from .mission import (
     TurnPhase,
     next_constraints_version,
 )
+from .probe import Probe, ProbeOption, SlotId, Uncertainty
 from .public import (
     SSE_PUBLIC_EVENTS,
     CandidateSetView,
@@ -42,7 +43,11 @@ __all__ = [
     "ToolSpec",
     "Critique",
     "PreferenceBelief",
+    "Probe",
+    "ProbeOption",
+    "SlotId",
     "SoftPref",
+    "Uncertainty",
     "CandidateSetView",
     "CreateMissionResponse",
     "DialogueState",

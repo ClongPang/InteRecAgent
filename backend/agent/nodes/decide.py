@@ -4,6 +4,7 @@ from __future__ import annotations
 from ...application.dto import MissionConstraints, MissionStage
 from ...application.services.dialogue import sanitize_constraints
 from ...application.services.rec import run_filter, run_rank
+from ...application.services.uncertainty import resolve_probe_coverage
 from ..state import MissionGraphState
 from .parse_intent import CLARIFYING_QUESTION
 
@@ -85,8 +86,14 @@ def make_merge_mission_state():
             "active_run_id": state["run_id"],
         }
         # 开放式软偏好维度并入信念，让排序按通用维度打分（§5.1 天花板）。
+        belief = mission.belief
         if patch.soft_prefs:
-            update["belief"] = mission.belief.with_soft_prefs(patch.soft_prefs)
+            belief = belief.with_soft_prefs(patch.soft_prefs)
+        if act is not None:
+            belief = resolve_probe_coverage(
+                belief, act, before=constraints, after=merged
+            )
+        update["belief"] = belief
         updated = mission.model_copy(update=update)
         result: dict = {
             "mission": updated,

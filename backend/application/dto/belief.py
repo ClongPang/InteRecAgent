@@ -26,6 +26,9 @@ class PreferenceBelief(BaseModel):
     critiques: list[Critique] = Field(default_factory=list)
     soft: list[SoftPref] = Field(default_factory=list)
     price_sensitivity: str | None = None
+    asked_slots: list[str] = Field(default_factory=list)
+    skipped_slots: list[str] = Field(default_factory=list)
+    pending_slot: str | None = None
 
     def reject(self, snapshot_id: str, *, kind: str = "reject_item") -> PreferenceBelief:
         rejected = list(self.rejected_snapshot_ids)
@@ -59,6 +62,22 @@ class PreferenceBelief(BaseModel):
         soft = [item for item in self.soft if item.attr != attr]
         soft.append(SoftPref(attr=attr, direction=direction, status="unsupported"))
         return self.model_copy(update={"soft": soft})
+
+    def mark_asked(self, slot: str) -> PreferenceBelief:
+        asked = list(self.asked_slots)
+        if slot and slot not in asked:
+            asked.append(slot)
+        return self.model_copy(update={"asked_slots": asked, "pending_slot": slot})
+
+    def mark_skipped(self, slot: str) -> PreferenceBelief:
+        skipped = list(self.skipped_slots)
+        if slot and slot not in skipped:
+            skipped.append(slot)
+        return self.model_copy(update={"skipped_slots": skipped, "pending_slot": None})
+
+    def resolve_slot(self, slot: str) -> PreferenceBelief:
+        skipped = [item for item in self.skipped_slots if item != slot]
+        return self.model_copy(update={"skipped_slots": skipped, "pending_slot": None})
 
     def mark_price_stance(self, stance: str) -> PreferenceBelief:
         soft = [item for item in self.soft if item.attr != "price"]
