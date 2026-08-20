@@ -1,10 +1,10 @@
 # 工作记忆：问题与方案变迁
 
-**版本**：1.0  
+**版本**：1.1  
 **日期**：2026-08-20  
 **项目**：InteRecAgent · 跨境选物台  
 **文档类型**：问题复盘 + 方案取舍  
-**范围**：流式硬化之后的「上下文怎么压缩」。记录为什么不做摘要器、DST 怎么投影、直播里身份/路由/指代又破了哪一层。
+**范围**：流式硬化之后的「上下文怎么压缩」。记录为什么不做摘要器、DST 怎么投影、直播里身份/路由/指代又破了哪一层。话轮如何分叉、有模型时是不是聊天历史，见 [dialogue-route-scheme-evolution.md](./dialogue-route-scheme-evolution.md)。
 
 本文接 [live-hardening-scheme-evolution.md](./live-hardening-scheme-evolution.md)。那里收束了传输、grounding 第一刀、snapshot 级否定和品类相关性。这里收束的是**任务记忆如何进模型、如何进过滤、如何在 BuyWhere 换 ID 后仍对齐**。事实层 / 决策层 / 语言层的职责分离不变：LLM 可以漏槽或误分类，确定性代码纠偏；不得编造价格、库存、保修。
 
@@ -96,6 +96,8 @@
 **旧方案**：`build_turn_context` 截最近 3 条**用户**原话，并把 belief 整包塞给 `parse_turn`。listing key、全量 critiques、asked/skipped 槽都进模型。
 
 **新方案**：邻接对（最后一条用户 + 最后一条助手）+ `belief.dst_summary()` + 比较集 brief + ranked 前三。
+
+这不是把对话线程当 chat messages。`parse_turn` 是**单次 JSON 完成**：系统提示 + 一条 user（当前句 + 上述投影）。全程 transcript 不进模型。研究循环里的多轮 `messages` 只属于当趟工具轨迹，也看不见用户历史。分叉规则见 [dialogue-route-scheme-evolution.md](./dialogue-route-scheme-evolution.md)。
 
 `dst_summary()` 只露：
 
@@ -259,18 +261,15 @@ title+merchant 对不上，click URL 里的 `product_id` 也换了。肉眼是�
         merge_mission_state             约束 ∪ use_case ∪ spec_gates
                 │
                 ▼
-        route_turn
-           REJECT+缓存 → refilter
-           STANCE     → rerank
-           约束变了   → refilter / research
-                │
-                ▼
-        run_filter                      listing expand → 品类 AND → spec gates → 排除词 → 预算
-        run_rank                        门闩 / 价格态度 / 软偏好
-                │
-                ▼
-        draft_candidates → persist      视图切片起草；belief JSON 整包入库
+        route_turn                      五选一，不是整图都跑
+           clarify  → persist
+           talk     → 读缓存 → grounded 回复 → persist
+           rerank   → 读缓存 → 排序 → 校验 → 起草 → persist
+           refilter → 读缓存 → 过滤 → 排序 → 校验 → 起草 → persist
+           research → 工具循环 → 校验 → 起草 → persist
 ```
+
+`plan_route` 按 kind + 缓存 + 复用键（query/市场/预算）顺序命中。问和比走 talk；态度 rerank；排除和软过滤 refilter；换品类或改预算才 research。完整判定表见 [dialogue-route-scheme-evolution.md](./dialogue-route-scheme-evolution.md)。
 
 前端 `BeliefBar` 只展示投影：用途、只要/偏好门闩、排除原因、价格态度。不展示 listing key。
 
@@ -310,8 +309,8 @@ title+merchant 对不上，click URL 里的 `product_id` 也换了。肉眼是�
 
 ## 9. 以后不要退回去的几条
 
-1. **权威状态是 Mission，模型只收视图。** 不要为了「让模型看全一点」把 listing key 或全量 ranked dump 回 `parse_turn`。  
-2. **不要加会话摘要器来解决指代。** 比较集和邻接对是结构化工作集，不是一段散文能代替的。  
+1. **权威状态是 Mission，模型只收视图。** 不要为了「让模型看全一点」把 listing key、全量 ranked 或 thread transcript dump 回 `parse_turn`。  
+2. **不要加会话摘要器来解决指代。** 比较集和邻接对是结构化工作集，不是一段散文能代替的。分类保持单次 JSON，不要改成多轮 chat。  
 3. **否定对象是商户 PDP，不是 BuyWhere product_id。** click 包装和商家 slug 都会变；用解开后的 `page:` 和纯标题对齐，旧 key 要能 expand。  
 4. **排除是过滤，态度是重排。** REJECT 有缓存必须 refilter；STANCE 才 rerank。不要为了省一次 filter 让被否款靠价格再赢回来。  
 5. **kind 对不等于槽写上了。** grounding 要补空 stance，也要把「只看有货」从问句模板里抢回来。  
@@ -320,4 +319,4 @@ title+merchant 对不上，click URL 里的 `product_id` 也换了。肉眼是�
 
 这七条是本轮方案变迁收束后的约束。下一轮若要动记忆、检索身份或过滤，先对照这里的失败案例，并回看 [live-hardening-scheme-evolution.md](./live-hardening-scheme-evolution.md) 里尚未失效的六条。
 
-商户跳转 403、工作台视觉层次，以及旧任务商品图读路径回填，见 [workspace-surface-scheme-evolution.md](./workspace-surface-scheme-evolution.md)。
+商户跳转 403、工作台视觉层次，以及旧任务商品图读路径回填，见 [workspace-surface-scheme-evolution.md](./workspace-surface-scheme-evolution.md)。研究工具签名（软决策带参、硬步骤无参）见 [research-tool-use-scheme-evolution.md](./research-tool-use-scheme-evolution.md)。话轮分叉与模型窗口（单次 JSON，不是聊天历史）见 [dialogue-route-scheme-evolution.md](./dialogue-route-scheme-evolution.md)。

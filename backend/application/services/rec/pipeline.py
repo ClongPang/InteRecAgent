@@ -27,6 +27,8 @@ from .identity import expand_listing_keys, listing_keys_from_product
 from .rank import preference_hits, rank_with_belief
 from .state import rec_state_from_mission
 
+MAX_RANKED_CANDIDATES = 8
+
 
 def native_budget_cap(budget_cny: float, rate: float) -> float:
     """人民币预算 ÷ (1 原币兑人民币) = 该市场检索上限。"""
@@ -220,6 +222,11 @@ def run_rank(
         if keys & rejected_keys:
             rejected.add(product.id)
     ranked = rank_with_belief(products, rec, rejected_source_ids=rejected)
+    if len(ranked) > MAX_RANKED_CANDIDATES:
+        warnings.append(
+            f"召回过滤后仍有 {len(ranked)} 件，已只保留排序前 {MAX_RANKED_CANDIDATES} 件供对照"
+        )
+        ranked = ranked[:MAX_RANKED_CANDIDATES]
     return ranked, warnings
 
 

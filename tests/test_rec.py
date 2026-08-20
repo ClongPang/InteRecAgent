@@ -14,7 +14,9 @@ from backend.application.services.rec import (
     plan_search,
     rec_state_from_mission,
     run_filter,
+    run_rank,
 )
+from backend.application.services.rec.pipeline import MAX_RANKED_CANDIDATES
 from backend.domain.models import NormalizedProduct
 
 
@@ -196,15 +198,15 @@ def test_run_filter_aligns_buywhere_duplicate_listing() -> None:
 
 def test_run_filter_only_drops_confirmed_out_of_stock() -> None:
     known = NormalizedProduct(
-        id="a", title="In stock", merchant="jlab",
+        id="a", title="JLab Go Air Headphones", merchant="jlab",
         native_price_amount=99, native_currency="USD", rmb_price=700, in_stock=True,
     )
     unknown = NormalizedProduct(
-        id="b", title="Unknown", merchant="decathlon",
+        id="b", title="Decathlon Wireless Headphones", merchant="decathlon",
         native_price_amount=80, native_currency="USD", rmb_price=560,
     )
     gone = NormalizedProduct(
-        id="c", title="Gone", merchant="shop",
+        id="c", title="Generic Wired Headphones", merchant="shop",
         native_price_amount=50, native_currency="USD", rmb_price=350, in_stock=False,
     )
     kept, warnings = run_filter(
@@ -214,3 +216,23 @@ def test_run_filter_only_drops_confirmed_out_of_stock() -> None:
     assert [item.id for item in kept] == ["a", "b"]
     assert any("无货" in item for item in warnings)
     assert any("仍列出" in item for item in warnings)
+
+
+def test_run_rank_caps_visible_candidates() -> None:
+    products = [
+        NormalizedProduct(
+            id=f"h{i}",
+            title=f"Wireless Headphones {i}",
+            merchant="m",
+            native_price_amount=20 + i,
+            native_currency="USD",
+            rmb_price=140 + i * 10,
+        )
+        for i in range(15)
+    ]
+    ranked, warnings = run_rank(
+        ShoppingMission(owner_id="u", title="t", constraints=MissionConstraints(query="耳机")),
+        products,
+    )
+    assert len(ranked) == MAX_RANKED_CANDIDATES
+    assert any("只保留排序前" in item for item in warnings)

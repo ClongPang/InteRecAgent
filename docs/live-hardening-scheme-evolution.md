@@ -262,6 +262,8 @@ persist 为了两件事各写一条事件：
 
 **已知残留**：FHD 办公屏标题含 Monitor，仍可能排在 4K 屏前面（最低价）。相关性只保证「是显示器」，不保证「是 4K」。规格字段 BuyWhere 经常缺失，不能假装按 4K 硬过滤。
 
+2026-08-20 收口：配件（HDMI 线、日记本）即使标题带 Monitor 也丢掉。品类线索全空时不再把脏召回整表灌回；英文型号名靠检索词片段（27 / 4K）弱匹配。排序后最多保留 8 件对照，见 `MAX_RANKED_CANDIDATES`。
+
 ---
 
 ## 8. 进度文案：工具调用次数 ≠ 用户心智
@@ -348,4 +350,4 @@ Vite HMR 在 `useMissionApi` 导出不兼容时会 invalidate Provider，页面�
 
 这六条是本轮方案变迁收束后的约束；下一轮若要动流式、NLU 或过滤，先对照这里的失败案例。
 
-工作记忆、规格门闩、否定身份与比较集指代的后续变迁见 [working-memory-scheme-evolution.md](./working-memory-scheme-evolution.md)。
+工作记忆、规格门闩、否定身份与比较集指代的后续变迁见 [working-memory-scheme-evolution.md](./working-memory-scheme-evolution.md)。研究子图工具为什么多数无参，见 [research-tool-use-scheme-evolution.md](./research-tool-use-scheme-evolution.md)。话轮分叉与分类窗口（单次 JSON，不是聊天历史）见 [dialogue-route-scheme-evolution.md](./dialogue-route-scheme-evolution.md)。

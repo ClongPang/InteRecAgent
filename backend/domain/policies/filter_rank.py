@@ -58,6 +58,52 @@ _CATEGORY_CUES: tuple[tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]], 
 )
 
 
+_QUERY_STOP = frozenset(
+    {
+        "寸",
+        "元",
+        "块",
+        "以内",
+        "之内",
+        "适合",
+        "的",
+        "帮我",
+        "我想",
+        "买",
+        "找",
+        "挑",
+        "and",
+        "for",
+        "the",
+        "with",
+        "inch",
+    }
+)
+_ACCESSORY_PHRASES = ("log book", "mouse pad", "hdmi cable", "display cable")
+_ACCESSORY_WORDS = (
+    "cable",
+    "cables",
+    "hdmi",
+    "adapter",
+    "charger",
+    "dongle",
+    "bracket",
+    "case",
+    "cases",
+    "cover",
+    "cushion",
+    "replacement",
+    "book",
+    "journal",
+    "notebook",
+    "sock",
+    "socks",
+    "insole",
+    "laces",
+)
+_ACCESSORY_CJK = ("线材", "转接头", "充电器", "保护套", "日记本", "手册")
+
+
 def relevance_cues(query: str | None) -> tuple[tuple[str, ...], tuple[str, ...]]:
     text = (query or "").lower()
     if not text:
@@ -68,28 +114,88 @@ def relevance_cues(query: str | None) -> tuple[tuple[str, ...], tuple[str, ...]]
     return (), ()
 
 
+def query_tokens(query: str | None) -> list[str]:
+    """从检索词抽出可对照标题的片段。停用词和单字不进入。"""
+    text = (query or "").lower()
+    if not text:
+        return []
+    tokens: list[str] = []
+    for match in re.finditer(r"4k|8k|uhd|fhd|[a-z][a-z0-9\-]{2,}|\d{2,}", text):
+        token = match.group(0)
+        if token not in _QUERY_STOP:
+            tokens.append(token)
+    for match in re.finditer(r"[\u4e00-\u9fff]{2,}", text):
+        token = match.group(0)
+        if token not in _QUERY_STOP:
+            tokens.append(token)
+    return tokens
+
+
+def title_is_accessory(title: str | None) -> bool:
+    """线材、套子、日记本等附属品。英文按词边界，避免 mountain / standard 误杀。"""
+    blob = (title or "").lower()
+    if any(phrase in blob for phrase in _ACCESSORY_PHRASES):
+        return True
+    if any(cue in blob for cue in _ACCESSORY_CJK):
+        return True
+    return any(re.search(rf"(?<![a-z]){re.escape(word)}(?![a-z])", blob) for word in _ACCESSORY_WORDS)
+
+
+def _category_hit(title: str, cues: tuple[str, ...], forms: tuple[str, ...]) -> bool:
+    hit = any(cue in title for cue in cues)
+    if hit and forms:
+        hit = any(form in title for form in forms)
+    return hit
+
+
+def _token_hit(title: str, tokens: list[str]) -> bool:
+    return bool(tokens) and any(token in title for token in tokens)
+
+
 def apply_relevance_filter(
     products: Iterable[NormalizedProduct], query: str | None
 ) -> tuple[list[NormalizedProduct], list[NormalizedProduct]]:
-    """标题与品类对不上的召回先丢掉；若会清空则原样返回，避免假空集。"""
+    """丢掉品类对不上或明显是配件的召回。
+
+    先走品类线索（配件即使带 Monitor 也丢）。没有品类词时用检索词片段（27 / 4K）
+    弱匹配。耳机/显示器这类无形态约束的品类，再回退到「非配件」以免 COWIN E7
+    这种纯型号名被误杀。徒步鞋有形态约束，回退会把音箱灌回来，故宁可空集。
+    """
     items = list(products)
     cues, forms = relevance_cues(query)
-    if not cues:
+    tokens = query_tokens(query)
+    if not cues and not tokens:
         return items, []
-    kept: list[NormalizedProduct] = []
-    dropped: list[NormalizedProduct] = []
-    for product in items:
-        title = (product.title or "").lower()
-        hit = any(cue in title for cue in cues)
-        if hit and forms:
-            hit = any(form in title for form in forms)
-        if hit:
-            kept.append(product)
-        else:
-            dropped.append(product)
-    if not kept:
-        return items, []
-    return kept, dropped
+
+    def rest(kept_items: list[NormalizedProduct]) -> list[NormalizedProduct]:
+        kept_ids = {item.id for item in kept_items}
+        return [item for item in items if item.id not in kept_ids]
+
+    category_kept: list[NormalizedProduct] = []
+    if cues:
+        for product in items:
+            title = (product.title or "").lower()
+            if _category_hit(title, cues, forms) and not title_is_accessory(title):
+                category_kept.append(product)
+        if category_kept:
+            return category_kept, rest(category_kept)
+
+    token_kept = [
+        product
+        for product in items
+        if not title_is_accessory(product.title) and _token_hit((product.title or "").lower(), tokens)
+    ]
+    if token_kept:
+        return token_kept, rest(token_kept)
+
+    if cues and not forms:
+        fallback = [product for product in items if not title_is_accessory(product.title)]
+        if fallback:
+            return fallback, rest(fallback)
+        return [], items
+    if cues:
+        return [], items
+    return items, []
 
 
 def apply_spec_gates(

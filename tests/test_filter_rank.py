@@ -87,10 +87,29 @@ class TestRelevanceFilter:
         assert [p.id for p in kept] == ["m"]
         assert [p.id for p in dropped] == ["j"]
 
-    def test_keeps_all_when_filter_would_empty(self):
+    def test_category_miss_does_not_pour_junk_back(self):
         journal = _product("j", 10, title="Blood Pressure Log Book")
         kept, dropped = apply_relevance_filter([journal], "27 寸 4K 显示器")
-        assert [p.id for p in kept] == ["j"]
+        assert kept == []
+        assert [p.id for p in dropped] == ["j"]
+
+    def test_drops_monitor_accessories(self):
+        cable = _product("c", 15, title="Amazon Basics HDMI 4K Monitor Cable 6ft")
+        monitor = _product("m", 200, title="Dell 27 inch 4K UHD Monitor")
+        kept, dropped = apply_relevance_filter([cable, monitor], "27 寸 4K 显示器")
+        assert [p.id for p in kept] == ["m"]
+        assert [p.id for p in dropped] == ["c"]
+
+    def test_token_overlap_keeps_english_model_without_category_word(self):
+        sharp = _product("u", 180, title="Dell UltraSharp 27 4K UHD USB-C")
+        kept, dropped = apply_relevance_filter([sharp], "27 寸 4K 显示器")
+        assert [p.id for p in kept] == ["u"]
+        assert dropped == []
+
+    def test_headphone_model_name_without_category_word_is_kept(self):
+        cowin = _product("c", 40, title="COWIN E7 White")
+        kept, dropped = apply_relevance_filter([cowin], "降噪耳机")
+        assert [p.id for p in kept] == ["c"]
         assert dropped == []
 
     def test_hiking_shoes_drop_hiking_speaker(self):
