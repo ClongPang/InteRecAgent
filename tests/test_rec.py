@@ -44,6 +44,17 @@ def test_chinese_exploratory_query_uses_hybrid() -> None:
     assert plan.markets == list(DEFAULT_MARKETS)
 
 
+def test_search_plan_appends_use_case() -> None:
+    mission = ShoppingMission(
+        owner_id="u",
+        title="t",
+        constraints=MissionConstraints(query="27 寸 4K 显示器", budget_cny=3000),
+        belief=PreferenceBelief(use_case="远程办公"),
+    )
+    plan = plan_search(rec_state_from_mission(mission))
+    assert plan.query == "27 寸 4K 显示器 远程办公"
+
+
 def test_referent_hint_resolves_brand_and_cheapest() -> None:
     ranked = [
         {"snapshot_id": "s1", "title": "Sony WH-1000XM5", "brand": "Sony", "estimated_cny": {"amount": 2500}},
@@ -83,6 +94,41 @@ def test_talk_reply_uses_brand_referent() -> None:
     assert reply.snapshot_ids == ["s1"]
 
 
+def test_color_miss_does_not_leave_comparison_set() -> None:
+    ranked = [
+        {
+            "snapshot_id": "s1",
+            "title": "AOC U27G4 4K Black",
+            "estimated_cny": {"amount": 726},
+            "unavailable_fields": ["availability"],
+            "decision_reasons": [],
+        },
+        {
+            "snapshot_id": "s2",
+            "title": "BENQ EX271U 4K Black",
+            "estimated_cny": {"amount": 793},
+            "unavailable_fields": ["availability"],
+            "decision_reasons": [],
+        },
+        {
+            "snapshot_id": "s3",
+            "title": "LG UltraFine 4K White",
+            "estimated_cny": {"amount": 974},
+            "unavailable_fields": ["availability"],
+            "decision_reasons": [],
+        },
+    ]
+    reply = compose_talk_reply(
+        act=classify_turn("白色那个怎么样", current_query="4K 显示器"),
+        text="白色那个怎么样",
+        ranked=ranked,
+        constraints=MissionConstraints(query="4K 显示器", budget_cny=3000),
+        comparison_records=ranked[:2],
+    )
+    assert reply.snapshot_ids == []
+    assert "找不到" in reply.text
+
+
 def test_run_filter_honors_listing_keys_after_new_snapshots() -> None:
     red = NormalizedProduct(
         id="src-red",
@@ -108,4 +154,41 @@ def test_run_filter_honors_listing_keys_after_new_snapshots() -> None:
         snapshot_map={"src-red": "new-snap-red", "src-white": "new-snap-white"},
     )
     assert [item.id for item in kept] == ["src-white"]
+    assert any("否定" in item for item in warnings)
+
+
+def test_run_filter_aligns_buywhere_duplicate_listing() -> None:
+    click = (
+        "https://buywhere.ai/api/click?url=https%3A%2F%2Fquadrastores.com%2Fproducts"
+        "%2Fsamsung-27-inch-4k-60hz-ips-uhd-gaming-monitor-black-1"
+        "&product_id=473734239&merchant=shopify_buy30620_stock"
+    )
+    twin = NormalizedProduct(
+        id="564527982",
+        title="SAMSUNG 27 Inch UHD 4K 60Hz IPS Gaming Monitor - Black",
+        merchant="shopify",
+        url=click.replace("473734239", "564527982").replace("shopify_buy30620_stock", "shopify"),
+        click_url=click.replace("473734239", "564527982").replace("shopify_buy30620_stock", "shopify"),
+        native_price_amount=90,
+        native_currency="USD",
+        rmb_price=605,
+    )
+    other = NormalizedProduct(
+        id="aoc-1",
+        title="AOC U27G4 27 Inch 4K UHD IPS Gaming Monitor - Black",
+        merchant="shopify",
+        native_price_amount=108,
+        native_currency="USD",
+        rmb_price=726,
+    )
+    kept, warnings = run_filter(
+        MissionConstraints(query="27 寸 4K 显示器", budget_cny=3000),
+        [twin, other],
+        rejected_listing_keys={
+            "src:473734239",
+            f"url:{click}",
+            "title:samsung 27 inch uhd 4k 60hz ips gaming monitor - black|m:shopify_buy30620_stock",
+        },
+    )
+    assert [item.id for item in kept] == ["aoc-1"]
     assert any("否定" in item for item in warnings)

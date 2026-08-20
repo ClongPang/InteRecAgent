@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 
 from ..dto import IntentPatch
+from ..dto.belief import SpecGate
 
 CLARIFYING_QUESTION = "您想买什么？请提供商品型号或品类，例如「降噪耳机」「27 寸 4K 显示器」「徒步鞋」。"
 
@@ -24,6 +25,8 @@ _PRODUCT_HINT = re.compile(
     re.I,
 )
 _SWITCH_QUERY = re.compile(r"改找|换成|换一类|改买|不要这个品类")
+_USE_SUIT = re.compile(r"适合(?P<use>.+?)的")
+_USE_GIFT = re.compile(r"送给(?P<who>[^的，,。\s]{1,8})的")
 
 
 def parse_budget(text: str) -> float | None:
@@ -68,9 +71,40 @@ def _strip_known_slots(text: str) -> str:
     s = re.sub(r"^(?:帮我找|帮我买|帮我挑|帮我|我想买|我要买|我要找|我想|想买|请帮我|给我|要买|买|找)\s*", "", s)
     s = re.sub(r"^一[副个台件双只]\s*", "", s)
     s = re.sub(r"^适合.+?的\s*", "", s)
+    s = re.sub(r"^送给[^的，,。\s]{1,8}的\s*", "", s)
     s = re.sub(r"\d{3,6}\s*(?:元|块|人民币|rmb)?\s*(?:以内|之内)?", "", s, flags=re.I)
     s = re.sub(r"[，,。；;、]+", " ", s)
     return s.strip()
+
+
+def extract_use_case(text: str) -> str | None:
+    gift = _USE_GIFT.search(text or "")
+    if gift:
+        return f"送给{gift.group('who')}"
+    suit = _USE_SUIT.search(text or "")
+    if suit:
+        use = suit.group("use").strip("的了呢啊 ")
+        return use or None
+    return None
+
+
+def extract_spec_gates(text: str) -> list[SpecGate]:
+    raw = text or ""
+    lowered = raw.lower()
+    gates: list[SpecGate] = []
+    if re.search(r"4k|2160|\buhd\b", lowered, re.I):
+        gates.append(SpecGate(attr="4k", cues=["4k", "2160", "uhd", "3840"], required=True))
+    if re.search(r"27\s*寸|27\s*[- ]?inch|27\"", lowered, re.I):
+        gates.append(
+            SpecGate(attr="27inch", cues=["27 inch", "27-inch", "27寸", '27"', "27 inch"], required=False)
+        )
+    if re.search(r"头戴|over-?ear|headset", lowered, re.I) and not re.search(r"不要头戴", raw):
+        gates.append(SpecGate(attr="overear", cues=["头戴", "over-ear", "over ear", "headset"], required=True))
+    if re.search(r"入耳|耳塞|earbuds?|in-?ear", lowered, re.I) and not re.search(
+        r"不要入耳|不要耳塞", raw
+    ):
+        gates.append(SpecGate(attr="inear", cues=["入耳", "耳塞", "earbud", "earbuds", "in-ear"], required=True))
+    return gates
 
 
 def extract_query(text: str, *, current_query: str | None = None) -> str | None:
@@ -94,6 +128,8 @@ def parse_intent(text: str, *, current_query: str | None = None) -> IntentPatch:
     markets = parse_markets(text)
     preference = parse_preference(text)
     only_in_stock = True if re.search(r"只看有货|仅看有货", text) else None
+    use_case = extract_use_case(text)
+    spec_gates = extract_spec_gates(text)
 
     if query is None and not current_query:
         return IntentPatch(
@@ -101,6 +137,8 @@ def parse_intent(text: str, *, current_query: str | None = None) -> IntentPatch:
             markets=markets,
             preference=preference,
             only_in_stock=only_in_stock,
+            use_case=use_case,
+            spec_gates=spec_gates or None,
             requires_clarification=True,
             clarification_question=CLARIFYING_QUESTION,
         )
@@ -110,5 +148,7 @@ def parse_intent(text: str, *, current_query: str | None = None) -> IntentPatch:
         markets=markets,
         preference=preference,
         only_in_stock=only_in_stock,
+        use_case=use_case,
+        spec_gates=spec_gates or None,
         requires_clarification=False,
     )

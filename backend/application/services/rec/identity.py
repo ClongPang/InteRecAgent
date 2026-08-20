@@ -1,6 +1,9 @@
 """被否定候选的稳定身份。快照 ID 在重搜后会变，listing key 用来跨轮对齐。"""
 from __future__ import annotations
 
+from collections.abc import Iterable
+from urllib.parse import parse_qs, unquote, urlparse
+
 from ....domain.models import NormalizedProduct
 
 
@@ -19,11 +22,52 @@ def listing_keys_of(
         keys.append(f"src:{source_id}")
     if url:
         keys.append(f"url:{url.rstrip('/').lower()}")
+        page = page_key(url)
+        if page:
+            keys.append(page)
     title_n = " ".join((title or "").lower().split())
     merch = (merchant or "").strip().lower()
     if title_n:
+        keys.append(f"title:{title_n}")
         keys.append(f"title:{title_n}|m:{merch}")
     return keys
+
+
+def page_key(url: str | None) -> str | None:
+    """BuyWhere 会换 click 包装与 product_id；商户商品页路径才是同一条 listing。"""
+    raw = (url or "").strip()
+    if not raw:
+        return None
+    parsed = urlparse(raw)
+    host = (parsed.netloc or "").lower()
+    if "buywhere." in host and parsed.path.startswith("/api/click"):
+        inner = parse_qs(parsed.query).get("url", [None])[0]
+        if inner:
+            raw = unquote(inner)
+            parsed = urlparse(raw)
+            host = (parsed.netloc or "").lower()
+    if not host:
+        return None
+    if host.startswith("www."):
+        host = host[4:]
+    path = (parsed.path or "").rstrip("/").lower()
+    return f"page:{host}{path}" if path else None
+
+
+def expand_listing_keys(keys: Iterable[str]) -> set[str]:
+    """旧批评只存了 click URL / 带商家 slug 的标题时，补齐可对齐的稳定键。"""
+    out: set[str] = set()
+    for key in keys:
+        if not key:
+            continue
+        out.add(key)
+        if key.startswith("url:"):
+            page = page_key(key[4:])
+            if page:
+                out.add(page)
+        if key.startswith("title:") and "|m:" in key:
+            out.add(key.split("|m:", 1)[0])
+    return out
 
 
 def listing_keys_from_record(item: dict | None) -> list[str]:

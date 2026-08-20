@@ -88,7 +88,11 @@ async def apply_turn_effects(state: MissionGraphState) -> dict:
 def _turn_context(state: MissionGraphState) -> dict:
     from ...application.services.nlu import build_turn_context
 
-    return build_turn_context([], state.get("mission"), state.get("cache_payload"))
+    return build_turn_context(
+        state.get("events") or [],
+        state.get("mission"),
+        state.get("cache_payload"),
+    )
 
 
 async def route_turn(state: MissionGraphState) -> dict:
@@ -149,6 +153,7 @@ def make_compose_grounded_reply():
         payload = state.get("cache_payload") or {}
         ranked_records = list(payload.get("ranked") or [])
         mission = state["mission"]
+        compare_ids = set(mission.comparison_snapshot_ids or [])
         reply = compose_talk_reply(
             act=act,
             text=state.get("text") or "",
@@ -156,6 +161,9 @@ def make_compose_grounded_reply():
             constraints=mission.constraints,
             focus_snapshot_id=getattr(mission.dialogue, "focus_snapshot_id", None),
             belief=mission.belief,
+            comparison_records=[
+                item for item in ranked_records if item.get("snapshot_id") in compare_ids
+            ],
         )
         result = {
             "agent_message": reply.text,

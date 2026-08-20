@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..dto.belief import PreferenceBelief
+from ..dto.belief import PreferenceBelief, RejectReason
 from ..dto.dialogue import DialogueAct, DialogueActKind, NextMove
 from ..dto.mission import MissionConstraints
 from ..dto.probe import Probe, ProbeOption, SlotId, Uncertainty
@@ -205,7 +205,7 @@ def resolve_probe_coverage(
         return belief
     if act.kind in _PASSIVE_KINDS:
         return belief
-    if _addresses(pending, act, before=before, after=after):
+    if _addresses(pending, act, before=before, after=after, belief=belief):
         return belief.resolve_slot(pending)
     return belief.mark_skipped(pending)
 
@@ -321,6 +321,9 @@ def _reject_reason_uncertainty(
         return None
     if not belief.rejected_snapshot_ids:
         return None
+    reason = belief.last_reject_reason()
+    if reason and reason != RejectReason.UNKNOWN:
+        return None
     return Uncertainty(
         slot=SlotId.REJECT_REASON,
         severity=0.6,
@@ -341,6 +344,7 @@ def _addresses(
     *,
     before: MissionConstraints | None,
     after: MissionConstraints | None,
+    belief: PreferenceBelief | None = None,
 ) -> bool:
     patch = act.patch or IntentPatch()
     if slot == SlotId.QUERY:
@@ -367,7 +371,9 @@ def _addresses(
         text = " ".join(act.exclude_terms + list(patch.exclude_terms or []))
         return any(token in text for token in ("头戴", "入耳", "耳塞", "开放"))
     if slot == SlotId.REJECT_REASON:
-        return act.kind in {DialogueActKind.STANCE, DialogueActKind.REJECT} or bool(
-            act.exclude_terms
-        )
+        if belief is not None:
+            reason = belief.last_reject_reason()
+            if reason and reason != RejectReason.UNKNOWN:
+                return True
+        return bool(act.exclude_terms)
     return False

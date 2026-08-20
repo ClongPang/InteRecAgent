@@ -13,6 +13,7 @@ from ....domain.policies import (
     apply_budget_filter,
     apply_exclusion_filter,
     apply_relevance_filter,
+    apply_spec_gates,
     apply_stock_filter,
     convert_products,
     dedupe_products,
@@ -22,7 +23,7 @@ from ...dto.mission import MissionConstraints, ShoppingMission
 from ...errors import UpstreamUnavailableError
 from ...ports import FxSource, ProductSource
 from ..market_search import MarketSearchOutcome, gather_market_products
-from .identity import listing_keys_from_product
+from .identity import expand_listing_keys, listing_keys_from_product
 from .rank import preference_hits, rank_with_belief
 from .state import rec_state_from_mission
 
@@ -116,13 +117,14 @@ def run_filter(
     *,
     rejected_snapshot_ids: set[str] | None = None,
     rejected_listing_keys: set[str] | None = None,
+    spec_gates: list | None = None,
     snapshot_map: dict[str, str] | None = None,
 ) -> tuple[list[NormalizedProduct], list[str]]:
     """硬过滤：否定候选、有货事实、排除词、预算。无库存事实时不筛。"""
     warnings: list[str] = []
     original = list(products)
     rejected = set(rejected_snapshot_ids or set())
-    rejected_keys = set(rejected_listing_keys or set())
+    rejected_keys = expand_listing_keys(rejected_listing_keys or set())
     for snapshot_id in rejected:
         rejected_keys.add(snapshot_id)
         rejected_keys.add(f"snap:{snapshot_id}")
@@ -133,7 +135,7 @@ def run_filter(
         kept: list[NormalizedProduct] = []
         for product in products:
             snap_id = snapshot_map.get(product.id, product.id)
-            keys = set(listing_keys_from_product(product, snapshot_id=snap_id))
+            keys = expand_listing_keys(listing_keys_from_product(product, snapshot_id=snap_id))
             keys.add(snap_id)
             keys.add(product.id)
             if keys & rejected_keys:
@@ -158,6 +160,14 @@ def run_filter(
         products, irrelevant = apply_relevance_filter(products, constraints.query)
         if irrelevant:
             warnings.append(f"已去掉 {len(irrelevant)} 件与「{constraints.query}」品类对不上的召回")
+
+    if spec_gates:
+        products, missed = apply_spec_gates(products, spec_gates)
+        if missed:
+            labels = "、".join(
+                getattr(gate, "attr", "") for gate in spec_gates if getattr(gate, "required", False)
+            )
+            warnings.append(f"已去掉 {len(missed)} 件未命中规格门闩（{labels}）")
 
     if constraints.excluded_terms:
         products, dropped = apply_exclusion_filter(products, constraints.excluded_terms)
@@ -197,7 +207,7 @@ def run_rank(
             warnings.append(f"当前商品数据无法按「{preference}」维度排序，已按商品价排序")
 
     snapshot_map = snapshot_map or {}
-    rejected_keys = set(rec.rejected_listing_keys)
+    rejected_keys = expand_listing_keys(rec.rejected_listing_keys)
     rejected = {
         source_id
         for source_id, snapshot_id in snapshot_map.items()
@@ -207,7 +217,7 @@ def run_rank(
     }
     for product in products:
         snap_id = snapshot_map.get(product.id)
-        keys = set(listing_keys_from_product(product, snapshot_id=snap_id))
+        keys = expand_listing_keys(listing_keys_from_product(product, snapshot_id=snap_id))
         if keys & rejected_keys:
             rejected.add(product.id)
     ranked = rank_with_belief(products, rec, rejected_source_ids=rejected)

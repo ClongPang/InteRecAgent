@@ -33,10 +33,18 @@ export type Critique = {
   kind: string
   snapshot_id?: string | null
   attr?: string | null
+  reason?: string | null
+}
+
+export type SpecGate = {
+  attr: string
+  cues?: string[]
+  required?: boolean
 }
 
 export type PreferenceBelief = {
   use_case?: string | null
+  spec_gates?: SpecGate[]
   rejected_snapshot_ids: string[]
   critiques: Critique[]
   soft: SoftPref[]
@@ -52,6 +60,7 @@ export type DialogueState = {
 export function emptyBelief(): PreferenceBelief {
   return {
     use_case: null,
+    spec_gates: [],
     rejected_snapshot_ids: [],
     critiques: [],
     soft: [],
@@ -64,6 +73,7 @@ export function beliefOf(mission: { belief?: PreferenceBelief | null }): Prefere
   if (!belief) return emptyBelief()
   return {
     use_case: belief.use_case ?? null,
+    spec_gates: belief.spec_gates ?? [],
     rejected_snapshot_ids: belief.rejected_snapshot_ids ?? [],
     critiques: belief.critiques ?? [],
     soft: belief.soft ?? [],

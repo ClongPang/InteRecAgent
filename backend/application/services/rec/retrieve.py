@@ -21,6 +21,8 @@ def query_has_cjk(query: str | None) -> bool:
 def plan_search(rec: RecState, *, limit: int = 20) -> SearchPlan:
     markets = [code for code in rec.markets if code in VALID_MARKETS] or list(DEFAULT_MARKETS)
     query = (rec.query or "").strip()
+    if rec.use_case and rec.use_case not in query:
+        query = f"{query} {rec.use_case}".strip()
     precise = looks_like_exact_model(query)
     # BuyWhere keyword 对中文几乎不召回；hybrid 才能把「通勤降噪耳机」落到商品。
     mode = "keyword" if precise or not query_has_cjk(query) else "hybrid"

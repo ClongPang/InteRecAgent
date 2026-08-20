@@ -4,6 +4,7 @@ from __future__ import annotations
 from ...application.dto import RecommendationDraft, RunnerStatus
 from ...application.errors import ModelUnavailableError
 from ...application.ports import ModelBackend
+from ...application.services.model_context import draft_candidates
 from ..state import MissionGraphState
 
 
@@ -56,7 +57,10 @@ def make_compose_recommendation(model_backend: ModelBackend | None = None):
             try:
                 draft = await model_backend.draft_recommendation(
                     constraints=state["mission"].constraints,
-                    candidates=list(ranked),
+                    candidates=draft_candidates(
+                        ranked,
+                        compare_ids=list(state["mission"].comparison_snapshot_ids or []),
+                    ),
                     evidence=draft,
                 )
             except ModelUnavailableError:

@@ -87,6 +87,10 @@ def make_merge_mission_state():
         }
         # 开放式软偏好维度并入信念，让排序按通用维度打分（§5.1 天花板）。
         belief = mission.belief
+        if patch.use_case:
+            belief = belief.with_use_case(patch.use_case)
+        if patch.spec_gates:
+            belief = belief.with_spec_gates(list(patch.spec_gates))
         if patch.soft_prefs:
             belief = belief.with_soft_prefs(patch.soft_prefs)
         if act is not None:
@@ -117,6 +121,7 @@ def make_filter_hard_constraints():
             state.get("products", []),
             rejected_snapshot_ids=set(getattr(mission.belief, "rejected_snapshot_ids", []) or []),
             rejected_listing_keys=set(getattr(mission.belief, "rejected_listing_keys", []) or []),
+            spec_gates=list(getattr(mission.belief, "spec_gates", []) or []),
             snapshot_map=state.get("snapshot_map") or {},
         )
         return {"products": products, "warnings": warnings}

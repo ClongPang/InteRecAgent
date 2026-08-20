@@ -6,6 +6,7 @@ import re
 from ..dto.dialogue import AskTopic, DialogueAct, DialogueActKind
 from ..dto.mission import MissionConstraints
 from ..dto.runner import IntentPatch
+from .model_context import turn_view
 from .parse_intent import CLARIFYING_QUESTION, parse_intent
 
 _UNDO = re.compile(r"撤销|还原刚才|刚才的条件|undo", re.I)
@@ -27,6 +28,15 @@ _REF_SONY = re.compile(r"那个索尼|索尼的?(?:那|这)?[个款]|that sony",
 _REF_BOSE = re.compile(r"那个bose|bose的?(?:那|这)?[个款]", re.I)
 _REF_CHEAP = re.compile(r"便宜那个|便宜的那|最便宜")
 _REF_FOCUS = re.compile(r"刚才那个|刚才的|刚刚那")
+_REF_DEIXIS = re.compile(r"那[个款]|这[个款]|那个")
+_COLOR_HINTS: tuple[tuple[re.Pattern[str], str, tuple[str, ...]], ...] = (
+    (re.compile(r"白色|白的|\bwhite\b", re.I), "white", ("white", "白")),
+    (re.compile(r"黑色|黑的|\bblack\b", re.I), "black", ("black", "黑")),
+    (re.compile(r"蓝色|蓝的|\bblue\b", re.I), "blue", ("blue", "蓝")),
+    (re.compile(r"银色|银的|\bsilver\b", re.I), "silver", ("silver", "银")),
+    (re.compile(r"红色|红的|\bred\b", re.I), "red", ("red", "红")),
+    (re.compile(r"粉色|玫瑰金|\brose\b", re.I), "rose", ("rose", "粉")),
+)
 _NOT_INEAR = re.compile(r"不是入耳|不要入耳|不要耳塞")
 _WANT_OVEREAR = re.compile(r"是头戴|要头戴|头戴式")
 
@@ -36,54 +46,8 @@ def build_turn_context(
     mission,
     cache_payload: dict | None = None,
 ) -> dict:
-    """从事件切最近原话，给分类/指代，不进生成回复。"""
-    dialogue = getattr(mission, "dialogue", None)
-    belief = getattr(mission, "belief", None)
-    users: list[str] = []
-    last_act = getattr(dialogue, "last_act", None)
-    last_topic = None
-    mentioned = list(getattr(dialogue, "mentioned_snapshot_ids", None) or [])
-    for event in events or []:
-        payload = event.get("payload") if isinstance(event, dict) else {}
-        payload = payload if isinstance(payload, dict) else {}
-        kind = event.get("event_type") if isinstance(event, dict) else None
-        if kind == "message.received" and payload.get("text"):
-            users.append(str(payload["text"]))
-            last_act = payload.get("act") or last_act
-            last_topic = payload.get("topic") or last_topic
-        if kind == "agent.message":
-            last_act = payload.get("act") or last_act
-            last_topic = payload.get("topic") or last_topic
-            cited = [
-                str(item["snapshot_id"])
-                for item in list(payload.get("citations") or [])
-                if isinstance(item, dict) and item.get("snapshot_id")
-            ]
-            if not cited:
-                cited = [str(item) for item in list(payload.get("snapshot_ids") or []) if item]
-            if cited:
-                mentioned = cited
-    ranked = []
-    for item in list((cache_payload or {}).get("ranked") or [])[:4]:
-        if not isinstance(item, dict):
-            continue
-        estimated = item.get("estimated_cny") if isinstance(item.get("estimated_cny"), dict) else {}
-        ranked.append(
-            {
-                "snapshot_id": item.get("snapshot_id"),
-                "title": item.get("title"),
-                "estimated_cny": estimated.get("amount") if estimated else item.get("estimated_cny"),
-            }
-        )
-    return {
-        "recent_user_texts": users[-3:],
-        "last_act": last_act,
-        "last_topic": last_topic,
-        "focus_snapshot_id": getattr(dialogue, "focus_snapshot_id", None),
-        "mentioned_snapshot_ids": mentioned[:4],
-        "belief": belief.model_dump(mode="json") if belief is not None else {},
-        "ranked": ranked,
-    }
+    """分类窗口：邻接对 + DST 摘要 + 比较集，不 dump 全量信念。"""
+    return turn_view(mission, cache_payload, events).as_classify_payload()
 
 
 def search_reuse_key(constraints: MissionConstraints) -> dict:
@@ -161,6 +125,12 @@ def classify_turn(
     if current_query and _WANT_OVEREAR.search(raw):
         query = current_query if "头戴" in current_query else f"{current_query} 头戴"
         return DialogueAct(kind=DialogueActKind.REFINE, patch=IntentPatch(query=query))
+    if current_query and detect_referent_hint(raw):
+        return DialogueAct(
+            kind=DialogueActKind.ASK_ITEM,
+            referent_ranks=_referent_ranks(raw, default=(1,)),
+            topic=detect_ask_topic(raw),
+        )
     patch = parse_intent(raw, current_query=current_query)
     kind = DialogueActKind.UNKNOWN if patch.requires_clarification else DialogueActKind.REFINE
     return DialogueAct(kind=kind, patch=patch)
@@ -200,6 +170,18 @@ def ground_dialogue_act(
                     "patch": patch,
                 }
             )
+    if act.kind == DialogueActKind.STANCE and not act.stance:
+        deterministic = classify_turn(text, current_query=current_query)
+        if deterministic.stance:
+            return act.model_copy(
+                update={"stance": deterministic.stance, "patch": _stance_patch(act.patch or IntentPatch())}
+            )
+    if act.kind == DialogueActKind.ASK_ITEM:
+        deterministic = classify_turn(text, current_query=current_query)
+        patch = deterministic.patch
+        if deterministic.kind == DialogueActKind.REFINE and patch is not None:
+            if patch.only_in_stock or patch.budget_cny is not None or patch.query:
+                return deterministic
     if act.kind not in _GROUNDABLE:
         return act
     fallback = parse_intent(text, current_query=current_query)
@@ -213,6 +195,10 @@ def ground_dialogue_act(
         updates["budget_cny"] = fallback.budget_cny
     if not patch.markets and fallback.markets:
         updates["markets"] = fallback.markets
+    if not patch.use_case and fallback.use_case:
+        updates["use_case"] = fallback.use_case
+    if not patch.spec_gates and fallback.spec_gates:
+        updates["spec_gates"] = fallback.spec_gates
     if not updates:
         return act
     grounded = patch.model_copy(update=updates)
@@ -246,6 +232,10 @@ def detect_referent_hint(text: str) -> str | None:
         return "brand:sony"
     if _REF_BOSE.search(text):
         return "brand:bose"
+    if _REF_DEIXIS.search(text):
+        for pattern, color, _needles in _COLOR_HINTS:
+            if pattern.search(text):
+                return f"color:{color}"
     return None
 
 
@@ -255,20 +245,25 @@ def resolve_referent_ids(
     *,
     focus_snapshot_id: str | None = None,
     mentioned_snapshot_ids: list[str] | None = None,
+    comparison_records: list[dict] | None = None,
 ) -> list[str]:
     hint = detect_referent_hint(text)
+    pool = list(comparison_records or []) or list(ranked)
     if not hint:
         return []
     if hint == "focus":
-        sid = focus_snapshot_id or ((mentioned_snapshot_ids or [None])[0])
+        compare_ids = [str(item.get("snapshot_id")) for item in (comparison_records or []) if item.get("snapshot_id")]
+        sid = focus_snapshot_id or (compare_ids[0] if compare_ids else None) or (
+            (mentioned_snapshot_ids or [None])[0]
+        )
         return [sid] if sid else []
-    if not ranked:
+    if not pool:
         return []
     if hint == "cheapest":
         priced = []
-        for item in ranked:
+        for item in pool:
             estimated = item.get("estimated_cny") if isinstance(item.get("estimated_cny"), dict) else {}
-            amount = estimated.get("amount")
+            amount = estimated.get("amount") if estimated else item.get("estimated_cny")
             sid = item.get("snapshot_id")
             if sid is not None and amount is not None:
                 priced.append((float(amount), str(sid)))
@@ -278,9 +273,19 @@ def resolve_referent_ids(
         return []
     if hint.startswith("brand:"):
         brand = hint.split(":", 1)[1]
-        for item in ranked:
+        for item in pool:
             blob = f"{item.get('title') or ''} {item.get('brand') or ''}".lower()
             if brand in blob:
+                sid = item.get("snapshot_id")
+                if sid:
+                    return [str(sid)]
+    if hint.startswith("color:"):
+        color = hint.split(":", 1)[1]
+        needles = next((item[2] for item in _COLOR_HINTS if item[1] == color), (color,))
+        for item in pool:
+            attrs = item.get("attrs") if isinstance(item.get("attrs"), dict) else {}
+            blob = f"{item.get('title') or ''} {item.get('brand') or ''}".lower()
+            if attrs.get("color") == color or any(needle.lower() in blob for needle in needles):
                 sid = item.get("snapshot_id")
                 if sid:
                     return [str(sid)]

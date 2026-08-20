@@ -5,7 +5,7 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 from ...domain.models import DEFAULT_MARKETS
-from .belief import SoftPref
+from .belief import SoftPref, SpecGate
 
 
 class IntentPatch(BaseModel):
@@ -18,6 +18,7 @@ class IntentPatch(BaseModel):
     only_in_stock: bool | None = None
     exclude_terms: list[str] | None = None
     use_case: str | None = None
+    spec_gates: list[SpecGate] | None = None
     price_stance: str | None = None
     # 开放式软偏好维度（防水/轻便/游戏低延迟/送礼…）。由 LLM 给出 attr+cues，
     # 不再受 preference 枚举限制；确定性打分按 cues 通用匹配。见 §5.1 天花板。

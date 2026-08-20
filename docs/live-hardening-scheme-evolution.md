@@ -347,3 +347,5 @@ Vite HMR 在 `useMissionApi` 导出不兼容时会 invalidate Provider，页面�
 6. **同 run 的推荐事件和助手消息在投影期去重，不要在写入期删事件。**
 
 这六条是本轮方案变迁收束后的约束；下一轮若要动流式、NLU 或过滤，先对照这里的失败案例。
+
+工作记忆、规格门闩、否定身份与比较集指代的后续变迁见 [working-memory-scheme-evolution.md](./working-memory-scheme-evolution.md)。

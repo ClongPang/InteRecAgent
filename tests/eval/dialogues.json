@@ -59,14 +59,14 @@
       "text": "不要这款",
       "query": "通勤降噪耳机",
       "has_cache": true,
-      "expect": {"kind": "reject_item", "route": "rerank", "ranks": [1], "reject_focus": true}
+      "expect": {"kind": "reject_item", "route": "refilter", "ranks": [1], "reject_focus": true}
     },
     {
       "id": "07-reject-brand",
       "text": "不要索尼",
       "query": "通勤降噪耳机",
       "has_cache": true,
-      "expect": {"kind": "reject_item", "route": "rerank", "exclude": ["索尼"]}
+      "expect": {"kind": "reject_item", "route": "refilter", "exclude": ["索尼"]}
     },
     {
       "id": "08-warranty",
@@ -224,7 +224,7 @@
       "text": "不要这个",
       "query": "通勤降噪耳机",
       "has_cache": true,
-      "expect": {"kind": "reject_item", "route": "rerank", "ranks": [1]}
+      "expect": {"kind": "reject_item", "route": "refilter", "ranks": [1]}
     },
     {
       "id": "30-leftover-keeps-query",

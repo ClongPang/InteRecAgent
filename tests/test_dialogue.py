@@ -298,6 +298,23 @@ def test_ground_recovers_stance_when_model_returns_refine() -> None:
     assert grounded.patch is None or grounded.patch.query is None
 
 
+def test_ground_recovers_in_stock_refine_from_ask_item() -> None:
+    from backend.application.dto.dialogue import AskTopic
+
+    act = DialogueAct(kind=DialogueActKind.ASK_ITEM, topic=AskTopic.STOCK)
+    grounded = ground_dialogue_act(act, "只看有货", current_query="轻便徒步鞋")
+    assert grounded.kind == DialogueActKind.REFINE
+    assert grounded.patch is not None
+    assert grounded.patch.only_in_stock is True
+
+
+def test_ground_fills_stance_when_model_omits_it() -> None:
+    act = DialogueAct(kind=DialogueActKind.STANCE, stance=None)
+    grounded = ground_dialogue_act(act, "太贵了", current_query="降噪耳机")
+    assert grounded.kind == DialogueActKind.STANCE
+    assert grounded.stance == "too_expensive"
+
+
 def test_leftover_does_not_overwrite_query() -> None:
     assert extract_query("太贵了", current_query="降噪耳机") is None
     assert extract_query("再便宜一点", current_query="降噪耳机") is None
@@ -386,7 +403,7 @@ def test_reject_writes_belief_and_reranks() -> None:
             "reuse_key": search_reuse_key(mission.constraints),
         },
     )
-    assert preview.route == "rerank"
+    assert preview.route == "refilter"
     assert "snap-1" in preview.belief.rejected_snapshot_ids
     assert "src:src-red" in preview.belief.rejected_listing_keys
     assert "title:cowin e7 red|m:shopify" in preview.belief.rejected_listing_keys
@@ -448,6 +465,46 @@ def test_resolve_focus_falls_back_to_mentioned() -> None:
     assert resolve_referent_ids("刚才那个怎么样", [], mentioned_snapshot_ids=["snap-9"]) == ["snap-9"]
 
 
+def test_color_deixis_stays_in_comparison_set() -> None:
+    ranked = [
+        {"snapshot_id": "s1", "title": "COWIN E7 Red", "estimated_cny": {"amount": 317}},
+        {"snapshot_id": "s2", "title": "COWIN E7 White", "estimated_cny": {"amount": 317}},
+        {"snapshot_id": "s3", "title": "Sony WH-1000XM5 Silver", "estimated_cny": {"amount": 2100}},
+    ]
+    act = classify_turn("白色那个怎么样", current_query="降噪耳机")
+    assert act.kind == DialogueActKind.ASK_ITEM
+    assert resolve_referent_ids(
+        "白色那个怎么样",
+        ranked,
+        comparison_records=ranked[:2],
+    ) == ["s2"]
+
+
+def test_reject_then_expensive_keeps_reason_on_listing() -> None:
+    mission = ShoppingMission(
+        owner_id="u1",
+        title="t",
+        constraints=MissionConstraints(query="降噪耳机", budget_cny=4000),
+    )
+    cache = {
+        "ranked": [
+            {
+                "snapshot_id": "snap-1",
+                "source_product_id": "src-red",
+                "title": "COWIN E7 Red",
+                "merchant": "shopify",
+                "estimated_cny": {"amount": 2100},
+            }
+        ],
+        "reuse_key": search_reuse_key(mission.constraints),
+    }
+    after_reject = deterministic_turn(mission, "不要这款", cache_payload=cache)
+    after_stance = deterministic_turn(after_reject.mission, "太贵了", cache_payload=cache)
+    assert after_stance.belief.last_reject_reason() == "price"
+    assert "src:src-red" in after_stance.belief.rejected_listing_keys
+    assert after_stance.belief.price_sensitivity == "too_expensive"
+
+
 def test_belief_with_soft_prefs_merges_and_keeps_reserved() -> None:
     belief = PreferenceBelief().mark_price_stance("too_expensive")  # 已含 price 软偏好
     merged = belief.with_soft_prefs(
@@ -493,7 +550,7 @@ def test_plan_route_reject_and_stance_use_rerank() -> None:
             skip_intent_patch=False,
             constraints_changed=False,
         )
-        == TurnRoute.RERANK
+        == TurnRoute.REFILTER
     )
     assert (
         plan_route(

@@ -23,7 +23,7 @@ def plan_route(
         return TurnRoute.TALK if has_query else TurnRoute.CLARIFY
     if kind == DialogueActKind.REJECT:
         if has_cache:
-            return TurnRoute.RERANK
+            return TurnRoute.REFILTER
         # 无候选可排除：有 query 时去检索补齐候选比空谈更有用，无 query 才澄清。
         return TurnRoute.RESEARCH if has_query else TurnRoute.CLARIFY
     if kind == DialogueActKind.STANCE and constraints_changed and has_cache:

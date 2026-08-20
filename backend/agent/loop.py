@@ -37,12 +37,15 @@ def _initial_user(ctx: ResearchContext) -> str:
     c = ctx.mission.constraints
     payload = {
         "query": c.query,
+        "use_case": getattr(ctx.mission.belief, "use_case", None),
+        "spec_gates": [item.attr for item in getattr(ctx.mission.belief, "spec_gates", []) or []],
         "budget_cny": c.budget_cny,
         "markets": list(c.markets),
         "preference": c.preference,
         "only_in_stock": c.only_in_stock,
         "excluded_terms": list(c.excluded_terms),
         "default_plan": {"query": ctx.plan.query, "markets": ctx.plan.markets, "mode": ctx.plan.mode},
+        "hint": "工具返回目录统计。已有可用候选且规格命中时，不要只因 sample 不好看而重搜。",
     }
     return "用户购物约束：" + json.dumps(payload, ensure_ascii=False)
 
@@ -132,6 +135,7 @@ async def run_deterministic(ctx: ResearchContext, tools: ResearchTools) -> None:
             ctx.converted_products,
             rejected_snapshot_ids=set(getattr(ctx.mission.belief, "rejected_snapshot_ids", []) or []),
             rejected_listing_keys=set(getattr(ctx.mission.belief, "rejected_listing_keys", []) or []),
+            spec_gates=list(getattr(ctx.mission.belief, "spec_gates", []) or []),
         )
         if products:
             ctx.add_warnings(["「仅看有货」导致空集，已按软条件放宽库存过滤"])

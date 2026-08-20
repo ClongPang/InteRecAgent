@@ -3,9 +3,11 @@ from __future__ import annotations
 import pytest
 
 from backend.domain.models import FxSnapshot, NormalizedProduct
+from backend.application.dto.belief import SpecGate
 from backend.domain.policies import (
     apply_budget_filter,
     apply_relevance_filter,
+    apply_spec_gates,
     apply_stock_filter,
     convert_products,
     dedupe_products,
@@ -89,6 +91,39 @@ class TestRelevanceFilter:
         journal = _product("j", 10, title="Blood Pressure Log Book")
         kept, dropped = apply_relevance_filter([journal], "27 寸 4K 显示器")
         assert [p.id for p in kept] == ["j"]
+        assert dropped == []
+
+    def test_hiking_shoes_drop_hiking_speaker(self):
+        speaker = _product(
+            "sp",
+            20,
+            title="Wearable Bluetooth Speaker Suitable for Outdoors, Running, Hiking",
+        )
+        shorts = _product("sh", 15, title="Men's Quick Dry Hiking Shorts Lightweight")
+        shoes = _product("hw", 40, title="Quechua Men's MH100 Hiking Shoes")
+        kept, dropped = apply_relevance_filter([speaker, shorts, shoes], "轻便徒步鞋")
+        assert [p.id for p in kept] == ["hw"]
+        assert {p.id for p in dropped} == {"sp", "sh"}
+
+
+class TestSpecGates:
+    def test_required_4k_drops_fhd_when_alternative_exists(self):
+        fhd = _product("f", 80, title="27 Inch FHD Office Monitor")
+        uhd = _product("u", 120, title="27 Inch 4K UHD Monitor")
+        kept, dropped = apply_spec_gates(
+            [fhd, uhd],
+            [SpecGate(attr="4k", cues=["4k", "2160", "uhd"], required=True)],
+        )
+        assert [p.id for p in kept] == ["u"]
+        assert [p.id for p in dropped] == ["f"]
+
+    def test_required_gate_rolls_back_when_empty(self):
+        fhd = _product("f", 80, title="27 Inch FHD Office Monitor")
+        kept, dropped = apply_spec_gates(
+            [fhd],
+            [SpecGate(attr="4k", cues=["4k", "2160", "uhd"], required=True)],
+        )
+        assert [p.id for p in kept] == ["f"]
         assert dropped == []
 
 

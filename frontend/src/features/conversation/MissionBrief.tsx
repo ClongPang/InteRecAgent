@@ -21,8 +21,22 @@ export function BeliefBar({
       text: constraints.budget_cny ? `预算 ${constraints.budget_cny} 元` : '预算 2000 元',
     },
   ]
+  if (belief.use_case) {
+    chips.push({ key: 'use', label: `用途 ${belief.use_case}`, tone: 'soft' })
+  }
+  for (const gate of belief.spec_gates ?? []) {
+    chips.push({
+      key: `gate-${gate.attr}`,
+      label: gate.required ? `只要 ${gate.attr}` : `偏好 ${gate.attr}`,
+      tone: 'soft',
+    })
+  }
+  const rejectReason = [...belief.critiques].reverse().find((item) => item.kind === 'reject_item' && item.reason && item.reason !== 'unknown')
   if (stance) {
     chips.push({ key: 'stance', label: stance, text: '再便宜一点', tone: 'soft' })
+  }
+  if (rejectReason?.reason === 'price') {
+    chips.push({ key: 'reject-reason', label: '排除原因：太贵', tone: 'warn' })
   }
   chips.push({
     key: 'markets',

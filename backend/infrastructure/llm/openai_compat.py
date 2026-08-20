@@ -274,8 +274,11 @@ class OpenAICompatModelBackend:
         if context:
             extra += "\n上下文：" + json.dumps(
                 {
-                    "belief": context.get("belief"),
-                    "recent_user_texts": context.get("recent_user_texts"),
+                    "dst": context.get("dst") or context.get("belief"),
+                    "last_user": context.get("last_user"),
+                    "use_case": (context.get("dst") or {}).get("use_case")
+                    if isinstance(context.get("dst"), dict)
+                    else None,
                 },
                 ensure_ascii=False,
             )
@@ -295,13 +298,18 @@ class OpenAICompatModelBackend:
         extra = ""
         if context:
             extra = "\n上下文：" + json.dumps(
-                {"belief": context.get("belief"), "ranked": context.get("ranked")},
+                {
+                    "dst": context.get("dst"),
+                    "comparison": context.get("comparison"),
+                    "focus": context.get("focus"),
+                    "last_user": context.get("last_user"),
+                    "last_agent": context.get("last_agent"),
+                    "last_act": context.get("last_act"),
+                    "ranked": context.get("ranked"),
+                },
                 ensure_ascii=False,
             )
-        recent = ""
-        if context and context.get("recent_user_texts"):
-            recent = "\n最近原话：" + " | ".join(str(item) for item in context.get("recent_user_texts") or [])
-        user = f"当前检索词：{current_query or '（无）'}\n用户输入：{text.strip()}{extra}{recent}"
+        user = f"当前检索词：{current_query or '（无）'}\n用户输入：{text.strip()}{extra}"
         payload = await self._complete_json(system=_TURN_SYSTEM, user=user)
         try:
             act = DialogueAct.model_validate(payload)

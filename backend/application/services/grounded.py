@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from ..dto.belief import PreferenceBelief
 from ..dto.dialogue import AskTopic, DialogueAct, DialogueActKind
 from ..dto.mission import MissionConstraints
-from .nlu import detect_ask_topic, resolve_referent_ids, snapshot_ids_for_ranks
+from .nlu import detect_ask_topic, detect_referent_hint, resolve_referent_ids, snapshot_ids_for_ranks
 from .parse_intent import CLARIFYING_QUESTION
 
 
@@ -102,6 +102,7 @@ def compose_talk_reply(
     constraints: MissionConstraints,
     focus_snapshot_id: str | None = None,
     belief: PreferenceBelief | None = None,
+    comparison_records: list[dict] | None = None,
 ) -> TalkReply:
     if act.kind == DialogueActKind.META:
         return TalkReply(
@@ -115,7 +116,13 @@ def compose_talk_reply(
         )
     if act.kind == DialogueActKind.COMPARE or (act.kind == DialogueActKind.ASK_ITEM and _topic(act, text) == AskTopic.TRADEOFF):
         return _compare_reply(act, ranked, constraints, focus_snapshot_id, text=text)
-    items = _resolve_items(act, ranked, focus_snapshot_id, text=text)
+    items = _resolve_items(
+        act,
+        ranked,
+        focus_snapshot_id,
+        text=text,
+        comparison_records=comparison_records,
+    )
     if not items:
         return TalkReply(text="当前候选里找不到你指的那一件，可以说「第一件」或先打开商品详情。")
     item = items[0]
@@ -164,14 +171,22 @@ def _resolve_items(
     focus_snapshot_id: str | None,
     *,
     text: str = "",
+    comparison_records: list[dict] | None = None,
 ) -> list[CitedFacts]:
     by_id = {str(item.get("snapshot_id")): item for item in ranked if item.get("snapshot_id")}
-    hinted = resolve_referent_ids(text or "", ranked, focus_snapshot_id=focus_snapshot_id)
+    hinted = resolve_referent_ids(
+        text or "",
+        ranked,
+        focus_snapshot_id=focus_snapshot_id,
+        comparison_records=comparison_records,
+    )
     if hinted:
         items = [cited_facts(by_id[sid]) for sid in hinted if sid in by_id]
         found = [item for item in items if item is not None]
         if found:
             return found
+    if comparison_records and detect_referent_hint(text or ""):
+        return []
     if focus_snapshot_id and focus_snapshot_id in by_id:
         item = cited_facts(by_id[focus_snapshot_id])
         return [item] if item else []

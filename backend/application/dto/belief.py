@@ -1,7 +1,25 @@
 """对话式推荐的工作记忆。约束投影仍用 MissionConstraints；本模块只累积批评与软偏好。"""
 from __future__ import annotations
 
+from enum import StrEnum
+
 from pydantic import BaseModel, Field
+
+
+class RejectReason(StrEnum):
+    PRICE = "price"
+    FORM = "form"
+    BRAND = "brand"
+    USE = "use"
+    UNKNOWN = "unknown"
+
+
+class SpecGate(BaseModel):
+    """标题可判定的规格门闩。required 时空集回退，不假装有结构化规格。"""
+
+    attr: str
+    cues: list[str] = Field(default_factory=list)
+    required: bool = True
 
 
 class SoftPref(BaseModel):
@@ -18,10 +36,13 @@ class Critique(BaseModel):
     kind: str
     snapshot_id: str | None = None
     attr: str | None = None
+    reason: str | None = None
+    listing_keys: list[str] = Field(default_factory=list)
 
 
 class PreferenceBelief(BaseModel):
     use_case: str | None = None
+    spec_gates: list[SpecGate] = Field(default_factory=list)
     rejected_snapshot_ids: list[str] = Field(default_factory=list)
     rejected_listing_keys: list[str] = Field(default_factory=list)
     critiques: list[Critique] = Field(default_factory=list)
@@ -37,6 +58,7 @@ class PreferenceBelief(BaseModel):
         *,
         kind: str = "reject_item",
         listing_keys: list[str] | None = None,
+        reason: str | None = None,
     ) -> PreferenceBelief:
         rejected = list(self.rejected_snapshot_ids)
         if snapshot_id and snapshot_id not in rejected:
@@ -50,7 +72,14 @@ class PreferenceBelief(BaseModel):
             if snap_key not in keys:
                 keys.append(snap_key)
         critiques = list(self.critiques)
-        critiques.append(Critique(kind=kind, snapshot_id=snapshot_id))
+        critiques.append(
+            Critique(
+                kind=kind,
+                snapshot_id=snapshot_id,
+                reason=reason or RejectReason.UNKNOWN,
+                listing_keys=list(listing_keys or []),
+            )
+        )
         return self.model_copy(
             update={
                 "rejected_snapshot_ids": rejected,
@@ -58,6 +87,53 @@ class PreferenceBelief(BaseModel):
                 "critiques": critiques,
             }
         )
+
+    def annotate_last_reject(self, reason: str) -> PreferenceBelief:
+        """把否定原因挂回最近一条 reject，而不是另开一条无对象批评。"""
+        if not reason or reason == RejectReason.UNKNOWN:
+            return self
+        for index in range(len(self.critiques) - 1, -1, -1):
+            item = self.critiques[index]
+            if item.kind != "reject_item":
+                continue
+            if item.reason and item.reason != RejectReason.UNKNOWN:
+                return self
+            updated = list(self.critiques)
+            updated[index] = item.model_copy(update={"reason": reason, "attr": item.attr or reason})
+            return self.model_copy(update={"critiques": updated})
+        return self
+
+    def last_reject_reason(self) -> str | None:
+        for item in reversed(self.critiques):
+            if item.kind == "reject_item":
+                return item.reason
+        return None
+
+    def with_use_case(self, use_case: str | None) -> PreferenceBelief:
+        text = (use_case or "").strip()
+        return self if not text else self.model_copy(update={"use_case": text})
+
+    def with_spec_gates(self, gates: list[SpecGate]) -> PreferenceBelief:
+        if not gates:
+            return self
+        merged = {item.attr: item for item in self.spec_gates}
+        for gate in gates:
+            attr = (gate.attr or "").strip()
+            if attr:
+                merged[attr] = gate
+        return self.model_copy(update={"spec_gates": list(merged.values())})
+
+    def dst_summary(self) -> dict:
+        """给模型的任务记忆投影：有槽位、无 listing key 全量。"""
+        last_reason = self.last_reject_reason()
+        return {
+            "use_case": self.use_case,
+            "spec_gates": [item.attr for item in self.spec_gates],
+            "price_sensitivity": self.price_sensitivity,
+            "pending_slot": self.pending_slot,
+            "last_reject_reason": last_reason,
+            "rejected_count": len(self.rejected_snapshot_ids),
+        }
 
     def with_soft_prefs(self, dims: list[SoftPref]) -> PreferenceBelief:
         """并入 LLM 解析出的通用软偏好维度（按 attr 去重，新维度覆盖旧同名维度）。

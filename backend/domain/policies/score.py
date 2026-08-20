@@ -51,10 +51,12 @@ def score_and_rank(
     rejected_source_ids: set[str] | None = None,
     preference: str = "balanced",
     soft_prefs: Iterable[tuple[str, str, str]] | None = None,
+    spec_gates: Iterable[tuple[str, tuple[str, ...], bool]] | None = None,
     price_sensitive: bool = False,
 ) -> list[NormalizedProduct]:
     rejected = rejected_source_ids or set()
     soft = list(soft_prefs or [])
+    gates = list(spec_gates or [])
     items = list(products)
     priced = [p.rmb_price for p in items if p.rmb_price is not None]
     lo, hi = (min(priced), max(priced)) if priced else (0.0, 0.0)
@@ -76,6 +78,9 @@ def score_and_rank(
         if preference in SEED_CUES:
             hit = title_matches_preference(product, preference)
             parts.append((1.0 if hit else 0.15, 0.40))
+        for attr, cues, required in gates:
+            hit = dimension_matches(product, attr=attr, cues=cues)
+            parts.append((1.0 if hit else 0.1, 0.35 if required else 0.18))
         for entry in soft:
             attr, _direction, status = entry[0], entry[1], entry[2]
             cues = entry[3] if len(entry) > 3 else ()

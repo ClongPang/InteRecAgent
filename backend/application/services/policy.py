@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from ..dto.belief import PreferenceBelief
+from ..dto.belief import PreferenceBelief, RejectReason
 from ..dto.dialogue import DialogueAct, DialogueActKind, TurnCommand, TurnRoute
 from ..dto.mission import DialogueState, MissionConstraints, ShoppingMission, TurnPhase
 from ..dto.runner import IntentPatch
@@ -30,7 +30,7 @@ def apply_act_effects(
     单一事实源：DialoguePolicy（确定性参照）与图节点 apply_turn_effects（运行时权威）
     都调用它，保证「命令层预判」与「LLM 自主编排」两条路径的信念演化不漂移。"""
     if act.kind == DialogueActKind.STANCE and act.stance in {"too_expensive", "want_cheaper"}:
-        belief = belief.mark_price_stance(act.stance)
+        belief = belief.annotate_last_reject(RejectReason.PRICE).mark_price_stance(act.stance)
     if act.kind == DialogueActKind.REJECT:
         focus = dialogue.focus_snapshot_id
         if not focus and cache_payload:
@@ -41,7 +41,9 @@ def apply_act_effects(
         if focus:
             ranked = list((cache_payload or {}).get("ranked") or [])
             belief = belief.reject(
-                focus, listing_keys=listing_keys_from_record(record_for_snapshot(ranked, focus))
+                focus,
+                listing_keys=listing_keys_from_record(record_for_snapshot(ranked, focus)),
+                reason=_reject_reason(act),
             )
     if act.stance == "want_lighter":
         belief = belief.mark_unsupported("weight", "lower")
@@ -153,6 +155,21 @@ class DialoguePolicy:
             agent_message=" ".join(replies) or None,
             belief=belief,
         )
+
+
+_FORM_EXCLUDE = ("入耳", "耳塞", "头戴", "开放")
+
+
+def _reject_reason(act: DialogueAct) -> str:
+    if act.stance in {"too_expensive", "want_cheaper"}:
+        return RejectReason.PRICE
+    terms = list(act.exclude_terms or []) + list((act.patch.exclude_terms if act.patch else None) or [])
+    blob = "".join(terms)
+    if any(token in blob for token in _FORM_EXCLUDE):
+        return RejectReason.FORM
+    if terms:
+        return RejectReason.BRAND
+    return RejectReason.UNKNOWN
 
 
 def command_patch_from_text(text: str, current: MissionConstraints) -> MissionConstraints:

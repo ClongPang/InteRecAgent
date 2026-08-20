@@ -11,6 +11,7 @@ from typing import Any
 
 from ...application.dto import ToolCall, ToolSpec
 from ...application.ports import FxSource, ProductSource, RunProgress
+from ...application.services.model_context import catalog_stats
 from ...application.services.rec import (
     market_native_caps,
     normalize_products,
@@ -184,12 +185,17 @@ class ResearchTools:
         ctx.converted = False
         ctx.ranked = []
         ctx.add_warnings(outcome.warnings)
+        stats = catalog_stats(
+            ctx.products,
+            gates=list(getattr(ctx.mission.belief, "spec_gates", []) or []),
+            found=len(ctx.products),
+        )
         return {
             "found": len(ctx.products),
             "markets": markets,
             "failed_markets": ctx.failed_markets,
             "native_caps": caps,
-            "sample": [_brief(p) for p in ctx.products[:5]],
+            **stats.as_payload(),
         }
 
     async def _convert_fx(self, ctx: ResearchContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -219,11 +225,13 @@ class ResearchTools:
             ctx.products,
             rejected_snapshot_ids=set(getattr(belief, "rejected_snapshot_ids", []) or []),
             rejected_listing_keys=set(getattr(belief, "rejected_listing_keys", []) or []),
+            spec_gates=list(getattr(belief, "spec_gates", []) or []),
             snapshot_map={},
         )
         ctx.products = products
         ctx.add_warnings(warnings)
-        return {"kept": len(products), "warnings": warnings}
+        stats = catalog_stats(products, gates=list(getattr(belief, "spec_gates", []) or []))
+        return {"kept": len(products), "warnings": warnings, **stats.as_payload()}
 
     async def _rank_candidates(self, ctx: ResearchContext, args: dict[str, Any]) -> dict[str, Any]:
         del args
@@ -232,7 +240,8 @@ class ResearchTools:
         ranked, warnings = run_rank(ctx.mission, ctx.products, snapshot_map={})
         ctx.ranked = ranked
         ctx.add_warnings(warnings)
-        return {"ranked": [_brief(p) for p in ranked[:5]], "count": len(ranked)}
+        stats = catalog_stats(ranked, gates=list(getattr(ctx.mission.belief, "spec_gates", []) or []))
+        return {"count": len(ranked), "ranked": stats.sample, **stats.as_payload()}
 
     async def _finalize(self, ctx: ResearchContext, args: dict[str, Any]) -> dict[str, Any]:
         ctx.finalized = True

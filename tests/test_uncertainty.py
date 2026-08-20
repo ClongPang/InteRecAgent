@@ -69,6 +69,25 @@ def test_reject_reason_after_bare_reject() -> None:
     assert probe.slot == SlotId.REJECT_REASON
 
 
+def test_reject_reason_skipped_when_critique_has_reason() -> None:
+    belief = PreferenceBelief(rejected_snapshot_ids=["a"]).reject("a", reason="price")
+    probe = select_probe(
+        constraints=MissionConstraints(query="耳机", budget_cny=3000),
+        belief=belief,
+        ranked=_spread_ranked()[:2],
+        last_act=DialogueAct(kind=DialogueActKind.REJECT, referent_ranks=[1]),
+    )
+    assert probe is None or probe.slot != SlotId.REJECT_REASON
+    pending = belief.model_copy(update={"pending_slot": "reject_reason", "asked_slots": ["reject_reason"]})
+    updated = resolve_probe_coverage(
+        pending,
+        DialogueAct(kind=DialogueActKind.STANCE, stance="too_expensive"),
+        before=MissionConstraints(query="耳机", budget_cny=3000),
+        after=MissionConstraints(query="耳机", budget_cny=3000),
+    )
+    assert updated.pending_slot is None
+
+
 def test_does_not_reask_skipped_budget() -> None:
     probe = select_probe(
         constraints=MissionConstraints(query="降噪耳机"),

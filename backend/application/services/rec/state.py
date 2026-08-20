@@ -18,6 +18,7 @@ class RecState:
     rejected_listing_keys: frozenset[str]
     soft_prefs: tuple[tuple[str, str, str, tuple[str, ...]], ...]
     use_case: str | None
+    spec_gates: tuple[tuple[str, tuple[str, ...], bool], ...]
     price_sensitivity: str | None
 
 
@@ -37,5 +38,8 @@ def rec_state_from_mission(mission: ShoppingMission) -> RecState:
             (item.attr, item.direction, item.status, tuple(item.cues)) for item in belief.soft
         ),
         use_case=belief.use_case,
+        spec_gates=tuple(
+            (item.attr, tuple(item.cues), bool(item.required)) for item in getattr(belief, "spec_gates", []) or []
+        ),
         price_sensitivity=getattr(belief, "price_sensitivity", None),
     )
