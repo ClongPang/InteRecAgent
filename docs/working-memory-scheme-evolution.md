@@ -319,4 +319,4 @@ title+merchant 对不上，click URL 里的 `product_id` 也换了。肉眼是�
 
 这七条是本轮方案变迁收束后的约束。下一轮若要动记忆、检索身份或过滤，先对照这里的失败案例，并回看 [live-hardening-scheme-evolution.md](./live-hardening-scheme-evolution.md) 里尚未失效的六条。
 
-商户跳转 403、工作台视觉层次，以及旧任务商品图读路径回填，见 [workspace-surface-scheme-evolution.md](./workspace-surface-scheme-evolution.md)。研究工具签名（软决策带参、硬步骤无参）见 [research-tool-use-scheme-evolution.md](./research-tool-use-scheme-evolution.md)。话轮分叉与模型窗口（单次 JSON，不是聊天历史）见 [dialogue-route-scheme-evolution.md](./dialogue-route-scheme-evolution.md)。
+商户跳转 403、工作台视觉层次，以及旧任务商品图读路径回填，见 [workspace-surface-scheme-evolution.md](./workspace-surface-scheme-evolution.md)。研究控环（累加池、keep、TopK）见 [research-loop-scheme-evolution.md](./research-loop-scheme-evolution.md)。研究工具签名（软决策带参、硬步骤无参）见 [research-tool-use-scheme-evolution.md](./research-tool-use-scheme-evolution.md)。话轮分叉与模型窗口（单次 JSON，不是聊天历史）见 [dialogue-route-scheme-evolution.md](./dialogue-route-scheme-evolution.md)。

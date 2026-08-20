@@ -6,7 +6,7 @@
 **文档类型**：问题复盘 + 方案取舍  
 **范围**：研究子图的控环与工具。记录为什么硬步骤无参，以及为什么改成后端控环而不是自由 ReAct。
 
-本文接 [live-hardening-scheme-evolution.md](./live-hardening-scheme-evolution.md) 里的研究进度与过滤共用。外层对话分类、改约束、写回复**不是** tool-use，走结构化输出，不在本目录；分叉与分类窗口见 [dialogue-route-scheme-evolution.md](./dialogue-route-scheme-evolution.md)。事实层 / 决策层 / 语言层的职责分离不变：模型只编排顺序，不得编造价格、库存、汇率。
+本文接 [live-hardening-scheme-evolution.md](./live-hardening-scheme-evolution.md) 里的研究进度与过滤共用。控环、累加池、keep / TopK 的拍板与流程见 [research-loop-scheme-evolution.md](./research-loop-scheme-evolution.md)。外层对话分类、改约束、写回复**不是** tool-use，走结构化输出，不在本目录；分叉与分类窗口见 [dialogue-route-scheme-evolution.md](./dialogue-route-scheme-evolution.md)。事实层 / 决策层 / 语言层的职责分离不变：模型不得编造价格、库存、汇率。
 
 ---
 
@@ -145,4 +145,4 @@
 7. **模型过滤是 keep 求交。** 不能把规则已删的救回来；失败则跳过，不能卡住 run。
 8. **TopK 只能点池内 ID。** 漏抽不补，编造不算。失败回退规则排序。
 
-下一轮若要加 `get_product_detail` 或价格历史，先问：这是软决策（带参）还是硬步骤（无参、读 Context）。并对照 [working-memory-scheme-evolution.md](./working-memory-scheme-evolution.md) 的视图切片约束，以及 [dialogue-route-scheme-evolution.md](./dialogue-route-scheme-evolution.md)：研究 messages 只属于当轮工具循环，不要把用户历史拼进来。
+下一轮若要加 `get_product_detail` 或价格历史，先问：这是软决策（带参）还是硬步骤（无参、读 Context）。并对照 [working-memory-scheme-evolution.md](./working-memory-scheme-evolution.md) 的视图切片约束、[research-loop-scheme-evolution.md](./research-loop-scheme-evolution.md) 的控环门槛，以及 [dialogue-route-scheme-evolution.md](./dialogue-route-scheme-evolution.md)：研究 JSON 只属于当轮控环，不要把用户历史拼进来。

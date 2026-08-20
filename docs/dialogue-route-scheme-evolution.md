@@ -26,7 +26,7 @@
             ▼
 阶段 2  模型窗口收口（现行）
         分类：单次 JSON + TurnView，不是 transcript
-        研究：当轮工具 messages，看不见用户历史
+        研究：后端控环 + 三次单次 JSON，看不见用户历史
         talk：确定性 grounded 回复，模型不写话
 ```
 
@@ -172,7 +172,7 @@ REFINE
 
 ### 4.2 研究：三次单次 JSON，不是工具聊天
 
-仅 `research` 支路。后端控环，模型最多三次 `complete_json`：本轮 keep、改写 query、从累加池选 TopK。每次都是系统提示 + 一条 user JSON，看不到用户聊天历史，也看不到「上一句不要索尼」。候选对象在 `ResearchContext.pool`，回给模型的是 ID + brief。详见 [research-tool-use-scheme-evolution.md](./research-tool-use-scheme-evolution.md)。
+仅 `research` 支路。后端控环，模型最多三次 `complete_json`：本轮 keep、改写 query、从累加池选 TopK。每次都是系统提示 + 一条 user JSON，看不到用户聊天历史，也看不到「上一句不要索尼」。候选对象在 `ResearchContext.pool`，回给模型的是 ID + brief。流程与拍板见 [research-loop-scheme-evolution.md](./research-loop-scheme-evolution.md)；工具签名见 [research-tool-use-scheme-evolution.md](./research-tool-use-scheme-evolution.md)。
 
 ### 4.3 起草：`draft_recommendation`
 
