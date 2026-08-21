@@ -42,6 +42,7 @@ def make_merge_mission_state():
         act = state.get("dialogue_act")
         if act is not None and act.kind.value in {
             "ask_about_item",
+            "ask_about_set",
             "compare_items",
             "meta",
             "undo",
@@ -76,6 +77,7 @@ def make_merge_mission_state():
                 patch.only_in_stock if patch.only_in_stock is not None else constraints.only_in_stock
             ),
             excluded_terms=excluded,
+            merchants=list(patch.merchants) if patch.merchants is not None else list(constraints.merchants),
         )
         # 约束级护栏：无音频规格时不写入 noise/battery 排序偏好（不假装已按该维度排序）。
         # 控制反转后此护栏从命令层 DialoguePolicy 下沉到运行时唯一路径。

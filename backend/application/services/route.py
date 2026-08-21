@@ -4,6 +4,7 @@ from __future__ import annotations
 from ..dto.dialogue import DialogueAct, DialogueActKind, TurnRoute
 from ..dto.mission import MissionConstraints, MissionStage, TurnPhase
 from .nlu import preview_merged_constraints, reuse_key_matches
+from .world_ops import evaluate_set_query
 
 
 def plan_route(
@@ -15,7 +16,12 @@ def plan_route(
     skip_intent_patch: bool,
     constraints_changed: bool,
 ) -> TurnRoute:
-    if kind in {DialogueActKind.META, DialogueActKind.ASK_ITEM, DialogueActKind.COMPARE}:
+    if kind in {
+        DialogueActKind.META,
+        DialogueActKind.ASK_ITEM,
+        DialogueActKind.ASK_SET,
+        DialogueActKind.COMPARE,
+    }:
         return TurnRoute.TALK
     if kind == DialogueActKind.STANCE and not constraints_changed:
         if has_cache:
@@ -37,6 +43,24 @@ def plan_route(
     if has_cache and reuse_matches:
         return TurnRoute.TALK if not constraints_changed else TurnRoute.REFILTER
     return TurnRoute.RESEARCH
+
+
+def escalate_empty_merchant_filter(
+    route: TurnRoute,
+    *,
+    merchants: list[str],
+    ranked: list[dict] | None,
+) -> TurnRoute:
+    """商户过滤先问现有集合：没有命中才升级成 research。"""
+    if route != TurnRoute.REFILTER or not merchants:
+        return route
+    from ..dto.dialogue import SetPredicate
+
+    result = evaluate_set_query(
+        list(ranked or []),
+        SetPredicate(attr="merchant", values=merchants, label=merchants[0]),
+    )
+    return TurnRoute.RESEARCH if not result.hits else route
 
 
 def preview_turn(

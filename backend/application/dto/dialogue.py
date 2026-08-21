@@ -12,6 +12,7 @@ from .runner import IntentPatch
 class DialogueActKind(StrEnum):
     REFINE = "refine_constraints"
     ASK_ITEM = "ask_about_item"
+    ASK_SET = "ask_about_set"
     COMPARE = "compare_items"
     REJECT = "reject_item"
     STANCE = "express_stance"
@@ -44,6 +45,14 @@ class TurnRoute(StrEnum):
     RESEARCH = "research"
 
 
+class SetPredicate(BaseModel):
+    """对当前候选集的只读谓词。values 是用户说法，不是商户枚举。"""
+
+    attr: str = "merchant"
+    values: list[str] = Field(default_factory=list)
+    label: str = ""
+
+
 class DialogueAct(BaseModel):
     kind: DialogueActKind
     patch: IntentPatch | None = None
@@ -51,6 +60,7 @@ class DialogueAct(BaseModel):
     exclude_terms: list[str] = Field(default_factory=list)
     stance: str | None = None
     topic: AskTopic | None = None
+    predicate: SetPredicate | None = None
     confidence: float = 1.0
     source: str = "deterministic"
 

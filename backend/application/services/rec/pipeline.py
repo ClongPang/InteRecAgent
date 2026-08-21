@@ -12,6 +12,7 @@ from ....domain.models import DEFAULT_MARKETS, MARKET_CURRENCY, FxSnapshot, Norm
 from ....domain.policies import (
     apply_budget_filter,
     apply_exclusion_filter,
+    apply_merchant_filter,
     apply_relevance_filter,
     apply_spec_gates,
     apply_stock_filter,
@@ -175,6 +176,13 @@ def run_filter(
         if dropped:
             warnings.append(
                 f"已按排除词过滤 {len(dropped)} 件（标题匹配：{'、'.join(constraints.excluded_terms)}）"
+            )
+
+    if constraints.merchants:
+        products, dropped = apply_merchant_filter(products, constraints.merchants)
+        if dropped:
+            warnings.append(
+                f"已按商户过滤 {len(dropped)} 件（{'、'.join(constraints.merchants)}）"
             )
 
     if constraints.budget_cny is not None:

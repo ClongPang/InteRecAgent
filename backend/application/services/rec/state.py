@@ -14,6 +14,7 @@ class RecState:
     preference: str
     only_in_stock: bool
     excluded_terms: tuple[str, ...]
+    merchants: tuple[str, ...]
     rejected_snapshot_ids: frozenset[str]
     rejected_listing_keys: frozenset[str]
     soft_prefs: tuple[tuple[str, str, str, tuple[str, ...]], ...]
@@ -32,6 +33,7 @@ def rec_state_from_mission(mission: ShoppingMission) -> RecState:
         preference=constraints.preference,
         only_in_stock=constraints.only_in_stock,
         excluded_terms=tuple(constraints.excluded_terms),
+        merchants=tuple(constraints.merchants),
         rejected_snapshot_ids=frozenset(belief.rejected_snapshot_ids),
         rejected_listing_keys=frozenset(getattr(belief, "rejected_listing_keys", []) or []),
         soft_prefs=tuple(

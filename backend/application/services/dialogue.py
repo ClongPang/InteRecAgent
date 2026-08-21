@@ -18,7 +18,7 @@ from .nlu import (
 )
 from .parse_intent import parse_intent
 from .policy import apply_act_effects, sanitize_constraints
-from .route import phase_for_route, plan_route, preview_turn, stage_for_phase
+from .route import escalate_empty_merchant_filter, phase_for_route, plan_route, preview_turn, stage_for_phase
 from .thread import project_thread
 from .uncertainty import moves_for_reply, select_probe
 
@@ -29,6 +29,7 @@ __all__ = [
     "classify_turn",
     "ground_dialogue_act",
     "detect_ask_topic",
+    "escalate_empty_merchant_filter",
     "detect_referent_hint",
     "moves_for_reply",
     "next_moves_for",

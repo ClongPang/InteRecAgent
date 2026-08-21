@@ -23,6 +23,10 @@ def plan_search(rec: RecState, *, limit: int = 20) -> SearchPlan:
     query = (rec.query or "").strip()
     if rec.use_case and rec.use_case not in query:
         query = f"{query} {rec.use_case}".strip()
+    if rec.merchants:
+        token = rec.merchants[0]
+        if token.lower() not in query.lower():
+            query = f"{query} {token}".strip()
     precise = looks_like_exact_model(query)
     # BuyWhere keyword 对中文几乎不召回；hybrid 才能把「通勤降噪耳机」落到商品。
     mode = "keyword" if precise or not query_has_cjk(query) else "hybrid"

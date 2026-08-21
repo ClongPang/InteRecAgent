@@ -109,6 +109,7 @@ async def update_constraints(
         if body.only_in_stock is not None
         else mission.constraints.only_in_stock,
         excluded_terms=list(mission.constraints.excluded_terms),
+        merchants=list(mission.constraints.merchants),
     )
     run_id, version = await svc.update_constraints(
         owner_id=owner_id,

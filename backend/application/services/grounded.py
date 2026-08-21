@@ -4,10 +4,21 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..dto.belief import PreferenceBelief
-from ..dto.dialogue import AskTopic, DialogueAct, DialogueActKind
+from ..dto.dialogue import AskTopic, DialogueAct, DialogueActKind, NextMove
 from ..dto.mission import MissionConstraints
-from .nlu import detect_ask_topic, detect_referent_hint, resolve_referent_ids, snapshot_ids_for_ranks
+from .nlu import (
+    detect_ask_topic,
+    detect_referent_hint,
+    resolve_referent_ids,
+    snapshot_ids_for_ranks,
+)
 from .parse_intent import CLARIFYING_QUESTION
+from .world_ops import (
+    compare_candidates,
+    evaluate_set_query,
+    parse_set_predicate,
+    set_query_next_moves,
+)
 
 
 @dataclass(frozen=True)
@@ -16,6 +27,7 @@ class TalkReply:
     snapshot_ids: list[str] = field(default_factory=list)
     citations: list[dict] = field(default_factory=list)
     comparison_snapshot_ids: list[str] | None = None
+    next_moves: list[NextMove] = field(default_factory=list)
     requires_clarification: bool = False
     clarification_question: str | None = None
 
@@ -116,6 +128,8 @@ def compose_talk_reply(
             requires_clarification=not bool(constraints.query),
             clarification_question=CLARIFYING_QUESTION if not constraints.query else None,
         )
+    if act.kind == DialogueActKind.ASK_SET:
+        return _set_query_reply(act, ranked, constraints, text)
     if act.kind == DialogueActKind.COMPARE or (act.kind == DialogueActKind.ASK_ITEM and _topic(act, text) == AskTopic.TRADEOFF):
         return _compare_reply(act, ranked, constraints, focus_snapshot_id, text=text)
     items = _resolve_items(
@@ -226,6 +240,7 @@ def _compare_reply(
             ids = [focus_snapshot_id] + others[:1]
     if len(ids) < 2:
         ids = snapshot_ids_for_ranks(ranked, [1, 2])
+    del constraints
     if not 2 <= len(ids) <= 4:
         return TalkReply(text="比较需要 2–4 件当前候选。可以说「帮我比前两个」。")
     by_id = {str(item.get("snapshot_id")): item for item in ranked}
@@ -233,40 +248,88 @@ def _compare_reply(
     items = [item for item in facts if item is not None]
     if len(items) < 2:
         return TalkReply(text="比较需要 2–4 件当前候选。可以说「帮我比前两个」。")
-    lines = [_compare_line(item, constraints) for item in items]
-    cheaper = _cheaper_of(items)
-    tail = "保修、库存和评分都未提供，不能据此判断售后或是否有货。"
-    if cheaper:
-        tail = f"仅按已换算人民币价，{cheaper.title} 更低。{tail}"
+    compared = compare_candidates([by_id[item.snapshot_id] for item in items])
+    if compared is None:
+        return TalkReply(text="比较需要 2–4 件当前候选。可以说「帮我比前两个」。")
     return TalkReply(
-        text="按已记录事实对照：\n" + "\n".join(lines) + "\n" + tail,
+        text=_render_compare(compared),
         snapshot_ids=[item.snapshot_id for item in items],
         citations=[cite_item(item, role="compare") for item in items],
         comparison_snapshot_ids=[item.snapshot_id for item in items],
     )
 
 
-def _compare_line(item: CitedFacts, constraints: MissionConstraints) -> str:
-    parts = [_price_clause(item)]
-    if item.market:
-        parts.append(f"市场 {item.market}")
-    if item.merchant:
-        parts.append(item.merchant)
-    if item.within_budget and constraints.budget_cny is not None:
-        parts.append(f"在 {constraints.budget_cny:.0f} 元预算内")
-    elif constraints.budget_cny is not None and item.cny is not None and item.cny > constraints.budget_cny:
-        parts.append("超出当前预算")
-    return f"{item.title}：{'，'.join(parts)}"
+def _set_query_reply(
+    act: DialogueAct,
+    ranked: list[dict],
+    constraints: MissionConstraints,
+    text: str,
+) -> TalkReply:
+    predicate = act.predicate or parse_set_predicate(text)
+    if predicate is None:
+        return TalkReply(text="可以说平台或商户名，例如「有 Lazada 吗」。")
+    result = evaluate_set_query(ranked, predicate)
+    moves = set_query_next_moves(result, query=constraints.query)
+    if result.matched:
+        names = "、".join(hit.display_name for hit in result.hits[:4])
+        text_out = f"当前对照里有 {len(result.hits)} 件{result.predicate.label}：{names}。"
+        cited = []
+        for hit in result.hits[:4]:
+            record = next((item for item in ranked if str(item.get("snapshot_id")) == hit.snapshot_id), None)
+            if record:
+                item = cited_facts(record)
+                if item:
+                    cited.append(cite_item(item, role="set"))
+        return TalkReply(
+            text=text_out,
+            snapshot_ids=[hit.snapshot_id for hit in result.hits],
+            citations=cited,
+            next_moves=moves,
+        )
+    present = "、".join(result.merchants_present[:4]) if result.merchants_present else "现有商户"
+    return TalkReply(
+        text=(
+            f"当前 {result.scanned} 件对照里没有{result.predicate.label}。"
+            f"现有商户是 {present}。"
+            f"要再搜{result.predicate.label}，还是先看现在这几款？"
+        ),
+        next_moves=moves,
+    )
 
 
-def _cheaper_of(items: list[CitedFacts]) -> CitedFacts | None:
-    priced = [item for item in items if item.cny is not None]
-    if len(priced) < 2:
-        return None
-    cheapest = min(priced, key=lambda item: item.cny or 0)
-    if sum(1 for item in priced if item.cny == cheapest.cny) > 1:
-        return None
-    return cheapest
+def _render_compare(result) -> str:
+    lines = [
+        f"{name}：{'，'.join(_compare_facts(result, index))}"
+        for index, name in enumerate(result.names)
+    ]
+    diffs = result.non_price_diffs
+    if diffs:
+        summary = "；".join(
+            f"{item.name}不同（{' / '.join(item.values)}）" for item in diffs
+        )
+        tail = f"主要差别：{summary}。"
+    else:
+        tail = "除估算价外，快照没有可对照的形态、商户或市场差异，这两件不好比。"
+    if result.cheaper_index is not None:
+        tail += f"{result.names[result.cheaper_index]} 估算更低。"
+    tail += "保修、库存和评分未提供，不当对照依据。"
+    return "按已记录事实对照：\n" + "\n".join(lines) + "\n" + tail
+
+
+def _compare_facts(result, index: int) -> list[str]:
+    parts: list[str] = []
+    if index < len(result.prices):
+        parts.append(f"估算约 {result.prices[index]}")
+    for dim in result.dimensions:
+        if dim.name == "估算" or index >= len(dim.values) or not dim.values[index]:
+            continue
+        if dim.name == "形态":
+            parts.append(dim.values[index])
+        elif dim.name == "市场":
+            parts.append(f"市场 {dim.values[index]}")
+        else:
+            parts.append(dim.values[index])
+    return parts
 
 
 def _warranty_reply(item: CitedFacts) -> str:

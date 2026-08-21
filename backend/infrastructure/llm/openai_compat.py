@@ -73,6 +73,7 @@ _VALID_STANCES = frozenset({"too_expensive", "want_cheaper", "want_lighter"})
 _TALK_KINDS = frozenset(
     {
         DialogueActKind.ASK_ITEM,
+        DialogueActKind.ASK_SET,
         DialogueActKind.COMPARE,
         DialogueActKind.REJECT,
         DialogueActKind.STANCE,
@@ -192,12 +193,14 @@ confidence, requires_clarification, clarification_question。
 
 _TURN_SYSTEM = """你是跨境购物对话行为分类器。只输出一个 JSON 对象，不要解释。
 字段：kind, patch, referent_ranks, exclude_terms, stance, topic, confidence。
-kind 只能是：refine_constraints, ask_about_item, compare_items, reject_item,
+kind 只能是：refine_constraints, ask_about_item, ask_about_set, compare_items, reject_item,
 express_stance, undo, meta, unknown。
 规则：
 - 比较、提问、否定、态度、撤销、能力询问不得改 query。这些 kind 的 patch.query 必须为 null。
 - 「帮我比前两个 / 对比一下」→ compare_items，referent_ranks=[1,2]。
 - 「这款保修吗 / 为什么推荐 / 有货吗」→ ask_about_item，并填 topic：warranty|why|stock|tradeoff|overview。
+- 「有 Lazada / Shopee / 某平台吗」→ ask_about_set，predicate={attr: merchant, values: [平台名], label: 平台名}，不要收成 ask_about_item。
+- 「只要 Lazada / 只看某平台」→ refine_constraints，patch.merchants 填平台名，不要改 query。
 - 「不要这款 / 不要这个」→ reject_item，referent_ranks=[1]，不要把「这款」写成 exclude_terms。
 - 「不要索尼」→ reject_item，exclude_terms=["索尼"]。
 - 「太贵了 / 再便宜一点」→ express_stance，stance=too_expensive|want_cheaper，不得写成 query。

@@ -223,6 +223,24 @@ def apply_spec_gates(
     return kept, dropped
 
 
+def apply_merchant_filter(
+    products: Iterable[NormalizedProduct], needles: Iterable[str]
+) -> tuple[list[NormalizedProduct], list[NormalizedProduct]]:
+    """商户/平台是过滤键：标题或 merchant 字段含子串即留。"""
+    keys = [item.strip().lower() for item in needles if item and item.strip()]
+    if not keys:
+        return list(products), []
+    kept: list[NormalizedProduct] = []
+    dropped: list[NormalizedProduct] = []
+    for product in products:
+        blob = f"{product.merchant or ''} {product.title or ''}".lower()
+        if any(key in blob for key in keys):
+            kept.append(product)
+        else:
+            dropped.append(product)
+    return kept, dropped
+
+
 def apply_exclusion_filter(
     products: Iterable[NormalizedProduct], terms: list[str]
 ) -> tuple[list[NormalizedProduct], list[NormalizedProduct]]:

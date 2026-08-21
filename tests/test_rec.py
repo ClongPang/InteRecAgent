@@ -57,6 +57,16 @@ def test_search_plan_appends_use_case() -> None:
     assert plan.query == "27 寸 4K 显示器 远程办公"
 
 
+def test_search_plan_appends_merchant_filter() -> None:
+    mission = ShoppingMission(
+        owner_id="u",
+        title="t",
+        constraints=MissionConstraints(query="降噪耳机", merchants=["lazada"]),
+    )
+    plan = plan_search(rec_state_from_mission(mission))
+    assert "lazada" in plan.query.lower()
+
+
 def test_referent_hint_resolves_brand_and_cheapest() -> None:
     ranked = [
         {"snapshot_id": "s1", "title": "Sony WH-1000XM5", "brand": "Sony", "estimated_cny": {"amount": 2500}},
@@ -157,6 +167,31 @@ def test_run_filter_honors_listing_keys_after_new_snapshots() -> None:
     )
     assert [item.id for item in kept] == ["src-white"]
     assert any("否定" in item for item in warnings)
+
+
+def test_run_filter_keeps_matching_merchant() -> None:
+    amazon = NormalizedProduct(
+        id="a1",
+        title="Space One",
+        merchant="amazon.sg",
+        native_price_amount=99,
+        native_currency="SGD",
+        rmb_price=520,
+    )
+    lazada = NormalizedProduct(
+        id="l1",
+        title="WH-1000XM5",
+        merchant="lazada.sg",
+        native_price_amount=299,
+        native_currency="SGD",
+        rmb_price=1600,
+    )
+    kept, warnings = run_filter(
+        MissionConstraints(query="降噪耳机", merchants=["lazada"]),
+        [amazon, lazada],
+    )
+    assert [item.id for item in kept] == ["l1"]
+    assert any("商户" in item for item in warnings)
 
 
 def test_run_filter_aligns_buywhere_duplicate_listing() -> None:

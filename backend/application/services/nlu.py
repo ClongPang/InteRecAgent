@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import re
 
-from ..dto.dialogue import AskTopic, DialogueAct, DialogueActKind
+from ..dto.dialogue import AskTopic, DialogueAct, DialogueActKind, SetPredicate
 from ..dto.mission import MissionConstraints
 from ..dto.runner import IntentPatch
 from .model_context import turn_view
 from .parse_intent import CLARIFYING_QUESTION, parse_intent
+from .world_ops import parse_merchant_needles, parse_set_predicate
 
 _UNDO = re.compile(r"撤销|还原刚才|刚才的条件|undo", re.I)
 _META = re.compile(r"你能做什么|你会什么|你是谁|怎么用")
@@ -96,6 +97,9 @@ def classify_turn(
         return DialogueAct(kind=DialogueActKind.META)
     if _COMPARE.search(raw):
         return DialogueAct(kind=DialogueActKind.COMPARE, referent_ranks=_referent_ranks(raw, default=(1, 2)))
+    predicate = parse_set_predicate(raw)
+    if predicate is not None:
+        return DialogueAct(kind=DialogueActKind.ASK_SET, predicate=predicate)
     rejected = _REJECT.search(raw)
     if rejected:
         term = rejected.group(1).strip("的了呢啊")
@@ -125,6 +129,13 @@ def classify_turn(
     if current_query and _WANT_OVEREAR.search(raw):
         query = current_query if "头戴" in current_query else f"{current_query} 头戴"
         return DialogueAct(kind=DialogueActKind.REFINE, patch=IntentPatch(query=query))
+    merchants = parse_merchant_needles(raw)
+    if merchants:
+        return DialogueAct(
+            kind=DialogueActKind.REFINE,
+            patch=IntentPatch(query=current_query, merchants=merchants),
+            predicate=SetPredicate(attr="merchant", values=merchants, label=merchants[0]),
+        )
     if current_query and detect_referent_hint(raw):
         return DialogueAct(
             kind=DialogueActKind.ASK_ITEM,
@@ -140,6 +151,7 @@ _GROUNDABLE = {DialogueActKind.REFINE, DialogueActKind.UNKNOWN}
 _SPEECH_ACTS = {
     DialogueActKind.COMPARE,
     DialogueActKind.ASK_ITEM,
+    DialogueActKind.ASK_SET,
     DialogueActKind.REJECT,
     DialogueActKind.STANCE,
     DialogueActKind.UNDO,
@@ -178,10 +190,16 @@ def ground_dialogue_act(
             )
     if act.kind == DialogueActKind.ASK_ITEM:
         deterministic = classify_turn(text, current_query=current_query)
+        if deterministic.kind == DialogueActKind.ASK_SET:
+            return deterministic
         patch = deterministic.patch
         if deterministic.kind == DialogueActKind.REFINE and patch is not None:
-            if patch.only_in_stock or patch.budget_cny is not None or patch.query:
+            if patch.only_in_stock or patch.budget_cny is not None or patch.query or patch.merchants:
                 return deterministic
+    if act.kind == DialogueActKind.ASK_SET and act.predicate is None:
+        predicate = parse_set_predicate(text)
+        if predicate is not None:
+            return act.model_copy(update={"predicate": predicate})
     if act.kind not in _GROUNDABLE:
         return act
     fallback = parse_intent(text, current_query=current_query)
@@ -313,6 +331,7 @@ def preview_merged_constraints(constraints: MissionConstraints, act: DialogueAct
     """命令层预览合并结果，与 merge_mission_state 对齐，但不写库。"""
     if act.kind in {
         DialogueActKind.ASK_ITEM,
+        DialogueActKind.ASK_SET,
         DialogueActKind.COMPARE,
         DialogueActKind.META,
         DialogueActKind.UNDO,
@@ -339,6 +358,7 @@ def preview_merged_constraints(constraints: MissionConstraints, act: DialogueAct
             patch.only_in_stock if patch.only_in_stock is not None else constraints.only_in_stock
         ),
         excluded_terms=excluded,
+        merchants=list(patch.merchants) if patch.merchants is not None else list(constraints.merchants),
     )
 
 
@@ -356,6 +376,8 @@ def summarize_constraint_change(before: MissionConstraints, after: MissionConstr
         parts.append("市场：" + "、".join(after.markets))
     if before.excluded_terms != after.excluded_terms:
         parts.append("排除：" + "、".join(after.excluded_terms) if after.excluded_terms else "清除排除")
+    if before.merchants != after.merchants:
+        parts.append("商户：" + "、".join(after.merchants) if after.merchants else "清除商户过滤")
     return "已更新" + ("：" + "、".join(parts) if parts else "购物约束")
 
 

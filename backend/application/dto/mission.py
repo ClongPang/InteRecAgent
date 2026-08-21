@@ -50,6 +50,7 @@ class MissionConstraints(BaseModel):
     preference: str = "balanced"
     only_in_stock: bool = False
     excluded_terms: list[str] = Field(default_factory=list)
+    merchants: list[str] = Field(default_factory=list)
 
 
 def next_constraints_version(current: int, before: MissionConstraints, after: MissionConstraints) -> int:

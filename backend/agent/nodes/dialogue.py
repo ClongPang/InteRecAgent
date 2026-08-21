@@ -15,6 +15,7 @@ from ...application.services.dialogue import (
 from ...application.services.grounded import compose_talk_reply
 from ...application.services.parse_intent import CLARIFYING_QUESTION
 from ...application.services.present import hydrate_candidate_payload
+from ...application.services.route import escalate_empty_merchant_filter
 from ..state import MissionGraphState
 
 
@@ -119,6 +120,11 @@ async def route_turn(state: MissionGraphState) -> dict:
     # unsupported，改答复解释而非空排序（rerank 无维度支撑等于原地打转）。
     if act.kind == DialogueActKind.STANCE and act.stance == "want_lighter":
         return {"turn_route": TurnRoute.TALK.value, "requires_clarification": False}
+    route = escalate_empty_merchant_filter(
+        route,
+        merchants=list(mission.constraints.merchants),
+        ranked=list((payload or {}).get("ranked") or []),
+    )
     if state.get("requires_clarification") or route == TurnRoute.CLARIFY:
         if not mission.constraints.query:
             return {
@@ -171,6 +177,7 @@ def make_compose_grounded_reply():
             "agent_citations": reply.citations,
             "agent_act": act.kind.value,
             "agent_topic": act.topic.value if act.topic else None,
+            "agent_next_moves": [item.model_dump(mode="json") for item in reply.next_moves],
         }
         if reply.requires_clarification:
             result["requires_clarification"] = True

@@ -16,6 +16,7 @@ class IntentPatch(BaseModel):
     markets: list[str] | None = None
     preference: str | None = None  # balanced | battery | noise | lowest
     only_in_stock: bool | None = None
+    merchants: list[str] | None = None
     exclude_terms: list[str] | None = None
     use_case: str | None = None
     spec_gates: list[SpecGate] | None = None

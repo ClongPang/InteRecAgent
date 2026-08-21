@@ -44,6 +44,11 @@ def next_moves_for(
             NextMove(label="为什么推荐", text="为什么推荐"),
             *delta_moves[:2],
         ]
+    if kind == DialogueActKind.ASK_SET.value:
+        return [
+            NextMove(label="再搜这个平台", text="帮我找这个平台上的"),
+            NextMove(label="维持当前列表", text="先看现在这几款"),
+        ]
     if kind == DialogueActKind.STANCE.value:
         return [
             _budget_move(budget_cny),

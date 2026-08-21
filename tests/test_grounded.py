@@ -116,6 +116,7 @@ def test_compare_only_uses_recorded_facts() -> None:
     assert reply.comparison_snapshot_ids == ["s1", "s2"]
     assert "2100" in reply.text and "2600" in reply.text
     assert "更低" in reply.text
+    assert "商户" in reply.text or "Amazon" in reply.text
     assert "保修" in reply.text and "未提供" in reply.text
     assert "星" not in reply.text
 
@@ -125,6 +126,46 @@ def test_ready_reply_matches_why() -> None:
     assert "Sony WH-1000XM5" in text
     assert "2100" in text
     assert "保修和库存未提供" in text
+
+
+def test_ask_set_empty_does_not_read_focus_item() -> None:
+    ranked = [
+        {
+            **_ranked()[0],
+            "title": "Soundcore by Anker, Space One, Active Noise Cancelling Headphones 2X Stronger Voice Reduction",
+            "merchant": "amazon.sg",
+            "market": "SG",
+        },
+        {**_ranked()[1], "merchant": "shopify", "market": "US"},
+    ]
+    reply = compose_talk_reply(
+        act=classify_turn("有lazada平台的吗", current_query="降噪耳机 通勤"),
+        text="有lazada平台的吗",
+        ranked=ranked,
+        constraints=MissionConstraints(query="降噪耳机 通勤", budget_cny=2500),
+    )
+    assert "没有" in reply.text
+    assert "lazada" in reply.text.lower()
+    assert "amazon.sg" in reply.text or "shopify" in reply.text
+    assert "520" not in reply.text
+    assert "2X Stronger" not in reply.text
+    assert any(move.text.startswith("帮我找") for move in reply.next_moves)
+
+
+def test_ask_set_hits_current_set() -> None:
+    ranked = [
+        {**_ranked()[0], "merchant": "amazon.sg"},
+        {**_ranked()[1], "merchant": "lazada.sg", "title": "Sony WH-1000XM5 Lazada"},
+    ]
+    reply = compose_talk_reply(
+        act=classify_turn("有lazada平台的吗", current_query="降噪耳机"),
+        text="有lazada平台的吗",
+        ranked=ranked,
+        constraints=MissionConstraints(query="降噪耳机", budget_cny=4000),
+    )
+    assert "1 件" in reply.text
+    assert "Sony" in reply.text
+    assert reply.snapshot_ids == ["s2"]
 
 
 def test_empty_ranked_asks_for_query() -> None:

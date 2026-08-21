@@ -340,6 +340,11 @@ async def _persist_talk(
             "snapshot_ids": snapshot_ids,
             "citations": citations,
             **probe_event_fields(probe),
+            **(
+                {"next_moves": state["agent_next_moves"]}
+                if state.get("agent_next_moves")
+                else {}
+            ),
         },
     )
     if state.get("comparison_snapshot_ids"):

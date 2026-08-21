@@ -46,6 +46,21 @@ def test_classify_refine_vs_talk_vs_reject() -> None:
     undo = classify_turn("撤销刚才的条件")
     assert undo.kind == DialogueActKind.UNDO
 
+    ask_set = classify_turn("有lazada平台的吗", current_query="降噪耳机")
+    assert ask_set.kind == DialogueActKind.ASK_SET
+    assert ask_set.predicate is not None
+    assert ask_set.predicate.values == ["lazada"]
+
+    stock = classify_turn("有货吗", current_query="降噪耳机")
+    assert stock.kind == DialogueActKind.ASK_ITEM
+    assert stock.topic.value == "stock"
+
+    merchant = classify_turn("只要lazada", current_query="降噪耳机")
+    assert merchant.kind == DialogueActKind.REFINE
+    assert merchant.patch is not None
+    assert merchant.patch.merchants == ["lazada"]
+    assert merchant.patch.query == "降噪耳机"
+
 
 def test_plan_route_reuses_cache_for_budget_only() -> None:
     assert (
@@ -84,6 +99,17 @@ def test_plan_route_reuses_cache_for_budget_only() -> None:
     assert (
         plan_route(
             kind=DialogueActKind.ASK_ITEM,
+            has_query=True,
+            has_cache=True,
+            reuse_matches=True,
+            skip_intent_patch=False,
+            constraints_changed=False,
+        )
+        == TurnRoute.TALK
+    )
+    assert (
+        plan_route(
+            kind=DialogueActKind.ASK_SET,
             has_query=True,
             has_cache=True,
             reuse_matches=True,
@@ -329,6 +355,31 @@ def test_search_reuse_key_ignores_stock() -> None:
     a = MissionConstraints(query="耳机", only_in_stock=True)
     b = MissionConstraints(query="耳机", only_in_stock=False)
     assert search_reuse_key(a) == search_reuse_key(b)
+
+
+def test_search_reuse_key_ignores_merchants() -> None:
+    a = MissionConstraints(query="耳机", merchants=["lazada"])
+    b = MissionConstraints(query="耳机", merchants=[])
+    assert search_reuse_key(a) == search_reuse_key(b)
+
+
+def test_empty_merchant_filter_escalates_to_research() -> None:
+    from backend.application.services.dialogue import escalate_empty_merchant_filter
+
+    ranked = [{"snapshot_id": "s1", "title": "Space One", "merchant": "amazon.sg"}]
+    assert (
+        escalate_empty_merchant_filter(
+            TurnRoute.REFILTER, merchants=["lazada"], ranked=ranked
+        )
+        == TurnRoute.RESEARCH
+    )
+    ranked_hit = [{"snapshot_id": "s1", "title": "Buds", "merchant": "lazada.sg"}]
+    assert (
+        escalate_empty_merchant_filter(
+            TurnRoute.REFILTER, merchants=["lazada"], ranked=ranked_hit
+        )
+        == TurnRoute.REFILTER
+    )
 
 
 def test_stance_without_query_clarifies() -> None:

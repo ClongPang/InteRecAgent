@@ -32,6 +32,7 @@ _FORM_EXCLUDE = {
 
 _PASSIVE_KINDS = {
     DialogueActKind.ASK_ITEM,
+    DialogueActKind.ASK_SET,
     DialogueActKind.COMPARE,
     DialogueActKind.META,
     DialogueActKind.UNDO,

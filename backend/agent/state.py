@@ -54,6 +54,7 @@ class MissionGraphState(TypedDict, total=False):
     agent_citations: NotRequired[list[dict]]
     agent_act: NotRequired[str]
     agent_topic: NotRequired[str | None]
+    agent_next_moves: NotRequired[list[dict]]
     comparison_snapshot_ids: NotRequired[list[str]]
     search_plan: NotRequired[SearchPlan]
     products: NotRequired[list[NormalizedProduct]]
