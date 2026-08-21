@@ -2,20 +2,21 @@
 from __future__ import annotations
 
 from ...application.dto import IntentPatch, RunnerStatus
-from ...application.dto.dialogue import DialogueAct, DialogueActKind, TurnRoute
+from ...application.dto.dialogue import DialogueAct, DialogueActKind, NextMove, TurnPlan, TurnRoute
 from ...application.errors import ModelUnavailableError
 from ...application.ports import ModelBackend
 from ...application.services.dialogue import (
     apply_act_effects,
     classify_turn,
     ground_dialogue_act,
-    plan_route,
     reuse_key_matches,
 )
 from ...application.services.grounded import compose_talk_reply
 from ...application.services.parse_intent import CLARIFYING_QUESTION
+from ...application.services.plan import propose_plan
 from ...application.services.present import hydrate_candidate_payload
-from ...application.services.route import escalate_empty_merchant_filter
+from ...application.services.route import decide_route
+from ...application.services.working_set import WorkingSet
 from ..state import MissionGraphState
 
 
@@ -48,8 +49,15 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
         text = state.get("text") or ""
         current_query = state["mission"].constraints.query
         context = dict(state.get("turn_context") or _turn_context(state))
-        ranked = list((state.get("cache_payload") or {}).get("ranked") or [])
+        working = WorkingSet.from_cache(
+            state.get("cache_payload"),
+            mentioned_ids=list(getattr(state["mission"].dialogue, "mentioned_snapshot_ids", None) or []),
+            comparison_ids=list(state["mission"].comparison_snapshot_ids or []),
+        )
+        ranked = list(working.display)
         context["ranked"] = ranked
+        context["pool"] = list(working.bind_records)
+        plan = propose_plan(text, current_query=current_query, world=working.world())
         # LLM 优先：配置了模型时由 parse_turn 直接给出行为+patch（含开放式 soft_prefs），
         # 确定性 classify_turn 仅作 fallback。这里已越过命令层预判短路，
         # 故重算路由（decided_route=None 交给 route_turn 依 LLM 行为推断）。
@@ -58,19 +66,30 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
                 act = await model_backend.parse_turn(
                     text, current_query=current_query, context=context
                 )
-                act = ground_dialogue_act(act, text, current_query=current_query, ranked=ranked)
+                act = ground_dialogue_act(act, text, current_query=current_query, ranked=list(working.bind_records))
                 return {
                     "dialogue_act": act,
                     "intent_patch": act.patch or IntentPatch(),
+                    "turn_plan": _plan_with_primary(plan, act),
                     "decided_route": None,
                 }
             except ModelUnavailableError:
                 pass
         act = classify_turn(text, current_query=current_query, context=context)
-        act = ground_dialogue_act(act, text, current_query=current_query, ranked=ranked)
-        return {"dialogue_act": act, "intent_patch": act.patch or IntentPatch()}
+        act = ground_dialogue_act(act, text, current_query=current_query, ranked=list(working.bind_records))
+        return {
+            "dialogue_act": act,
+            "intent_patch": act.patch or IntentPatch(),
+            "turn_plan": _plan_with_primary(plan, act),
+        }
 
     return classify_dialogue_act
+
+
+def _plan_with_primary(plan: TurnPlan, act: DialogueAct) -> TurnPlan:
+    rest = [item for item in plan.ops if item.kind != act.kind]
+    leftover = [item for item in plan.leftover if item.kind != act.kind]
+    return TurnPlan(ops=[act] + rest, leftover=leftover, lead=act)
 
 
 async def apply_turn_effects(state: MissionGraphState) -> dict:
@@ -105,13 +124,16 @@ async def route_turn(state: MissionGraphState) -> dict:
     has_cache = bool(payload and payload.get("ranked"))
     reuse_matches = reuse_key_matches(mission.constraints, (payload or {}).get("reuse_key"))
     before = state.get("constraints_before") or mission.constraints
-    route = plan_route(
+    route = decide_route(
         kind=act.kind,
         has_query=bool(mission.constraints.query),
         has_cache=has_cache,
         reuse_matches=reuse_matches,
         skip_intent_patch=bool(state.get("skip_intent_patch")),
         constraints_changed=before != mission.constraints,
+        merchants=list(mission.constraints.merchants),
+        ranked=list((payload or {}).get("ranked") or []),
+        pool=list((payload or {}).get("pool") or (payload or {}).get("ranked") or []),
     )
     if state.get("decided_route"):
         return {
@@ -122,11 +144,6 @@ async def route_turn(state: MissionGraphState) -> dict:
     # unsupported，改答复解释而非空排序（rerank 无维度支撑等于原地打转）。
     if act.kind == DialogueActKind.STANCE and act.stance == "want_lighter":
         return {"turn_route": TurnRoute.TALK.value, "requires_clarification": False}
-    route = escalate_empty_merchant_filter(
-        route,
-        merchants=list(mission.constraints.merchants),
-        ranked=list((payload or {}).get("ranked") or []),
-    )
     if state.get("requires_clarification") or route == TurnRoute.CLARIFY:
         if not mission.constraints.query:
             return {
@@ -161,6 +178,12 @@ def make_compose_grounded_reply():
         payload = state.get("cache_payload") or {}
         ranked_records = list(payload.get("ranked") or [])
         mission = state["mission"]
+        working = WorkingSet.from_cache(
+            payload,
+            mentioned_ids=list(mission.dialogue.mentioned_snapshot_ids or []),
+            comparison_ids=list(mission.comparison_snapshot_ids or []),
+        )
+        plan = state.get("turn_plan")
         compare_ids = set(mission.comparison_snapshot_ids or [])
         reply = compose_talk_reply(
             act=act,
@@ -170,8 +193,18 @@ def make_compose_grounded_reply():
             focus_snapshot_id=getattr(mission.dialogue, "focus_snapshot_id", None),
             belief=mission.belief,
             comparison_records=[
-                item for item in ranked_records if item.get("snapshot_id") in compare_ids
+                item for item in working.bind_records if item.get("snapshot_id") in compare_ids
             ],
+            working=working,
+            plan=plan,
+        )
+        moves = list(reply.next_moves)
+        leftover = list(getattr(plan, "leftover", None) or [])
+        if any(item.kind == DialogueActKind.COMPARE for item in leftover):
+            if not any(move.text == "帮我比前两个" for move in moves):
+                moves.append(NextMove(label="对比前两件", text="帮我比前两个"))
+        dialogue = mission.dialogue.model_copy(
+            update={"pending_ops": [item.model_dump(mode="json") for item in leftover]}
         )
         result = {
             "agent_message": reply.text,
@@ -179,14 +212,18 @@ def make_compose_grounded_reply():
             "agent_citations": reply.citations,
             "agent_act": act.kind.value,
             "agent_topic": act.topic.value if act.topic else None,
-            "agent_next_moves": [item.model_dump(mode="json") for item in reply.next_moves],
+            "agent_next_moves": [item.model_dump(mode="json") for item in moves],
+            "mission": mission.model_copy(update={"dialogue": dialogue}),
         }
         if reply.requires_clarification:
             result["requires_clarification"] = True
             result["clarification_question"] = reply.clarification_question or CLARIFYING_QUESTION
         if reply.comparison_snapshot_ids:
             result["mission"] = mission.model_copy(
-                update={"comparison_snapshot_ids": reply.comparison_snapshot_ids}
+                update={
+                    "dialogue": dialogue,
+                    "comparison_snapshot_ids": reply.comparison_snapshot_ids,
+                }
             )
             result["comparison_snapshot_ids"] = reply.comparison_snapshot_ids
         return result

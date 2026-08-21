@@ -39,6 +39,7 @@ class DialogueState(BaseModel):
     focus_snapshot_id: str | None = None
     last_act: str | None = None
     mentioned_snapshot_ids: list[str] = Field(default_factory=list)
+    pending_ops: list[dict] = Field(default_factory=list)
 
 
 class MissionConstraints(BaseModel):

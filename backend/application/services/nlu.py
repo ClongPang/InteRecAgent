@@ -7,7 +7,9 @@ from ..dto.runner import IntentPatch
 from .frames import detect_ask_topic, detect_stance, parse_probe_needle, propose_act, referent_hint
 from .model_context import turn_view
 from .parse_intent import CLARIFYING_QUESTION, parse_intent
+from .plan import propose_plan
 from .world import World
+from .working_set import WorkingSet
 
 
 def build_turn_context(
@@ -59,16 +61,13 @@ def classify_turn(
                 clarification_question=CLARIFYING_QUESTION,
             ),
         )
-    world = World.from_ranked(list(context.get("ranked") or []))
-    proposed = propose_act(raw, current_query=current_query, world=world)
-    if proposed is not None:
-        if proposed.kind == DialogueActKind.STANCE:
-            patch = _stance_patch(parse_intent(raw, current_query=current_query))
-            return proposed.model_copy(update={"patch": patch})
-        return proposed
-    patch = parse_intent(raw, current_query=current_query)
-    kind = DialogueActKind.UNKNOWN if patch.requires_clarification else DialogueActKind.REFINE
-    return DialogueAct(kind=kind, patch=patch)
+    world = WorkingSet.from_cache({"ranked": list(context.get("ranked") or []), "pool": list(context.get("pool") or [])}).world()
+    plan = propose_plan(raw, current_query=current_query, world=world)
+    proposed = plan.primary
+    if proposed.kind == DialogueActKind.STANCE:
+        patch = _stance_patch(parse_intent(raw, current_query=current_query))
+        return proposed.model_copy(update={"patch": patch})
+    return proposed
 
 
 _GROUNDABLE = {DialogueActKind.REFINE, DialogueActKind.UNKNOWN}
@@ -173,9 +172,10 @@ def resolve_referent_ids(
     focus_snapshot_id: str | None = None,
     mentioned_snapshot_ids: list[str] | None = None,
     comparison_records: list[dict] | None = None,
+    bind_records: list[dict] | None = None,
 ) -> list[str]:
     hint = referent_hint(text)
-    pool = list(comparison_records or []) or list(ranked)
+    pool = list(comparison_records or []) or list(bind_records or ranked)
     if not hint:
         return []
     if hint == "focus":
@@ -208,6 +208,11 @@ def snapshot_ids_for_ranks(ranked_records: list[dict], ranks: list[int]) -> list
     ids = [str(item["snapshot_id"]) for item in ranked_records if item.get("snapshot_id")]
     out: list[str] = []
     for rank in ranks:
+        if rank == -1 and ids:
+            sid = ids[-1]
+            if sid not in out:
+                out.append(sid)
+            continue
         if 1 <= rank <= len(ids):
             sid = ids[rank - 1]
             if sid not in out:

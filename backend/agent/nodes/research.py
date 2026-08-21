@@ -52,6 +52,7 @@ def make_research(
             "search_plan": plan,
             "products": ctx.ranked,
             "ranked": ctx.ranked,
+            "pool": list(ctx.pool),
             "rates": ctx.rates,
             "fx": list(ctx.rates.values()),
             "fx_failed_currencies": ctx.fx_failed_currencies,

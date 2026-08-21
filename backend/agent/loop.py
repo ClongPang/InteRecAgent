@@ -12,6 +12,7 @@ from ..application.dto import ToolCall
 from ..application.ports import ModelBackend
 from ..application.services.rec import VersionProbe, run_filter
 from ..domain.models import DEFAULT_MARKETS
+from ..application.services.working_set import decision_quality, select_decision_set
 from .judges import judge_keep, parse_rewrite, rewrite_query, select_topk
 from .pool import ground_products, merge_into_pool
 from .tools import ResearchContext, ResearchTools
@@ -83,7 +84,10 @@ async def run_research(
             f"第 {ctx.search_count} 次检索并入 {added} 件（去重 {dupes}），池子 {len(ctx.pool)} 件"
         )
 
-        if len(ctx.pool) >= limits.pool_threshold or ctx.search_count >= limits.max_searches:
+        if ctx.search_count >= limits.max_searches or len(ctx.pool) >= limits.pool_threshold:
+            break
+        if ctx.search_count >= 1 and decision_quality(_pool_views(ctx)).discriminable:
+            ctx.add_warnings("决策集已可分辨，停止继续检索")
             break
 
         next_query = await _next_query(ctx, backend)
@@ -163,4 +167,33 @@ async def _finalize_ranked(
         await tools.run(ToolCall(id="rank", name="rank_candidates", arguments={}), ctx)
         if len(ctx.ranked) > ctx.limits.top_k:
             ctx.ranked = ctx.ranked[: ctx.limits.top_k]
+    _cap_decision_set(ctx)
     ctx.finalized = True
+
+
+def _pool_views(ctx: ResearchContext) -> list[dict]:
+    return [
+        {
+            "snapshot_id": item.id,
+            "title": item.title,
+            "merchant": item.merchant,
+            "market": item.country_code,
+            "estimated_cny": item.rmb_price,
+        }
+        for item in ctx.pool
+    ]
+
+
+def _cap_decision_set(ctx: ResearchContext) -> None:
+    views = [
+        {
+            "snapshot_id": item.id,
+            "title": item.title or "",
+            "merchant": item.merchant,
+            "market": item.country_code,
+        }
+        for item in ctx.ranked
+    ]
+    picked = select_decision_set(views, limit=ctx.limits.top_k)
+    by_id = {item.id: item for item in ctx.ranked}
+    ctx.ranked = [by_id[str(item["snapshot_id"])] for item in picked if str(item["snapshot_id"]) in by_id]

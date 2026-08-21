@@ -39,6 +39,7 @@ class MissionGraphState(TypedDict, total=False):
     decided_route: NotRequired[str | None]
     decided_act: NotRequired[dict | None]
     dialogue_act: NotRequired[DialogueAct]
+    turn_plan: NotRequired[object]
     intent_patch: NotRequired[IntentPatch]
     constraints_before: NotRequired[MissionConstraints]
     requires_clarification: NotRequired[bool]
@@ -63,6 +64,7 @@ class MissionGraphState(TypedDict, total=False):
     fx_failed_currencies: NotRequired[list[str]]
     failed_markets: NotRequired[list[str]]
     ranked: NotRequired[list[NormalizedProduct]]
+    pool: NotRequired[list[NormalizedProduct]]
     recommendation: NotRequired[RecommendationDraft | None]
 
     # 输出

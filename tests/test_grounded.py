@@ -5,6 +5,8 @@ from backend.application.dto.dialogue import DialogueAct, DialogueActKind
 from backend.application.dto.mission import MissionConstraints
 from backend.application.services.dialogue import classify_turn
 from backend.application.services.grounded import compose_ready_reply, compose_talk_reply
+from backend.application.services.plan import propose_plan
+from backend.application.services.working_set import WorkingSet
 
 
 def _ranked() -> list[dict]:
@@ -182,6 +184,37 @@ def test_ask_set_hits_current_set() -> None:
     assert "1 件" in reply.text
     assert "Sony" in reply.text
     assert reply.snapshot_ids == ["s2"]
+
+
+def test_probe_and_compare_render_together() -> None:
+    text = "有lazada平台的吗，帮我比前两个"
+    ranked = [
+        {**_ranked()[0], "merchant": "amazon.sg"},
+        {**_ranked()[1], "merchant": "shopify", "title": "Bose QC Ultra"},
+    ]
+    plan = propose_plan(text, current_query="降噪耳机")
+    reply = compose_talk_reply(
+        act=plan.primary,
+        text=text,
+        ranked=ranked,
+        constraints=MissionConstraints(query="降噪耳机", budget_cny=4000),
+        plan=plan,
+        working=WorkingSet.from_cache({"ranked": ranked, "pool": ranked}),
+    )
+    assert "没有" in reply.text or "lazada" in reply.text.lower()
+    assert "对照" in reply.text or "Bose" in reply.text or "Sony" in reply.text
+
+
+def test_bind_miss_does_not_default_to_first() -> None:
+    reply = compose_talk_reply(
+        act=classify_turn("那个JBL怎么样", current_query="降噪耳机"),
+        text="那个JBL怎么样",
+        ranked=_ranked(),
+        constraints=MissionConstraints(query="降噪耳机", budget_cny=4000),
+        working=WorkingSet.from_cache({"ranked": _ranked(), "pool": _ranked()}),
+    )
+    assert reply.snapshot_ids == []
+    assert "对不上" in reply.text or "找不到" in reply.text
 
 
 def test_empty_ranked_asks_for_query() -> None:

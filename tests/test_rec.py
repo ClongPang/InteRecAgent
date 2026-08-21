@@ -139,7 +139,7 @@ def test_color_miss_does_not_leave_comparison_set() -> None:
         comparison_records=ranked[:2],
     )
     assert reply.snapshot_ids == []
-    assert "找不到" in reply.text
+    assert "找不到" in reply.text or "对不上" in reply.text
 
 
 def test_run_filter_honors_listing_keys_after_new_snapshots() -> None:

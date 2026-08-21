@@ -4,9 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..dto.belief import PreferenceBelief
-from ..dto.dialogue import AskTopic, DialogueAct, DialogueActKind, NextMove, SetPredicate
+from ..dto.dialogue import AskTopic, DialogueAct, DialogueActKind, NextMove, SetPredicate, TurnPlan
 from ..dto.mission import MissionConstraints
-from .frames import parse_probe_needle
+from .frames import parse_probe_needle, referent_hint
 from .nlu import (
     detect_ask_topic,
     detect_referent_hint,
@@ -14,6 +14,7 @@ from .nlu import (
     snapshot_ids_for_ranks,
 )
 from .parse_intent import CLARIFYING_QUESTION
+from .working_set import WorkingSet
 from .world_ops import compare_candidates, evaluate_set_query, set_query_next_moves
 
 
@@ -113,7 +114,38 @@ def compose_talk_reply(
     focus_snapshot_id: str | None = None,
     belief: PreferenceBelief | None = None,
     comparison_records: list[dict] | None = None,
+    working: WorkingSet | None = None,
+    plan: TurnPlan | None = None,
 ) -> TalkReply:
+    working = working or WorkingSet.from_cache({"ranked": ranked, "pool": ranked})
+    if plan is not None:
+        talk = plan.talk_ops()
+        if len(talk) > 1:
+            parts: list[TalkReply] = []
+            for op in talk:
+                parts.append(
+                    compose_talk_reply(
+                        act=op,
+                        text=text,
+                        ranked=ranked,
+                        constraints=constraints,
+                        focus_snapshot_id=focus_snapshot_id,
+                        belief=belief,
+                        comparison_records=comparison_records,
+                        working=working,
+                    )
+                )
+            next_moves = [move for item in parts for move in item.next_moves]
+            return TalkReply(
+                text="\n\n".join(item.text for item in parts if item.text),
+                snapshot_ids=[sid for item in parts for sid in item.snapshot_ids],
+                citations=[cite for item in parts for cite in item.citations],
+                comparison_snapshot_ids=next(
+                    (item.comparison_snapshot_ids for item in parts if item.comparison_snapshot_ids),
+                    None,
+                ),
+                next_moves=next_moves,
+            )
     if act.kind == DialogueActKind.META:
         return TalkReply(
             text="我可以根据品类、预算和市场帮你检索并比较跨境商品。价格来自已校验快照；保修、运费和库存未提供时不会编造。"
@@ -125,7 +157,7 @@ def compose_talk_reply(
             clarification_question=CLARIFYING_QUESTION if not constraints.query else None,
         )
     if act.kind == DialogueActKind.ASK_SET:
-        return _set_query_reply(act, ranked, constraints, text)
+        return _set_query_reply(act, list(working.bind_records), constraints, text)
     if act.kind == DialogueActKind.COMPARE or (act.kind == DialogueActKind.ASK_ITEM and _topic(act, text) == AskTopic.TRADEOFF):
         return _compare_reply(act, ranked, constraints, focus_snapshot_id, text=text)
     items = _resolve_items(
@@ -134,8 +166,12 @@ def compose_talk_reply(
         focus_snapshot_id,
         text=text,
         comparison_records=comparison_records,
+        bind_records=working.bind_records,
     )
     if not items:
+        token = (referent_hint(text or "") or "").removeprefix("token:")
+        if token and token not in {"focus", "cheapest"}:
+            return TalkReply(text=f"当前列表对不上「{token}」，可以说「第一件」或换一个标题里的叫法。")
         return TalkReply(text="当前候选里找不到你指的那一件，可以说「第一件」或先打开商品详情。")
     item = items[0]
     topic = _topic(act, text)
@@ -184,20 +220,26 @@ def _resolve_items(
     *,
     text: str = "",
     comparison_records: list[dict] | None = None,
+    bind_records: list[dict] | None = None,
 ) -> list[CitedFacts]:
-    by_id = {str(item.get("snapshot_id")): item for item in ranked if item.get("snapshot_id")}
+    universe = list(bind_records or ranked)
+    by_id = {str(item.get("snapshot_id")): item for item in universe if item.get("snapshot_id")}
     hinted = resolve_referent_ids(
         text or "",
         ranked,
         focus_snapshot_id=focus_snapshot_id,
         comparison_records=comparison_records,
+        bind_records=universe,
     )
     if hinted:
         items = [cited_facts(by_id[sid]) for sid in hinted if sid in by_id]
         found = [item for item in items if item is not None]
         if found:
             return found
-    if comparison_records and detect_referent_hint(text or ""):
+    hint = detect_referent_hint(text or "")
+    if comparison_records and hint:
+        return []
+    if hint and str(hint).startswith("token:") and detect_ask_topic(text or "") == AskTopic.OVERVIEW:
         return []
     if focus_snapshot_id and focus_snapshot_id in by_id:
         item = cited_facts(by_id[focus_snapshot_id])

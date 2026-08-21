@@ -119,6 +119,7 @@ def turn_view(
     belief: PreferenceBelief = getattr(mission, "belief", None) or PreferenceBelief()
     dialogue = getattr(mission, "dialogue", None)
     ranked = [item for item in list((cache_payload or {}).get("ranked") or []) if isinstance(item, dict)]
+    pool = [item for item in list((cache_payload or {}).get("pool") or ranked) if isinstance(item, dict)]
     by_id = {str(item.get("snapshot_id")): item for item in ranked if item.get("snapshot_id")}
     compare_ids = list(getattr(mission, "comparison_snapshot_ids", None) or [])
     last_user, last_agent = _adjacent_pair(events)
@@ -137,7 +138,7 @@ def turn_view(
         set_merchants=list(
             dict.fromkeys(
                 str(item.get("merchant")).strip()
-                for item in ranked
+                for item in pool
                 if item.get("merchant")
             )
         ),

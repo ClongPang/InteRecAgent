@@ -50,17 +50,51 @@ def escalate_empty_merchant_filter(
     *,
     merchants: list[str],
     ranked: list[dict] | None,
+    pool: list[dict] | None = None,
 ) -> TurnRoute:
-    """商户过滤先问现有集合：没有命中才升级成 research。"""
+    """商户过滤先问工作集：没有命中才升级成 research。"""
     if route != TurnRoute.REFILTER or not merchants:
         return route
     from ..dto.dialogue import SetPredicate
 
     result = evaluate_set_query(
-        list(ranked or []),
+        list(pool or ranked or []),
         SetPredicate(attr="merchant", values=merchants, label=merchants[0]),
     )
     return TurnRoute.RESEARCH if not result.hits else route
+
+
+def decide_route(
+    *,
+    kind,
+    has_query: bool,
+    has_cache: bool,
+    reuse_matches: bool,
+    skip_intent_patch: bool,
+    constraints_changed: bool,
+    merchants: list[str] | None = None,
+    ranked: list[dict] | None = None,
+    pool: list[dict] | None = None,
+    bind_miss: bool = False,
+) -> TurnRoute:
+    """现行 kind 路由 + 工作集可计算规则。"""
+    if bind_miss and kind in {
+        DialogueActKind.ASK_ITEM,
+        DialogueActKind.ASK_SET,
+        DialogueActKind.COMPARE,
+    }:
+        return TurnRoute.TALK
+    route = plan_route(
+        kind=kind,
+        has_query=has_query,
+        has_cache=has_cache,
+        reuse_matches=reuse_matches,
+        skip_intent_patch=skip_intent_patch,
+        constraints_changed=constraints_changed,
+    )
+    return escalate_empty_merchant_filter(
+        route, merchants=list(merchants or []), ranked=ranked, pool=pool
+    )
 
 
 def preview_turn(

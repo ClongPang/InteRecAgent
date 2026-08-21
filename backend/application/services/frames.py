@@ -19,7 +19,10 @@ _PROBE = re.compile(
     r"有(?:没有)?\s*(?P<needle>.+?)(?:平台|商户|店站)?\s*的?\s*吗",
     re.I,
 )
-_FILTER = re.compile(r"(?:只要|只看|仅看)\s*(?P<needle>.+?)(?:平台|商户|店)?$", re.I)
+_FILTER = re.compile(
+    r"(?:只要|只看|仅看)\s*(?P<needle>[^，,。；;]+?)(?:平台|商户|店)?(?:[，,。；;]|$)",
+    re.I,
+)
 _STOCK_FILTER = re.compile(r"只看有货|仅看有货")
 _REJECT = re.compile(r"(?:不要|别买|排除)\s*([^\s，,。；;]+)")
 _ASK_WARRANTY = re.compile(r"保修|质保|售后|退货|退换")
@@ -32,7 +35,9 @@ _STANCE_CHEAPER = re.compile(r"再便宜|便宜点|更便宜|降低预算|收一
 _STANCE_LIGHTER = re.compile(r"更轻|轻一点|轻便一点|太重")
 _RANK_FIRST = re.compile(r"第[一1]件|第一个|首选")
 _RANK_SECOND = re.compile(r"第[二2]件|第二个")
+_RANK_THIRD = re.compile(r"第[三3]件|第三个")
 _RANK_TOP2 = re.compile(r"前两[个件]|这两[个件]")
+_RANK_LAST = re.compile(r"最后[一那这]?[个件]|末尾")
 _REF_FOCUS = re.compile(r"刚才那个|刚才的|刚刚那")
 _REF_CHEAP = re.compile(r"便宜那个|便宜的那|最便宜")
 _REF_DEIXIS = re.compile(r"那[个款]|这[个款]|那个")
@@ -57,79 +62,128 @@ def is_undo_text(text: str) -> bool:
     return bool(_UNDO.search(text or ""))
 
 
+def collect_acts(
+    text: str,
+    *,
+    current_query: str | None = None,
+    world: World | None = None,
+) -> list[DialogueAct]:
+    """抽出本句全部独立运算。撤销/元能力独占。"""
+    del world
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    if _UNDO.search(raw):
+        return [DialogueAct(kind=DialogueActKind.UNDO)]
+    if _META.search(raw):
+        return [DialogueAct(kind=DialogueActKind.META)]
+    if _STOCK_FILTER.search(raw):
+        return []
+    acts: list[DialogueAct] = []
+    probe = parse_probe_needle(raw)
+    if probe is not None:
+        if probe in _CLOSED_PROBE:
+            acts.append(
+                DialogueAct(
+                    kind=DialogueActKind.ASK_ITEM,
+                    topic=AskTopic.STOCK,
+                    referent_ranks=referent_ranks(raw, default=(1,)),
+                )
+            )
+        else:
+            acts.append(
+                DialogueAct(
+                    kind=DialogueActKind.ASK_SET,
+                    predicate=SetPredicate(attr="merchant", values=[probe.lower()], label=probe),
+                )
+            )
+    if _COMPARE.search(raw):
+        acts.append(
+            DialogueAct(
+                kind=DialogueActKind.COMPARE,
+                referent_ranks=referent_ranks(raw, default=(1, 2)),
+            )
+        )
+    rejected = _REJECT.search(raw)
+    if rejected:
+        term = rejected.group(1).strip("的了呢啊")
+        if term in {"这款", "这一款", "这个", "它"}:
+            acts.append(
+                DialogueAct(
+                    kind=DialogueActKind.REJECT,
+                    referent_ranks=referent_ranks(raw, default=(1,)),
+                )
+            )
+        elif term:
+            acts.append(DialogueAct(kind=DialogueActKind.REJECT, exclude_terms=[term]))
+    if not any(
+        item.kind
+        in {
+            DialogueActKind.ASK_ITEM,
+            DialogueActKind.ASK_SET,
+            DialogueActKind.REJECT,
+            DialogueActKind.COMPARE,
+            DialogueActKind.STANCE,
+        }
+        for item in acts
+    ):
+        topic = detect_ask_topic(raw)
+        if (topic != AskTopic.OVERVIEW or _ASK_ITEM.search(raw)) and probe is None:
+            acts.append(
+                DialogueAct(
+                    kind=DialogueActKind.ASK_ITEM,
+                    referent_ranks=referent_ranks(raw, default=(1,)),
+                    topic=topic,
+                )
+            )
+    stance = detect_stance(raw)
+    if stance:
+        acts.append(DialogueAct(kind=DialogueActKind.STANCE, stance=stance))
+    if current_query and _NOT_INEAR.search(raw):
+        acts.append(
+            DialogueAct(
+                kind=DialogueActKind.REFINE,
+                patch=IntentPatch(query=current_query, exclude_terms=["入耳", "耳塞"]),
+            )
+        )
+    if current_query and _WANT_OVEREAR.search(raw):
+        query = current_query if "头戴" in current_query else f"{current_query} 头戴"
+        acts.append(DialogueAct(kind=DialogueActKind.REFINE, patch=IntentPatch(query=query)))
+    filtered = parse_filter_needle(raw)
+    if filtered is not None:
+        acts.append(_filter_act(filtered, current_query))
+    if (
+        current_query
+        and referent_hint(raw)
+        and not any(
+            item.kind
+            in {
+                DialogueActKind.ASK_ITEM,
+                DialogueActKind.REJECT,
+                DialogueActKind.ASK_SET,
+                DialogueActKind.COMPARE,
+            }
+            for item in acts
+        )
+    ):
+        acts.append(
+            DialogueAct(
+                kind=DialogueActKind.ASK_ITEM,
+                referent_ranks=referent_ranks(raw, default=(1,)),
+                topic=detect_ask_topic(raw),
+            )
+        )
+    return acts
+
+
 def propose_act(
     text: str,
     *,
     current_query: str | None = None,
     world: World | None = None,
 ) -> DialogueAct | None:
-    """能由句式决定则返回行为；否则 None，交给约束解析。"""
-    del world
-    raw = (text or "").strip()
-    if not raw:
-        return None
-    if _UNDO.search(raw):
-        return DialogueAct(kind=DialogueActKind.UNDO)
-    if _META.search(raw):
-        return DialogueAct(kind=DialogueActKind.META)
-    if _COMPARE.search(raw):
-        return DialogueAct(
-            kind=DialogueActKind.COMPARE,
-            referent_ranks=referent_ranks(raw, default=(1, 2)),
-        )
-    if _STOCK_FILTER.search(raw):
-        return None
-    probe = parse_probe_needle(raw)
-    if probe is not None:
-        if probe in _CLOSED_PROBE:
-            return DialogueAct(
-                kind=DialogueActKind.ASK_ITEM,
-                topic=AskTopic.STOCK,
-                referent_ranks=referent_ranks(raw, default=(1,)),
-            )
-        return DialogueAct(
-            kind=DialogueActKind.ASK_SET,
-            predicate=SetPredicate(attr="merchant", values=[probe.lower()], label=probe),
-        )
-    rejected = _REJECT.search(raw)
-    if rejected:
-        term = rejected.group(1).strip("的了呢啊")
-        if term in {"这款", "这一款", "这个", "它"}:
-            return DialogueAct(
-                kind=DialogueActKind.REJECT,
-                referent_ranks=referent_ranks(raw, default=(1,)),
-            )
-        if term:
-            return DialogueAct(kind=DialogueActKind.REJECT, exclude_terms=[term])
-    topic = detect_ask_topic(raw)
-    if topic != AskTopic.OVERVIEW or _ASK_ITEM.search(raw):
-        if parse_probe_needle(raw) is None:
-            return DialogueAct(
-                kind=DialogueActKind.ASK_ITEM,
-                referent_ranks=referent_ranks(raw, default=(1,)),
-                topic=topic,
-            )
-    stance = detect_stance(raw)
-    if stance:
-        return DialogueAct(kind=DialogueActKind.STANCE, stance=stance)
-    if current_query and _NOT_INEAR.search(raw):
-        return DialogueAct(
-            kind=DialogueActKind.REFINE,
-            patch=IntentPatch(query=current_query, exclude_terms=["入耳", "耳塞"]),
-        )
-    if current_query and _WANT_OVEREAR.search(raw):
-        query = current_query if "头戴" in current_query else f"{current_query} 头戴"
-        return DialogueAct(kind=DialogueActKind.REFINE, patch=IntentPatch(query=query))
-    filtered = parse_filter_needle(raw)
-    if filtered is not None:
-        return _filter_act(filtered, current_query)
-    if current_query and referent_hint(raw):
-        return DialogueAct(
-            kind=DialogueActKind.ASK_ITEM,
-            referent_ranks=referent_ranks(raw, default=(1,)),
-            topic=detect_ask_topic(raw),
-        )
-    return None
+    acts = collect_acts(text, current_query=current_query, world=world)
+    return acts[0] if acts else None
 
 
 def parse_probe_needle(text: str) -> str | None:
@@ -205,6 +259,10 @@ def referent_ranks(text: str, *, default: tuple[int, ...]) -> list[int]:
         ranks.append(1)
     if _RANK_SECOND.search(text):
         ranks.append(2)
+    if _RANK_THIRD.search(text):
+        ranks.append(3)
+    if _RANK_LAST.search(text):
+        ranks.append(-1)
     return ranks or list(default)
 
 

@@ -72,6 +72,29 @@ class DialogueAct(BaseModel):
         return [] if value is None else value
 
 
+_TALK_KINDS = {
+    DialogueActKind.ASK_ITEM,
+    DialogueActKind.ASK_SET,
+    DialogueActKind.COMPARE,
+    DialogueActKind.META,
+}
+
+
+class TurnPlan(BaseModel):
+    """一轮可执行的有序运算。lead 是路由用的主运算；ops 含本轮要渲染的 talk。"""
+
+    ops: list[DialogueAct] = Field(default_factory=list)
+    leftover: list[DialogueAct] = Field(default_factory=list)
+    lead: DialogueAct | None = None
+
+    @property
+    def primary(self) -> DialogueAct:
+        return self.lead or (self.ops[0] if self.ops else DialogueAct(kind=DialogueActKind.UNKNOWN))
+
+    def talk_ops(self) -> list[DialogueAct]:
+        return [item for item in self.ops if item.kind in _TALK_KINDS]
+
+
 class Citation(BaseModel):
     snapshot_id: str
     role: str = "primary"

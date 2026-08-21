@@ -125,9 +125,11 @@ def make_persist_decision_snapshot(
             rates = state.get("rates") or {}
             snapshot_map: dict[str, str] = dict(state.get("snapshot_map") or {})
             reuse = bool(state.get("reuse_snapshots"))
+            pool_products = list(state.get("pool") or [])
+            to_snap = list(ranked) + [item for item in pool_products if item.id not in {p.id for p in ranked}]
             if not reuse:
                 snapshot_map = {}
-                for product in ranked:
+                for product in to_snap:
                     snap_id = await uow.products.save(
                         product=product,
                         raw_payload=product.model_dump(mode="json"),
@@ -137,7 +139,7 @@ def make_persist_decision_snapshot(
                 fx_ids = [await uow.fx_snapshots.save(snapshot=s) for s in state.get("fx", [])]
             else:
                 fx_ids = list(state.get("cached_fx_snapshot_ids") or [])
-                for product in ranked:
+                for product in to_snap:
                     snapshot_map.setdefault(product.id, snapshot_map.get(product.id, product.id))
 
             budget = mission.constraints.budget_cny
@@ -155,9 +157,26 @@ def make_persist_decision_snapshot(
                 )
                 for index, product in enumerate(ranked)
             ]
+            pool_records = [
+                candidate_record(
+                    product,
+                    snapshot_id=snapshot_map[product.id],
+                    fx=rates.get(product.native_currency),
+                    rank=index + 1,
+                    budget_cny=budget,
+                    preference=mission.constraints.preference,
+                    price_sensitive=getattr(belief, "price_sensitivity", None)
+                    in {"too_expensive", "want_cheaper"},
+                )
+                for index, product in enumerate(pool_products)
+                if product.id in snapshot_map
+            ]
+            if not pool_records:
+                pool_records = list((state.get("cache_payload") or {}).get("pool") or []) or ranked_records
             candidate_payload = {
                 "snapshot_map": snapshot_map,
                 "ranked": ranked_records,
+                "pool": pool_records,
                 "fx_snapshot_ids": fx_ids,
                 "reuse_key": search_reuse_key(mission.constraints),
             }
