@@ -138,8 +138,7 @@ async def test_agent_loop_falls_back_when_json_unavailable() -> None:
 
     ctx = _context("索尼降噪耳机", markets=["US"])
     await run_agent(ctx, _tools(), Boom())
-    assert ctx.ranked, "模型 JSON 失败时应回退规则排序"
-    _assert_traceable(ctx)
+    assert ctx.pool == [], "keep JSON 失败不得把未判定批次整批并入"
 
 
 @pytest.mark.asyncio

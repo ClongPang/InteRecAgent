@@ -1,7 +1,4 @@
-"""确定性需求解析器（AGT-006）。无 LLM Key 时支撑基础验收场景。
-
-query 只在高置信品类/显式换品类时写入，残句不得覆盖检索词。
-"""
+"""确定性需求解析器。query 来自剥槽后的 leftover，不靠品类白名单。"""
 from __future__ import annotations
 
 import re
@@ -19,12 +16,8 @@ _MARKET_WORDS: dict[str, str] = {
     "MY": r"马来|\bmy\b",
 }
 
-_PRODUCT_HINT = re.compile(
-    r"耳机|降噪|头戴|入耳|显示器|屏幕|4k|徒步鞋|运动鞋|跑鞋|登山鞋|鞋|"
-    r"headphone|earbuds|monitor",
-    re.I,
-)
 _SWITCH_QUERY = re.compile(r"改找|换成|换一类|改买|不要这个品类")
+_RESIDUAL = re.compile(r"^(?:[嗯啊哦好的吧了呢哈]+|看看|找找|瞧瞧|看一下|先看看)$")
 _USE_SUIT = re.compile(r"适合(?P<use>.+?)的")
 _USE_GIFT = re.compile(r"送给(?P<who>[^的，,。\s]{1,8})的")
 
@@ -108,17 +101,15 @@ def extract_spec_gates(text: str) -> list[SpecGate]:
 
 
 def extract_query(text: str, *, current_query: str | None = None) -> str | None:
-    """只接受品类线索或显式换品类。『太贵了』等残句不得变成新 query。"""
+    """有当前 query 时只有显式换品类才覆盖；首句 leftover 即 query，不查品类表。"""
     leftover = _strip_known_slots(text)
-    if not leftover:
+    if not leftover or _RESIDUAL.match(leftover):
         return None
     if _SWITCH_QUERY.search(text):
         return leftover
-    if _PRODUCT_HINT.search(leftover):
-        return leftover
     if current_query:
         return None
-    return leftover if _PRODUCT_HINT.search(text) else None
+    return leftover
 
 
 def parse_intent(text: str, *, current_query: str | None = None) -> IntentPatch:

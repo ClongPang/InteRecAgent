@@ -1,48 +1,10 @@
 """对当前候选世界的运算：集合询问、对照维度、展示名。不是回复模板。"""
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 
 from ..dto.dialogue import NextMove, SetPredicate
 
-_STOCK_ONLY = re.compile(r"只看有货|仅看有货")
-_FORM_WANT = re.compile(r"(?:只要|只看|仅看).+(?:头戴|入耳|耳塞|开放)")
-_ASK_SET = re.compile(
-    r"有(?:没有)?\s*(?P<label>.+?)(?:平台|商户|店站)\s*的?\s*吗",
-    re.I,
-)
-_ASK_SET_BARE = re.compile(
-    r"有(?:没有)?\s*(?P<label>lazada|shopee|amazon|shopify|best\s*buy|qoo10|ezbuy)\s*的?\s*吗",
-    re.I,
-)
-_WANT_MERCHANT = re.compile(
-    r"(?:只要|只看|仅看)\s*(?P<label>.+?)(?:平台|商户|店)?$",
-    re.I,
-)
-_RESERVED_FILTER = frozenset(
-    {
-        "有货",
-        "库存",
-        "现货",
-        "头戴",
-        "入耳",
-        "耳塞",
-        "开放",
-        "开放式",
-        "美国",
-        "新加坡",
-        "越南",
-        "泰国",
-        "马来",
-        "马来西亚",
-        "us",
-        "sg",
-        "vn",
-        "th",
-        "my",
-    }
-)
 _FORM_CUES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("头戴", ("头戴", "over-ear", "over ear", "overear", "headset", "over ear")),
     ("入耳", ("入耳", "耳塞", "earbud", "earbuds", "in-ear", "inear", "earphone", "真無線", "真无线")),
@@ -97,32 +59,6 @@ class CompareResult:
     @property
     def comparable(self) -> bool:
         return bool(self.non_price_diffs) or any(item.name == "估算" and item.differs for item in self.dimensions)
-
-
-def parse_set_predicate(text: str) -> SetPredicate | None:
-    raw = (text or "").strip()
-    if not raw or _STOCK_ONLY.search(raw):
-        return None
-    match = _ASK_SET.search(raw) or _ASK_SET_BARE.search(raw)
-    if not match:
-        return None
-    label = _clean_label(match.group("label"))
-    if not label or label in _RESERVED_FILTER:
-        return None
-    return SetPredicate(attr="merchant", values=[label.lower()], label=label)
-
-
-def parse_merchant_needles(text: str) -> list[str] | None:
-    raw = (text or "").strip()
-    if not raw or _STOCK_ONLY.search(raw) or _FORM_WANT.search(raw):
-        return None
-    match = _WANT_MERCHANT.search(raw)
-    if not match:
-        return None
-    label = _clean_label(match.group("label"))
-    if not label or label in _RESERVED_FILTER:
-        return None
-    return [label.lower()]
 
 
 def evaluate_set_query(ranked: list[dict], predicate: SetPredicate) -> SetQueryResult:
@@ -231,10 +167,6 @@ def set_query_next_moves(
         NextMove(label=f"再搜{label}", text=f"帮我找{label}上的{product}"),
         NextMove(label="维持当前列表", text="先看现在这几款"),
     ]
-
-
-def _clean_label(raw: str) -> str:
-    return re.sub(r"^(?:的|了)+|(?:的|了)+$", "", (raw or "").strip(" 的了呢啊吗？?"))
 
 
 def _record_merchant(record: dict) -> str | None:

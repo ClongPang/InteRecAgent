@@ -1,9 +1,9 @@
 from backend.application.dto.dialogue import SetPredicate
+from backend.application.services.frames import parse_probe_needle
 from backend.application.services.world_ops import (
     compare_candidates,
     display_name,
     evaluate_set_query,
-    parse_set_predicate,
 )
 
 
@@ -48,5 +48,6 @@ def test_evaluate_set_query_is_membership_not_focus() -> None:
     )
     assert result.matched is False
     assert result.scanned == 2
-    assert parse_set_predicate("有货吗") is None
-    assert parse_set_predicate("有lazada平台的吗") is not None
+    assert parse_probe_needle("有货吗") == "货"
+    assert parse_probe_needle("有lazada平台的吗") == "lazada"
+    assert parse_probe_needle("有tokopedia吗") == "tokopedia"

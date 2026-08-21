@@ -1,6 +1,6 @@
 """研究循环控制器：后端控环，模型只在 keep / 改写 / TopK 三个点出场。
 
-环：检索 → FX+规则过滤 → 模型 keep（失败则整批留下）→ 并入累加池
+环：检索 → FX+规则过滤 → 模型 keep（失败则本轮不并入）→ 并入累加池
 → 池子 ≥ N 或 检索次数 ≥ R 则停；否则改写 query 再搜。
 停搜后模型按规则 prompt 从池子选 TopK；失败回退 score_and_rank。
 
@@ -70,7 +70,8 @@ async def run_research(
         if backend is not None and backend.is_configured() and batch:
             keep_ids = await judge_keep(backend, ctx, batch)
             if keep_ids is None:
-                ctx.add_warnings("模型过滤不可用，本轮规则结果全部并入")
+                ctx.add_warnings("模型过滤不可用，本轮不并入未判定批次")
+                batch = []
             else:
                 kept = ground_products(keep_ids, batch)
                 ctx.add_warnings(f"模型本轮勾选 {len(kept)} / {len(batch)} 件")

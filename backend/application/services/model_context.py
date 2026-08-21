@@ -69,6 +69,8 @@ class TurnView:
     comparison: list[dict] = field(default_factory=list)
     ranked_preview: list[dict] = field(default_factory=list)
 
+    set_merchants: list[str] = field(default_factory=list)
+
     def as_classify_payload(self) -> dict:
         return {
             "query": self.query,
@@ -81,6 +83,7 @@ class TurnView:
             "focus": self.focus,
             "comparison": self.comparison,
             "ranked": self.ranked_preview,
+            "set_merchants": self.set_merchants,
             "recent_user_texts": [self.last_user] if self.last_user else [],
         }
 
@@ -131,6 +134,13 @@ def turn_view(
         focus=_brief(by_id[focus_id]) if focus_id and focus_id in by_id else None,
         comparison=[_brief(by_id[sid]) for sid in compare_ids if sid in by_id],
         ranked_preview=[_brief(item) for item in ranked[:3]],
+        set_merchants=list(
+            dict.fromkeys(
+                str(item.get("merchant")).strip()
+                for item in ranked
+                if item.get("merchant")
+            )
+        ),
     )
 
 

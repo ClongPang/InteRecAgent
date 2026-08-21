@@ -69,11 +69,12 @@ def test_search_plan_appends_merchant_filter() -> None:
 
 def test_referent_hint_resolves_brand_and_cheapest() -> None:
     ranked = [
-        {"snapshot_id": "s1", "title": "Sony WH-1000XM5", "brand": "Sony", "estimated_cny": {"amount": 2500}},
+        {"snapshot_id": "s1", "title": "索尼 WH-1000XM5", "brand": "Sony", "estimated_cny": {"amount": 2500}},
         {"snapshot_id": "s2", "title": "Bose QC Ultra", "brand": "Bose", "estimated_cny": {"amount": 1900}},
     ]
-    assert detect_referent_hint("那个索尼怎么样") == "brand:sony"
+    assert detect_referent_hint("那个索尼怎么样") == "token:索尼"
     assert resolve_referent_ids("那个索尼怎么样", ranked) == ["s1"]
+    assert resolve_referent_ids("那个JBL怎么样", [{"snapshot_id": "j1", "title": "JBL Live 660NC"}]) == ["j1"]
     assert resolve_referent_ids("便宜那个", ranked) == ["s2"]
     assert resolve_referent_ids("刚才那个", ranked, focus_snapshot_id="s2") == ["s2"]
 
@@ -82,7 +83,7 @@ def test_talk_reply_uses_brand_referent() -> None:
     ranked = [
         {
             "snapshot_id": "s1",
-            "title": "Sony WH-1000XM5",
+            "title": "索尼 WH-1000XM5",
             "estimated_cny": {"amount": 2500},
             "unavailable_fields": ["availability"],
             "decision_reasons": [],
@@ -102,7 +103,7 @@ def test_talk_reply_uses_brand_referent() -> None:
         constraints=MissionConstraints(query="降噪耳机", budget_cny=4000),
         belief=PreferenceBelief(),
     )
-    assert "Sony" in reply.text
+    assert "索尼" in reply.text
     assert reply.snapshot_ids == ["s1"]
 
 

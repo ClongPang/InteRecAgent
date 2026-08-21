@@ -152,6 +152,22 @@ def test_ask_set_empty_does_not_read_focus_item() -> None:
     assert any(move.text.startswith("帮我找") for move in reply.next_moves)
 
 
+def test_ask_set_unknown_platform_needs_no_lexicon() -> None:
+    ranked = [
+        {**_ranked()[0], "merchant": "amazon.sg"},
+        {**_ranked()[1], "merchant": "shopify"},
+    ]
+    reply = compose_talk_reply(
+        act=classify_turn("有tokopedia平台的吗", current_query="降噪耳机"),
+        text="有tokopedia平台的吗",
+        ranked=ranked,
+        constraints=MissionConstraints(query="降噪耳机", budget_cny=2500),
+    )
+    assert "没有" in reply.text
+    assert "tokopedia" in reply.text.lower()
+    assert "2X" not in reply.text
+
+
 def test_ask_set_hits_current_set() -> None:
     ranked = [
         {**_ranked()[0], "merchant": "amazon.sg"},

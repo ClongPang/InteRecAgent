@@ -50,6 +50,10 @@ def test_classify_refine_vs_talk_vs_reject() -> None:
     assert ask_set.kind == DialogueActKind.ASK_SET
     assert ask_set.predicate is not None
     assert ask_set.predicate.values == ["lazada"]
+    tokopedia = classify_turn("有tokopedia平台的吗", current_query="降噪耳机")
+    assert tokopedia.kind == DialogueActKind.ASK_SET
+    assert tokopedia.predicate is not None
+    assert tokopedia.predicate.values == ["tokopedia"]
 
     stock = classify_turn("有货吗", current_query="降噪耳机")
     assert stock.kind == DialogueActKind.ASK_ITEM
@@ -346,6 +350,9 @@ def test_leftover_does_not_overwrite_query() -> None:
     assert extract_query("再便宜一点", current_query="降噪耳机") is None
     assert extract_query("适合远程办公的 27 寸 4K 显示器，3000 元以内") == "27 寸 4K 显示器"
     assert extract_query("帮我找一副适合通勤的降噪耳机，预算 2500 元以内") == "降噪耳机"
+    assert extract_query("机械键盘") == "机械键盘"
+    assert extract_query("嗯嗯好的", current_query="降噪耳机") is None
+    assert extract_query("帮我看看") is None
     act = classify_turn("太贵了", current_query="降噪耳机")
     assert act.kind == DialogueActKind.STANCE
     assert act.patch is None or act.patch.query is None

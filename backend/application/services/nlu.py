@@ -1,45 +1,13 @@
-"""对话 NLU：分类、指代、约束预览。路由决策在 policy / route。"""
+"""对话 NLU：propose（句式）+ 世界绑定 + 约束预览。"""
 from __future__ import annotations
 
-import re
-
-from ..dto.dialogue import AskTopic, DialogueAct, DialogueActKind, SetPredicate
+from ..dto.dialogue import DialogueAct, DialogueActKind, SetPredicate
 from ..dto.mission import MissionConstraints
 from ..dto.runner import IntentPatch
+from .frames import detect_ask_topic, detect_stance, parse_probe_needle, propose_act, referent_hint
 from .model_context import turn_view
 from .parse_intent import CLARIFYING_QUESTION, parse_intent
-from .world_ops import parse_merchant_needles, parse_set_predicate
-
-_UNDO = re.compile(r"撤销|还原刚才|刚才的条件|undo", re.I)
-_META = re.compile(r"你能做什么|你会什么|你是谁|怎么用")
-_COMPARE = re.compile(r"比较|对比|横评|比一比|比一下|帮我比")
-_ASK = re.compile(r"保修|质保|售后|退货|为什么推荐|为什么选|推荐理由|差在哪|怎么样|有货吗|库存|这款|这一款|这个呢")
-_ASK_WARRANTY = re.compile(r"保修|质保|售后|退货|退换")
-_ASK_STOCK = re.compile(r"有货|库存|缺货|现货")
-_ASK_WHY = re.compile(r"为什么推荐|为什么选|为何选|推荐理由")
-_ASK_TRADEOFF = re.compile(r"差在哪|哪款好|有什么区别")
-_REJECT = re.compile(r"(?:不要|别买|排除)\s*([^\s，,。；;]+)")
-_STANCE_EXPENSIVE = re.compile(r"太贵|好贵|贵了|超出预算")
-_STANCE_CHEAPER = re.compile(r"再便宜|便宜点|更便宜|降低预算|收一[点下]预算")
-_STANCE_LIGHTER = re.compile(r"更轻|轻一点|轻便一点|太重")
-_RANK_FIRST = re.compile(r"第[一1]件|第一个|首选")
-_RANK_SECOND = re.compile(r"第[二2]件|第二个")
-_RANK_TOP2 = re.compile(r"前两[个件]|这两[个件]")
-_REF_SONY = re.compile(r"那个索尼|索尼的?(?:那|这)?[个款]|that sony", re.I)
-_REF_BOSE = re.compile(r"那个bose|bose的?(?:那|这)?[个款]", re.I)
-_REF_CHEAP = re.compile(r"便宜那个|便宜的那|最便宜")
-_REF_FOCUS = re.compile(r"刚才那个|刚才的|刚刚那")
-_REF_DEIXIS = re.compile(r"那[个款]|这[个款]|那个")
-_COLOR_HINTS: tuple[tuple[re.Pattern[str], str, tuple[str, ...]], ...] = (
-    (re.compile(r"白色|白的|\bwhite\b", re.I), "white", ("white", "白")),
-    (re.compile(r"黑色|黑的|\bblack\b", re.I), "black", ("black", "黑")),
-    (re.compile(r"蓝色|蓝的|\bblue\b", re.I), "blue", ("blue", "蓝")),
-    (re.compile(r"银色|银的|\bsilver\b", re.I), "silver", ("silver", "银")),
-    (re.compile(r"红色|红的|\bred\b", re.I), "red", ("red", "红")),
-    (re.compile(r"粉色|玫瑰金|\brose\b", re.I), "rose", ("rose", "粉")),
-)
-_NOT_INEAR = re.compile(r"不是入耳|不要入耳|不要耳塞")
-_WANT_OVEREAR = re.compile(r"是头戴|要头戴|头戴式")
+from .world import World
 
 
 def build_turn_context(
@@ -80,7 +48,7 @@ def classify_turn(
     current_query: str | None = None,
     context: dict | None = None,
 ) -> DialogueAct:
-    """先识别对话行为，再填约束增量。残句与态度不得覆盖 query。"""
+    """句式 propose，再补封闭约束槽。名词不在这里认。"""
     raw = (text or "").strip()
     context = context or {}
     if not raw:
@@ -91,57 +59,13 @@ def classify_turn(
                 clarification_question=CLARIFYING_QUESTION,
             ),
         )
-    if _UNDO.search(raw):
-        return DialogueAct(kind=DialogueActKind.UNDO)
-    if _META.search(raw):
-        return DialogueAct(kind=DialogueActKind.META)
-    if _COMPARE.search(raw):
-        return DialogueAct(kind=DialogueActKind.COMPARE, referent_ranks=_referent_ranks(raw, default=(1, 2)))
-    predicate = parse_set_predicate(raw)
-    if predicate is not None:
-        return DialogueAct(kind=DialogueActKind.ASK_SET, predicate=predicate)
-    rejected = _REJECT.search(raw)
-    if rejected:
-        term = rejected.group(1).strip("的了呢啊")
-        if term in {"这款", "这一款", "这个", "它"}:
-            return DialogueAct(
-                kind=DialogueActKind.REJECT,
-                referent_ranks=_referent_ranks(raw, default=(1,)),
-            )
-        if term:
-            return DialogueAct(kind=DialogueActKind.REJECT, exclude_terms=[term])
-    if _ASK.search(raw):
-        return DialogueAct(
-            kind=DialogueActKind.ASK_ITEM,
-            referent_ranks=_referent_ranks(raw, default=(1,)),
-            topic=detect_ask_topic(raw),
-        )
-    stance = _detect_stance(raw)
-    if stance:
-        patch = parse_intent(raw, current_query=current_query)
-        patch = _stance_patch(patch)
-        return DialogueAct(kind=DialogueActKind.STANCE, patch=patch, stance=stance)
-    if current_query and _NOT_INEAR.search(raw):
-        return DialogueAct(
-            kind=DialogueActKind.REFINE,
-            patch=IntentPatch(query=current_query, exclude_terms=["入耳", "耳塞"]),
-        )
-    if current_query and _WANT_OVEREAR.search(raw):
-        query = current_query if "头戴" in current_query else f"{current_query} 头戴"
-        return DialogueAct(kind=DialogueActKind.REFINE, patch=IntentPatch(query=query))
-    merchants = parse_merchant_needles(raw)
-    if merchants:
-        return DialogueAct(
-            kind=DialogueActKind.REFINE,
-            patch=IntentPatch(query=current_query, merchants=merchants),
-            predicate=SetPredicate(attr="merchant", values=merchants, label=merchants[0]),
-        )
-    if current_query and detect_referent_hint(raw):
-        return DialogueAct(
-            kind=DialogueActKind.ASK_ITEM,
-            referent_ranks=_referent_ranks(raw, default=(1,)),
-            topic=detect_ask_topic(raw),
-        )
+    world = World.from_ranked(list(context.get("ranked") or []))
+    proposed = propose_act(raw, current_query=current_query, world=world)
+    if proposed is not None:
+        if proposed.kind == DialogueActKind.STANCE:
+            patch = _stance_patch(parse_intent(raw, current_query=current_query))
+            return proposed.model_copy(update={"patch": patch})
+        return proposed
     patch = parse_intent(raw, current_query=current_query)
     kind = DialogueActKind.UNKNOWN if patch.requires_clarification else DialogueActKind.REFINE
     return DialogueAct(kind=kind, patch=patch)
@@ -164,42 +88,50 @@ def ground_dialogue_act(
     text: str,
     *,
     current_query: str | None = None,
+    ranked: list[dict] | None = None,
 ) -> DialogueAct:
-    """用确定性品类/预算补模型漏抽。模型把态度/否定收成 refine 时，改回言语行为。"""
-    if act.kind in _GROUNDABLE:
-        deterministic = classify_turn(text, current_query=current_query)
-        if deterministic.kind in _SPEECH_ACTS:
-            patch = deterministic.patch
-            if act.patch and deterministic.kind == DialogueActKind.STANCE:
-                patch = _stance_patch(act.patch)
-            return act.model_copy(
-                update={
-                    "kind": deterministic.kind,
-                    "stance": deterministic.stance or act.stance,
-                    "referent_ranks": deterministic.referent_ranks or act.referent_ranks,
-                    "exclude_terms": deterministic.exclude_terms or act.exclude_terms,
-                    "topic": deterministic.topic or act.topic,
-                    "patch": patch,
-                }
-            )
+    """只补封闭槽；kind 以句式为准，不用名词表盖模型。"""
+    world = World.from_ranked(ranked)
+    framed = propose_act(text, current_query=current_query, world=world)
+    if act.kind in _GROUNDABLE and framed is not None and framed.kind in _SPEECH_ACTS:
+        patch = framed.patch
+        if act.patch and framed.kind == DialogueActKind.STANCE:
+            patch = _stance_patch(act.patch)
+        return act.model_copy(
+            update={
+                "kind": framed.kind,
+                "stance": framed.stance or act.stance,
+                "referent_ranks": framed.referent_ranks or act.referent_ranks,
+                "exclude_terms": framed.exclude_terms or act.exclude_terms,
+                "topic": framed.topic or act.topic,
+                "predicate": framed.predicate or act.predicate,
+                "patch": patch,
+            }
+        )
     if act.kind == DialogueActKind.STANCE and not act.stance:
-        deterministic = classify_turn(text, current_query=current_query)
-        if deterministic.stance:
+        stance = detect_stance(text)
+        if stance:
             return act.model_copy(
-                update={"stance": deterministic.stance, "patch": _stance_patch(act.patch or IntentPatch())}
+                update={"stance": stance, "patch": _stance_patch(act.patch or IntentPatch())}
             )
     if act.kind == DialogueActKind.ASK_ITEM:
-        deterministic = classify_turn(text, current_query=current_query)
-        if deterministic.kind == DialogueActKind.ASK_SET:
-            return deterministic
-        patch = deterministic.patch
-        if deterministic.kind == DialogueActKind.REFINE and patch is not None:
+        if framed is not None and framed.kind == DialogueActKind.ASK_SET:
+            return framed
+        patch = framed.patch if framed is not None else None
+        if framed is not None and framed.kind == DialogueActKind.REFINE and patch is not None:
             if patch.only_in_stock or patch.budget_cny is not None or patch.query or patch.merchants:
-                return deterministic
-    if act.kind == DialogueActKind.ASK_SET and act.predicate is None:
-        predicate = parse_set_predicate(text)
-        if predicate is not None:
-            return act.model_copy(update={"predicate": predicate})
+                return framed
+        fallback = parse_intent(text, current_query=current_query)
+        if fallback.only_in_stock or fallback.merchants:
+            return DialogueAct(kind=DialogueActKind.REFINE, patch=fallback)
+    if act.kind == DialogueActKind.ASK_SET and act.predicate is None and framed is not None:
+        if framed.predicate is not None:
+            return act.model_copy(update={"predicate": framed.predicate})
+        needle = parse_probe_needle(text)
+        if needle:
+            return act.model_copy(
+                update={"predicate": SetPredicate(attr="merchant", values=[needle.lower()], label=needle)}
+            )
     if act.kind not in _GROUNDABLE:
         return act
     fallback = parse_intent(text, current_query=current_query)
@@ -225,36 +157,13 @@ def ground_dialogue_act(
 
 
 def is_undo_text(text: str) -> bool:
-    """撤销是事务控制而非意图理解，命令层薄入口仍需在派单前识别以走 undo 回溯。"""
-    return bool(_UNDO.search(text or ""))
+    from .frames import is_undo_text as _is_undo
 
-
-def detect_ask_topic(text: str) -> AskTopic:
-    if _ASK_WARRANTY.search(text):
-        return AskTopic.WARRANTY
-    if _ASK_STOCK.search(text):
-        return AskTopic.STOCK
-    if _ASK_WHY.search(text):
-        return AskTopic.WHY
-    if _ASK_TRADEOFF.search(text):
-        return AskTopic.TRADEOFF
-    return AskTopic.OVERVIEW
+    return _is_undo(text)
 
 
 def detect_referent_hint(text: str) -> str | None:
-    if _REF_FOCUS.search(text):
-        return "focus"
-    if _REF_CHEAP.search(text):
-        return "cheapest"
-    if _REF_SONY.search(text):
-        return "brand:sony"
-    if _REF_BOSE.search(text):
-        return "brand:bose"
-    if _REF_DEIXIS.search(text):
-        for pattern, color, _needles in _COLOR_HINTS:
-            if pattern.search(text):
-                return f"color:{color}"
-    return None
+    return referent_hint(text)
 
 
 def resolve_referent_ids(
@@ -265,7 +174,7 @@ def resolve_referent_ids(
     mentioned_snapshot_ids: list[str] | None = None,
     comparison_records: list[dict] | None = None,
 ) -> list[str]:
-    hint = detect_referent_hint(text)
+    hint = referent_hint(text)
     pool = list(comparison_records or []) or list(ranked)
     if not hint:
         return []
@@ -289,24 +198,9 @@ def resolve_referent_ids(
             priced.sort(key=lambda pair: pair[0])
             return [priced[0][1]]
         return []
-    if hint.startswith("brand:"):
-        brand = hint.split(":", 1)[1]
-        for item in pool:
-            blob = f"{item.get('title') or ''} {item.get('brand') or ''}".lower()
-            if brand in blob:
-                sid = item.get("snapshot_id")
-                if sid:
-                    return [str(sid)]
-    if hint.startswith("color:"):
-        color = hint.split(":", 1)[1]
-        needles = next((item[2] for item in _COLOR_HINTS if item[1] == color), (color,))
-        for item in pool:
-            attrs = item.get("attrs") if isinstance(item.get("attrs"), dict) else {}
-            blob = f"{item.get('title') or ''} {item.get('brand') or ''}".lower()
-            if attrs.get("color") == color or any(needle.lower() in blob for needle in needles):
-                sid = item.get("snapshot_id")
-                if sid:
-                    return [str(sid)]
+    if hint.startswith("token:"):
+        token = hint.split(":", 1)[1]
+        return list(World.from_ranked(pool).lookup(token))
     return []
 
 
@@ -381,16 +275,6 @@ def summarize_constraint_change(before: MissionConstraints, after: MissionConstr
     return "已更新" + ("：" + "、".join(parts) if parts else "购物约束")
 
 
-def _detect_stance(text: str) -> str | None:
-    if _STANCE_EXPENSIVE.search(text):
-        return "too_expensive"
-    if _STANCE_CHEAPER.search(text):
-        return "want_cheaper"
-    if _STANCE_LIGHTER.search(text):
-        return "want_lighter"
-    return None
-
-
 def _stance_patch(patch: IntentPatch) -> IntentPatch:
     return IntentPatch(
         query=None,
@@ -401,14 +285,3 @@ def _stance_patch(patch: IntentPatch) -> IntentPatch:
         price_stance=patch.price_stance,
         requires_clarification=False,
     )
-
-
-def _referent_ranks(text: str, *, default: tuple[int, ...]) -> list[int]:
-    if _RANK_TOP2.search(text):
-        return [1, 2]
-    ranks: list[int] = []
-    if _RANK_FIRST.search(text) or re.search(r"这款|这一款|这个", text):
-        ranks.append(1)
-    if _RANK_SECOND.search(text):
-        ranks.append(2)
-    return ranks or list(default)

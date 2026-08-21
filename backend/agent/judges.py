@@ -89,7 +89,7 @@ async def _ask(backend: ModelBackend, *, system: str, user: str) -> JsonDecision
 async def judge_keep(
     backend: ModelBackend, ctx: ResearchContext, batch: list[NormalizedProduct]
 ) -> list[str] | None:
-    """成功则返回 keep ID（可空）；失败返回 None，本轮规则结果全部保留。"""
+    """成功则返回 keep ID（可空）；失败返回 None，本轮不并入。"""
     if not batch:
         return []
     visible = preselect_for_judge(ctx, batch)

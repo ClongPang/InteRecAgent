@@ -47,7 +47,9 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
             }
         text = state.get("text") or ""
         current_query = state["mission"].constraints.query
-        context = state.get("turn_context") or _turn_context(state)
+        context = dict(state.get("turn_context") or _turn_context(state))
+        ranked = list((state.get("cache_payload") or {}).get("ranked") or [])
+        context["ranked"] = ranked
         # LLM 优先：配置了模型时由 parse_turn 直接给出行为+patch（含开放式 soft_prefs），
         # 确定性 classify_turn 仅作 fallback。这里已越过命令层预判短路，
         # 故重算路由（decided_route=None 交给 route_turn 依 LLM 行为推断）。
@@ -56,7 +58,7 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
                 act = await model_backend.parse_turn(
                     text, current_query=current_query, context=context
                 )
-                act = ground_dialogue_act(act, text, current_query=current_query)
+                act = ground_dialogue_act(act, text, current_query=current_query, ranked=ranked)
                 return {
                     "dialogue_act": act,
                     "intent_patch": act.patch or IntentPatch(),
@@ -65,7 +67,7 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
             except ModelUnavailableError:
                 pass
         act = classify_turn(text, current_query=current_query, context=context)
-        act = ground_dialogue_act(act, text, current_query=current_query)
+        act = ground_dialogue_act(act, text, current_query=current_query, ranked=ranked)
         return {"dialogue_act": act, "intent_patch": act.patch or IntentPatch()}
 
     return classify_dialogue_act

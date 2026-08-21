@@ -4,8 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..dto.belief import PreferenceBelief
-from ..dto.dialogue import AskTopic, DialogueAct, DialogueActKind, NextMove
+from ..dto.dialogue import AskTopic, DialogueAct, DialogueActKind, NextMove, SetPredicate
 from ..dto.mission import MissionConstraints
+from .frames import parse_probe_needle
 from .nlu import (
     detect_ask_topic,
     detect_referent_hint,
@@ -13,12 +14,7 @@ from .nlu import (
     snapshot_ids_for_ranks,
 )
 from .parse_intent import CLARIFYING_QUESTION
-from .world_ops import (
-    compare_candidates,
-    evaluate_set_query,
-    parse_set_predicate,
-    set_query_next_moves,
-)
+from .world_ops import compare_candidates, evaluate_set_query, set_query_next_moves
 
 
 @dataclass(frozen=True)
@@ -265,7 +261,11 @@ def _set_query_reply(
     constraints: MissionConstraints,
     text: str,
 ) -> TalkReply:
-    predicate = act.predicate or parse_set_predicate(text)
+    predicate = act.predicate
+    if predicate is None:
+        needle = parse_probe_needle(text)
+        if needle:
+            predicate = SetPredicate(attr="merchant", values=[needle.lower()], label=needle)
     if predicate is None:
         return TalkReply(text="可以说平台或商户名，例如「有 Lazada 吗」。")
     result = evaluate_set_query(ranked, predicate)

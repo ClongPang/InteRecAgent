@@ -46,7 +46,11 @@ async def _drive_turn(mission: ShoppingMission, text: str, cache_payload: dict |
         "cache_payload": cache_payload,
         "turn_context": {},
     }
-    act = classify_turn(text, current_query=mission.constraints.query)
+    act = classify_turn(
+        text,
+        current_query=mission.constraints.query,
+        context={"ranked": list((cache_payload or {}).get("ranked") or [])},
+    )
     state["dialogue_act"] = act
     state["intent_patch"] = act.patch or IntentPatch()
     state.update(await apply_turn_effects(state))

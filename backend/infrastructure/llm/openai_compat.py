@@ -199,8 +199,8 @@ express_stance, undo, meta, unknown。
 - 比较、提问、否定、态度、撤销、能力询问不得改 query。这些 kind 的 patch.query 必须为 null。
 - 「帮我比前两个 / 对比一下」→ compare_items，referent_ranks=[1,2]。
 - 「这款保修吗 / 为什么推荐 / 有货吗」→ ask_about_item，并填 topic：warranty|why|stock|tradeoff|overview。
-- 「有 Lazada / Shopee / 某平台吗」→ ask_about_set，predicate={attr: merchant, values: [平台名], label: 平台名}，不要收成 ask_about_item。
-- 「只要 Lazada / 只看某平台」→ refine_constraints，patch.merchants 填平台名，不要改 query。
+- 「有某平台/商户吗」→ ask_about_set，predicate.values 填用户原词，不要收成 ask_about_item，不要查平台名单。
+- 「只要某平台」→ refine_constraints，patch.merchants 填用户原词；「只要美国」才写 patch.markets。
 - 「不要这款 / 不要这个」→ reject_item，referent_ranks=[1]，不要把「这款」写成 exclude_terms。
 - 「不要索尼」→ reject_item，exclude_terms=["索尼"]。
 - 「太贵了 / 再便宜一点」→ express_stance，stance=too_expensive|want_cheaper，不得写成 query。
