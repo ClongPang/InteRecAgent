@@ -71,15 +71,6 @@ def classify_turn(
 
 
 _GROUNDABLE = {DialogueActKind.REFINE, DialogueActKind.UNKNOWN}
-_SPEECH_ACTS = {
-    DialogueActKind.COMPARE,
-    DialogueActKind.ASK_ITEM,
-    DialogueActKind.ASK_SET,
-    DialogueActKind.REJECT,
-    DialogueActKind.STANCE,
-    DialogueActKind.UNDO,
-    DialogueActKind.META,
-}
 
 
 def ground_dialogue_act(
@@ -89,70 +80,54 @@ def ground_dialogue_act(
     current_query: str | None = None,
     ranked: list[dict] | None = None,
 ) -> DialogueAct:
-    """只补封闭槽；kind 以句式为准，不用名词表盖模型。"""
+    """只绑封闭槽与指代，不改已判定的 kind（句式不得盖模型）。"""
     world = World.from_ranked(ranked)
     framed = propose_act(text, current_query=current_query, world=world)
-    if act.kind in _GROUNDABLE and framed is not None and framed.kind in _SPEECH_ACTS:
-        patch = framed.patch
-        if act.patch and framed.kind == DialogueActKind.STANCE:
-            patch = _stance_patch(act.patch)
-        return act.model_copy(
-            update={
-                "kind": framed.kind,
-                "stance": framed.stance or act.stance,
-                "referent_ranks": framed.referent_ranks or act.referent_ranks,
-                "exclude_terms": framed.exclude_terms or act.exclude_terms,
-                "topic": framed.topic or act.topic,
-                "predicate": framed.predicate or act.predicate,
-                "patch": patch,
-            }
-        )
-    if act.kind == DialogueActKind.STANCE and not act.stance:
-        stance = detect_stance(text)
+    updates: dict = {}
+    if not act.stance:
+        stance = (framed.stance if framed is not None else None) or detect_stance(text)
         if stance:
-            return act.model_copy(
-                update={"stance": stance, "patch": _stance_patch(act.patch or IntentPatch())}
-            )
-    if act.kind == DialogueActKind.ASK_ITEM:
-        if framed is not None and framed.kind == DialogueActKind.ASK_SET:
-            return framed
-        patch = framed.patch if framed is not None else None
-        if framed is not None and framed.kind == DialogueActKind.REFINE and patch is not None:
-            if patch.only_in_stock or patch.budget_cny is not None or patch.query or patch.merchants:
-                return framed
-        fallback = parse_intent(text, current_query=current_query)
-        if fallback.only_in_stock or fallback.merchants:
-            return DialogueAct(kind=DialogueActKind.REFINE, patch=fallback)
-    if act.kind == DialogueActKind.ASK_SET and act.predicate is None and framed is not None:
-        if framed.predicate is not None:
-            return act.model_copy(update={"predicate": framed.predicate})
-        needle = parse_probe_needle(text)
-        if needle:
-            return act.model_copy(
-                update={"predicate": SetPredicate(attr="merchant", values=[needle.lower()], label=needle)}
-            )
+            updates["stance"] = stance
+            if act.kind == DialogueActKind.STANCE:
+                updates["patch"] = _stance_patch(act.patch or IntentPatch())
+    if not act.referent_ranks and framed is not None and framed.referent_ranks:
+        updates["referent_ranks"] = framed.referent_ranks
+    if not act.exclude_terms and framed is not None and framed.exclude_terms:
+        updates["exclude_terms"] = framed.exclude_terms
+    if act.topic is None and framed is not None and framed.topic:
+        updates["topic"] = framed.topic
+    if act.kind == DialogueActKind.ASK_SET and act.predicate is None:
+        if framed is not None and framed.predicate is not None:
+            updates["predicate"] = framed.predicate
+        else:
+            needle = parse_probe_needle(text)
+            if needle:
+                updates["predicate"] = SetPredicate(
+                    attr="merchant", values=[needle.lower()], label=needle
+                )
     if act.kind not in _GROUNDABLE:
-        return act
+        return act.model_copy(update=updates) if updates else act
     fallback = parse_intent(text, current_query=current_query)
     patch = act.patch or IntentPatch()
-    updates: dict = {}
+    patch_updates: dict = {}
     if not (patch.query or "").strip() and fallback.query:
-        updates["query"] = fallback.query
-        updates["requires_clarification"] = False
-        updates["clarification_question"] = None
+        patch_updates["query"] = fallback.query
+        patch_updates["requires_clarification"] = False
+        patch_updates["clarification_question"] = None
     if patch.budget_cny is None and fallback.budget_cny is not None:
-        updates["budget_cny"] = fallback.budget_cny
+        patch_updates["budget_cny"] = fallback.budget_cny
     if not patch.markets and fallback.markets:
-        updates["markets"] = fallback.markets
+        patch_updates["markets"] = fallback.markets
     if not patch.use_case and fallback.use_case:
-        updates["use_case"] = fallback.use_case
+        patch_updates["use_case"] = fallback.use_case
     if not patch.spec_gates and fallback.spec_gates:
-        updates["spec_gates"] = fallback.spec_gates
-    if not updates:
-        return act
-    grounded = patch.model_copy(update=updates)
-    kind = DialogueActKind.REFINE if grounded.query else act.kind
-    return act.model_copy(update={"kind": kind, "patch": grounded})
+        patch_updates["spec_gates"] = fallback.spec_gates
+    if patch_updates:
+        updates["patch"] = patch.model_copy(update=patch_updates)
+        grounded_query = patch_updates.get("query") or patch.query
+        if act.kind == DialogueActKind.UNKNOWN and grounded_query:
+            updates["kind"] = DialogueActKind.REFINE
+    return act.model_copy(update=updates) if updates else act
 
 
 def is_undo_text(text: str) -> bool:

@@ -8,6 +8,7 @@ from ...application.dto.mission import next_constraints_version
 from ...application.errors import MissionVersionConflict
 from ...application.ports import RunTextHub, UnitOfWork
 from ...application.services.dialogue import search_reuse_key
+from ...application.services.turn_actions import ledger_constraint_event
 from ...application.services.grounded import citations_from_ranked, compose_ready_reply
 from ...application.services.present import candidate_record, remap_draft
 from ...application.services.uncertainty import (
@@ -47,7 +48,7 @@ def make_persist_decision_snapshot(
 
         async with uow_factory() as uow:
             if state.get("requires_clarification") or turn_route == "clarify":
-                probe = select_probe(
+                probe = state.get("probe") or select_probe(
                     constraints=mission.constraints,
                     belief=mission.belief,
                     last_act=state.get("dialogue_act"),
@@ -209,8 +210,9 @@ def make_persist_decision_snapshot(
                 mission.constraints,
                 belief=mission.belief,
                 recall_mode=getattr(state.get("search_plan"), "recall_mode", None),
+                draft=stored_draft,
             )
-            probe = select_probe(
+            probe = state.get("probe") or select_probe(
                 constraints=mission.constraints,
                 belief=mission.belief,
                 ranked=ranked_records,
@@ -225,7 +227,7 @@ def make_persist_decision_snapshot(
                 "candidate_set_id": candidate_set_id,
                 "recommendation_run_id": run_id,
                 "warnings": warnings,
-                "dialogue": _dialogue_with_mentions(mission.dialogue, citations),
+                "dialogue": _dialogue_with_plan(mission.dialogue, citations, state.get("turn_plan")),
                 "belief": belief,
             }
             if comparison_ids:
@@ -239,17 +241,18 @@ def make_persist_decision_snapshot(
                     text_hub.abort(run_id)
                 return {"status": RunnerStatus.SUPERSEDED, "warnings": ["运行基于旧版本约束，已标记 superseded"]}
 
-            # 控制反转后约束合并在图内发生；补发 constraints.updated 以支撑 undo 回溯与线程投影。
             if mission.constraints != current.constraints:
+                event_type, event_payload = ledger_constraint_event(
+                    undo_applied=bool(state.get("undo_applied")),
+                    run_id=run_id,
+                    before=current.constraints,
+                    after=mission.constraints,
+                    version=constraints_version,
+                )
                 await uow.events.append(
                     mission_id=mission.id,
-                    event_type="constraints.updated",
-                    payload={
-                        "run_id": run_id,
-                        "before": current.constraints.model_dump(mode="json"),
-                        "after": mission.constraints.model_dump(mode="json"),
-                        "constraints_version": constraints_version,
-                    },
+                    event_type=event_type,
+                    payload=event_payload,
                 )
 
             event_type = "recommendation.ready" if stage == MissionStage.READY else "run.degraded"
@@ -311,7 +314,7 @@ async def _persist_talk(
     comparison_ids = state.get("comparison_snapshot_ids") or mission.comparison_snapshot_ids
     ranked = list((state.get("cache_payload") or {}).get("ranked") or [])
     text = state.get("agent_message") or "已根据当前候选回答。"
-    probe = select_probe(
+    probe = state.get("probe") or select_probe(
         constraints=mission.constraints,
         belief=mission.belief,
         ranked=ranked,
@@ -328,8 +331,11 @@ async def _persist_talk(
             "recommendation_run_id": current.recommendation_run_id,
             "comparison_snapshot_ids": comparison_ids,
             "warnings": warnings or current.warnings,
-            "dialogue": _dialogue_with_mentions(
-                mission.dialogue, list(state.get("agent_citations") or []), list(state.get("agent_snapshot_ids") or [])
+            "dialogue": _dialogue_with_plan(
+                mission.dialogue,
+                list(state.get("agent_citations") or []),
+                state.get("turn_plan"),
+                snapshot_ids=list(state.get("agent_snapshot_ids") or []),
             ),
             "belief": belief,
             "active_run_id": run_id,
@@ -395,3 +401,13 @@ def _dialogue_with_mentions(dialogue, citations: list, snapshot_ids: list | None
     if not ids:
         return dialogue
     return dialogue.model_copy(update={"mentioned_snapshot_ids": ids[:4]})
+
+
+def _dialogue_with_plan(dialogue, citations: list, plan, snapshot_ids: list | None = None):
+    updated = _dialogue_with_mentions(dialogue, citations, snapshot_ids)
+    leftover = list(getattr(plan, "leftover", None) or [])
+    if not leftover:
+        return updated
+    return updated.model_copy(
+        update={"pending_ops": [item.model_dump(mode="json") for item in leftover]}
+    )

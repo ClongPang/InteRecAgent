@@ -45,6 +45,8 @@ class MissionGraphState(TypedDict, total=False):
     requires_clarification: NotRequired[bool]
     clarification_question: NotRequired[str | None]
     turn_route: NotRequired[str]
+    undo_applied: NotRequired[bool]
+    events: NotRequired[list[dict]]
     cache_payload: NotRequired[dict | None]
     turn_context: NotRequired[dict]
     snapshot_map: NotRequired[dict[str, str]]
@@ -66,6 +68,7 @@ class MissionGraphState(TypedDict, total=False):
     ranked: NotRequired[list[NormalizedProduct]]
     pool: NotRequired[list[NormalizedProduct]]
     recommendation: NotRequired[RecommendationDraft | None]
+    probe: NotRequired[object]
 
     # 输出
     status: NotRequired[RunnerStatus]

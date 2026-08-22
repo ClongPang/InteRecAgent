@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from ..dto.belief import PreferenceBelief
 from ..dto.dialogue import AskTopic, DialogueAct, DialogueActKind, NextMove, SetPredicate, TurnPlan
 from ..dto.mission import MissionConstraints
+from ..dto.runner import RecommendationDraft
 from .frames import parse_probe_needle, referent_hint
 from .nlu import (
     detect_ask_topic,
@@ -186,9 +187,19 @@ def compose_talk_reply(
             snapshot_ids=[item.snapshot_id],
             citations=cited,
         )
-    if act.kind == DialogueActKind.ASK_ITEM:
+    if act.kind == DialogueActKind.ASK_ITEM and topic == AskTopic.OVERVIEW:
         return TalkReply(text=_overview_reply(item, constraints), snapshot_ids=[item.snapshot_id], citations=cited)
-    return TalkReply(text=_overview_reply(item, constraints), snapshot_ids=[item.snapshot_id], citations=cited)
+    if act.kind == DialogueActKind.ASK_ITEM:
+        return TalkReply(
+            text=_unanswerable_reply(item, text),
+            snapshot_ids=[item.snapshot_id],
+            citations=cited,
+        )
+    return TalkReply(
+        text=_unanswerable_reply(item, text),
+        snapshot_ids=[item.snapshot_id],
+        citations=cited,
+    )
 
 
 def compose_ready_reply(
@@ -197,9 +208,14 @@ def compose_ready_reply(
     *,
     belief: PreferenceBelief | None = None,
     recall_mode: str | None = None,
+    draft: RecommendationDraft | None = None,
 ) -> str:
     if not ranked:
         return "当前检索没有可用候选。"
+    if draft is not None:
+        from_draft = _ready_from_draft(ranked, constraints, draft, recall_mode=recall_mode)
+        if from_draft:
+            return from_draft
     item = cited_facts(ranked[0])
     if item is None:
         return "当前检索没有可用候选。"
@@ -209,8 +225,40 @@ def compose_ready_reply(
     return text
 
 
-def _topic(act: DialogueAct, text: str) -> AskTopic:
+def _topic(act: DialogueAct, text: str) -> AskTopic | None:
     return act.topic or detect_ask_topic(text)
+
+
+def _ready_from_draft(
+    ranked: list[dict],
+    constraints: MissionConstraints,
+    draft: RecommendationDraft,
+    *,
+    recall_mode: str | None,
+) -> str | None:
+    by_id = {str(item.get("snapshot_id")): item for item in ranked if item.get("snapshot_id")}
+    record = by_id.get(str(draft.primary_snapshot_id))
+    item = cited_facts(record) if record else None
+    if item is None:
+        return None
+    parts = [f"推荐 {item.title}。"]
+    for reason in draft.rationale:
+        clause = (reason or "").strip()
+        if clause:
+            parts.append(clause if clause.endswith("。") else f"{clause}。")
+    for tip in draft.tradeoffs:
+        clause = (tip or "").strip()
+        if clause and not _invents_unavailable(clause):
+            parts.append(clause if clause.endswith("。") else f"{clause}。")
+    if recall_mode == "exploratory" and not _looks_precise(constraints.query):
+        parts.append("这是按关键词检索的探索结果，不是精确型号匹配。")
+    return "".join(parts)
+
+
+def _invents_unavailable(text: str) -> bool:
+    if any(token in text for token in ("未提供", "没有", "不能", "不是")):
+        return False
+    return any(token in text for token in ("保修一年", "评分", "4.8", "正品", "直邮"))
 
 
 def _resolve_items(
@@ -239,7 +287,7 @@ def _resolve_items(
     hint = detect_referent_hint(text or "")
     if comparison_records and hint:
         return []
-    if hint and str(hint).startswith("token:") and detect_ask_topic(text or "") == AskTopic.OVERVIEW:
+    if hint and str(hint).startswith("token:") and detect_ask_topic(text or "") in {AskTopic.OVERVIEW, None}:
         return []
     if focus_snapshot_id and focus_snapshot_id in by_id:
         item = cited_facts(by_id[focus_snapshot_id])
@@ -432,6 +480,15 @@ def _why_reply(
     else:
         parts.append("保修未提供，因此不是推荐理由。")
     return "".join(parts)
+
+
+def _unanswerable_reply(item: CitedFacts, text: str) -> str:
+    question = (text or "").strip("？?。.!！") or "这个问题"
+    return (
+        f"{item.title}：快照没有能回答「{question}」的字段。"
+        f"已经记录的是{_price_clause(item)}{_place_clause(item)}。"
+        "真伪、直邮、保修和评分未提供，不能据此下判断。"
+    )
 
 
 def _overview_reply(item: CitedFacts, constraints: MissionConstraints) -> str:

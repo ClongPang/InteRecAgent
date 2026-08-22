@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from ...domain.models import utcnow
 from ..dto import MissionConstraints, ShoppingMission, TurnPhase
-from ..dto.dialogue import DialogueAct, DialogueActKind, ThreadView, TurnCommand
+from ..dto.dialogue import ThreadView, TurnCommand
 from ..dto.mission import next_constraints_version
 from ..dto.public import (
     CandidateSetView,
@@ -25,10 +25,11 @@ from ..errors import (
     SnapshotNotFound,
 )
 from ..ports import MissionEventBroker, RunDispatcher, RunTextHub, UnitOfWork
-from .dialogue import preview_turn, project_thread, stage_for_phase
+from .dialogue import project_thread, stage_for_phase
 from .nlu import is_undo_text
 from .policy import DialoguePolicy, TurnDecision, TurnInput
 from .present import image_url_of, product_candidate_from_record, product_candidate_from_snapshot
+from .turn_actions import apply_undo_constraints, find_restorable_constraints, route_after_undo
 from .uncertainty import moves_for_reply, select_probe
 
 
@@ -179,53 +180,40 @@ class MissionCommandService:
                     f"expected {constraints_version}, got {mission.constraints_version}"
                 )
             events = await uow.events.list_since(mission_id=mission_id)
-            for event in reversed(events):
-                if event["event_type"] != "constraints.updated":
-                    continue
-                before = MissionConstraints(**event["payload"]["before"])
-                if not (before.query or "").strip():
-                    continue
-                run_id = str(uuid4())
-                new_version = next_constraints_version(
-                    mission.constraints_version, mission.constraints, before
-                )
-                cache = await self._cache_payload(uow, mission)
-                _route, phase = preview_turn(
-                    act=DialogueAct(kind=DialogueActKind.REFINE, source="command"),
-                    constraints=before,
-                    has_cache=bool(cache and cache.get("ranked")),
-                    cache_reuse_key=(cache or {}).get("reuse_key"),
-                    skip_intent_patch=True,
-                )
-                if mission.constraints != before and phase == TurnPhase.RESPONDING:
-                    phase = TurnPhase.REFILTERING
-                updated = mission.model_copy(
-                    update={
-                        "constraints": before,
-                        "stage": stage_for_phase(phase, mission.stage),
-                        "turn_phase": phase,
-                        "constraints_version": new_version,
-                        "dialogue": mission.dialogue.model_copy(
-                            update={"last_act": DialogueActKind.UNDO.value}
-                        ),
-                        "active_run_id": run_id,
-                        "updated_at": utcnow(),
-                    }
-                )
-                await uow.missions.save(updated, expected_version=constraints_version)
-                await uow.events.append(
-                    mission_id=mission_id,
-                    event_type="constraints.undo",
-                    payload={
-                        "run_id": run_id,
-                        "restored": before.model_dump(mode="json"),
-                        "constraints_version": updated.constraints_version,
-                    },
-                )
-                await uow.commit()
-                break
-            else:
+            restored = find_restorable_constraints(events)
+            if restored is None:
                 raise NothingToUndo(mission_id)
+            run_id = str(uuid4())
+            new_version = next_constraints_version(
+                mission.constraints_version, mission.constraints, restored
+            )
+            cache = await self._cache_payload(uow, mission)
+            _route, phase = route_after_undo(
+                current=mission.constraints,
+                restored=restored,
+                has_cache=bool(cache and cache.get("ranked")),
+                cache_reuse_key=(cache or {}).get("reuse_key"),
+            )
+            updated = apply_undo_constraints(mission, restored).model_copy(
+                update={
+                    "stage": stage_for_phase(phase, mission.stage),
+                    "turn_phase": phase,
+                    "constraints_version": new_version,
+                    "active_run_id": run_id,
+                    "updated_at": utcnow(),
+                }
+            )
+            await uow.missions.save(updated, expected_version=constraints_version)
+            await uow.events.append(
+                mission_id=mission_id,
+                event_type="constraints.undo",
+                payload={
+                    "run_id": run_id,
+                    "restored": restored.model_dump(mode="json"),
+                    "constraints_version": updated.constraints_version,
+                },
+            )
+            await uow.commit()
         await self._dispatcher.dispatch(
             owner_id=owner_id,
             mission_id=mission_id,

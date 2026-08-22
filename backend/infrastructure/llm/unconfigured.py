@@ -13,8 +13,11 @@ from ...application.dto import (
     DialogueAct,
     IntentPatch,
     RecommendationDraft,
+    SlotId,
     ToolSpec,
+    TurnPlan,
 )
+from ...application.dto.probe import Uncertainty
 from ...application.errors import ModelUnavailableError
 
 
@@ -49,12 +52,26 @@ class UnconfiguredModelBackend:
             "LLM 未配置（llm_provider=unconfigured），请使用确定性解析器"
         )
 
+    async def parse_decision(
+        self, text: str, *, current_query: str | None = None, context: dict | None = None
+    ) -> TurnPlan:
+        del text, current_query, context
+        raise ModelUnavailableError(
+            "LLM 未配置（llm_provider=unconfigured），请使用确定性对话分类"
+        )
+
     async def parse_turn(
         self, text: str, *, current_query: str | None = None, context: dict | None = None
     ) -> DialogueAct:
         del context
         raise ModelUnavailableError(
             "LLM 未配置（llm_provider=unconfigured），请使用确定性对话分类"
+        )
+
+    async def pick_probe(self, uncertainties: list[Uncertainty]) -> SlotId | None:
+        del uncertainties
+        raise ModelUnavailableError(
+            "LLM 未配置（llm_provider=unconfigured），请使用确定性追问"
         )
 
     async def draft_recommendation(

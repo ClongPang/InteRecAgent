@@ -320,22 +320,20 @@ def test_ground_does_not_rewrite_compare() -> None:
     assert grounded.patch is None
 
 
-def test_ground_recovers_stance_when_model_returns_refine() -> None:
+def test_ground_keeps_refine_when_text_looks_like_stance() -> None:
     act = DialogueAct(kind=DialogueActKind.REFINE, patch=IntentPatch(query="降噪耳机"))
     grounded = ground_dialogue_act(act, "太贵了", current_query="降噪耳机")
-    assert grounded.kind == DialogueActKind.STANCE
-    assert grounded.stance == "too_expensive"
-    assert grounded.patch is None or grounded.patch.query is None
+    assert grounded.kind == DialogueActKind.REFINE
+    assert grounded.patch is not None
+    assert grounded.patch.query == "降噪耳机"
 
 
-def test_ground_recovers_in_stock_refine_from_ask_item() -> None:
+def test_ground_keeps_ask_item_when_text_looks_like_stock_filter() -> None:
     from backend.application.dto.dialogue import AskTopic
 
     act = DialogueAct(kind=DialogueActKind.ASK_ITEM, topic=AskTopic.STOCK)
     grounded = ground_dialogue_act(act, "只看有货", current_query="轻便徒步鞋")
-    assert grounded.kind == DialogueActKind.REFINE
-    assert grounded.patch is not None
-    assert grounded.patch.only_in_stock is True
+    assert grounded.kind == DialogueActKind.ASK_ITEM
 
 
 def test_ground_fills_stance_when_model_omits_it() -> None:

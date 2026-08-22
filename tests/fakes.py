@@ -10,13 +10,13 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from backend.agent.nodes.decide import make_merge_mission_state
-from backend.agent.nodes.dialogue import apply_turn_effects, route_turn
-from backend.application.dto import AssistantTurn, ChatMessage, IntentPatch, ToolSpec
+from backend.agent.nodes.execute import apply_world_ops
+from backend.application.dto import AssistantTurn, ChatMessage, IntentPatch, ToolSpec, TurnPlan
+from backend.application.services.decide_oral import decide_oral_turn
+from backend.infrastructure.llm.unconfigured import UnconfiguredModelBackend
 from backend.application.dto.belief import PreferenceBelief
 from backend.application.dto.mission import MissionConstraints, ShoppingMission
 from backend.application.errors import ModelUnavailableError
-from backend.application.services.dialogue import classify_turn
 
 
 @dataclass
@@ -46,19 +46,22 @@ async def _drive_turn(mission: ShoppingMission, text: str, cache_payload: dict |
         "cache_payload": cache_payload,
         "turn_context": {},
     }
-    act = classify_turn(
+    ranked = list((cache_payload or {}).get("ranked") or [])
+    plan = await decide_oral_turn(
         text,
         current_query=mission.constraints.query,
         context={
-            "ranked": list((cache_payload or {}).get("ranked") or []),
-            "pool": list((cache_payload or {}).get("pool") or (cache_payload or {}).get("ranked") or []),
+            "ranked": ranked,
+            "pool": list((cache_payload or {}).get("pool") or ranked),
         },
+        ranked=ranked,
+        backend=UnconfiguredModelBackend(),
     )
+    act = plan.primary
     state["dialogue_act"] = act
     state["intent_patch"] = act.patch or IntentPatch()
-    state.update(await apply_turn_effects(state))
-    state.update(await make_merge_mission_state()(state))
-    state.update(await route_turn(state))
+    state["turn_plan"] = plan
+    state.update(await apply_world_ops(state))
     return TurnPreview(
         act=state["dialogue_act"],
         mission=state["mission"],
@@ -70,7 +73,7 @@ async def _drive_turn(mission: ShoppingMission, text: str, cache_payload: dict |
 def deterministic_turn(
     mission: ShoppingMission, text: str, *, cache_payload: dict | None = None
 ) -> TurnPreview:
-    """驱动运行时确定性话轮流水线（classify_turn→apply_turn_effects→merge→route_turn）。
+    """驱动运行时确定性话轮流水线（decide_oral→execute_world）。
 
     离线断言直接跑真实图节点，杜绝与运行时的平行实现漂移。"""
     return asyncio.run(_drive_turn(mission, text, cache_payload))
@@ -129,8 +132,17 @@ class FakeModelBackend:
     async def parse_intent(self, *args, **kwargs):
         raise ModelUnavailableError("fake backend: parse_intent 未脚本化")
 
+    async def parse_decision(self, *args, **kwargs):
+        if getattr(self, "_decisions", None):
+            return self._decisions.pop(0)
+        act = await self.parse_turn(*args, **kwargs)
+        return TurnPlan(ops=[act], leftover=[], lead=act)
+
     async def parse_turn(self, *args, **kwargs):
         raise ModelUnavailableError("fake backend: parse_turn 未脚本化")
+
+    async def pick_probe(self, *args, **kwargs):
+        raise ModelUnavailableError("fake backend: pick_probe 未脚本化")
 
     async def draft_recommendation(self, *args, **kwargs):
         raise ModelUnavailableError("fake backend: draft_recommendation 未脚本化")

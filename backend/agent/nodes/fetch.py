@@ -32,6 +32,7 @@ def make_receive_message(uow_factory: Callable[[], UnitOfWork]):
         bound = _bind_trigger(mission, events, state["run_id"])
         bound["cache_payload"] = cache_payload
         bound["turn_context"] = build_turn_context(events, mission, cache_payload)
+        bound["events"] = events
         return bound
 
     return receive_message

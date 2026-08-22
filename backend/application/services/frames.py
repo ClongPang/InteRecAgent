@@ -29,7 +29,9 @@ _ASK_WARRANTY = re.compile(r"保修|质保|售后|退货|退换")
 _ASK_STOCK = re.compile(r"有货|库存|缺货|现货")
 _ASK_WHY = re.compile(r"为什么推荐|为什么选|为何选|推荐理由")
 _ASK_TRADEOFF = re.compile(r"差在哪|哪款好|有什么区别")
+_ASK_OVERVIEW = re.compile(r"怎么样|如何|介绍一下")
 _ASK_ITEM = re.compile(r"怎么样|这款|这一款|这个呢")
+_OPEN_ASK = re.compile(r"值不值得|假货|正品|直邮|和国内比|靠谱吗|是不是真的")
 _STANCE_EXPENSIVE = re.compile(r"太贵|好贵|贵了|超出预算")
 _STANCE_CHEAPER = re.compile(r"再便宜|便宜点|更便宜|降低预算|收一[点下]预算")
 _STANCE_LIGHTER = re.compile(r"更轻|轻一点|轻便一点|太重")
@@ -128,7 +130,7 @@ def collect_acts(
         for item in acts
     ):
         topic = detect_ask_topic(raw)
-        if (topic != AskTopic.OVERVIEW or _ASK_ITEM.search(raw)) and probe is None:
+        if (topic is not None or _ASK_ITEM.search(raw) or _OPEN_ASK.search(raw)) and probe is None:
             acts.append(
                 DialogueAct(
                     kind=DialogueActKind.ASK_ITEM,
@@ -206,7 +208,7 @@ def parse_filter_needle(text: str) -> str | None:
     return needle
 
 
-def detect_ask_topic(text: str) -> AskTopic:
+def detect_ask_topic(text: str) -> AskTopic | None:
     if _ASK_WARRANTY.search(text):
         return AskTopic.WARRANTY
     if _ASK_STOCK.search(text):
@@ -215,7 +217,9 @@ def detect_ask_topic(text: str) -> AskTopic:
         return AskTopic.WHY
     if _ASK_TRADEOFF.search(text):
         return AskTopic.TRADEOFF
-    return AskTopic.OVERVIEW
+    if _ASK_OVERVIEW.search(text):
+        return AskTopic.OVERVIEW
+    return None
 
 
 def detect_stance(text: str) -> str | None:

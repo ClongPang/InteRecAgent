@@ -94,7 +94,7 @@ class DialoguePolicy:
     """结构化约束编辑（PATCH）的确定性决策。
 
     控制反转（Phase 3）后，自由文本话轮的分类/路由/信念副作用由 Agent 图承担
-    （classify_dialogue_act → apply_turn_effects → merge_mission_state → route_turn），
+    （decide → execute_ops → persist），
     命令层不再预判。本类只服务 update_constraints 的结构化 PATCH：它没有自由文本可分类，
     天然确定性，无需 LLM。约束级护栏 sanitize_constraints 与图 merge 节点共用，不漂移。"""
 

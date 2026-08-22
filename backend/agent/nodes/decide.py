@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 from ...application.dto import MissionConstraints, MissionStage
+from ...application.services.decide_oral import constraint_ops, fold_constraint_patch
 from ...application.services.dialogue import sanitize_constraints
+from ...application.services.parse_intent import CLARIFYING_QUESTION
 from ...application.services.rec import run_filter, run_rank
 from ...application.services.uncertainty import resolve_probe_coverage
 from ..state import MissionGraphState
-from .parse_intent import CLARIFYING_QUESTION
 
 
 def make_merge_mission_state():
@@ -40,7 +41,10 @@ def make_merge_mission_state():
             }
 
         act = state.get("dialogue_act")
-        if act is not None and act.kind.value in {
+        plan = state.get("turn_plan")
+        if plan is not None and constraint_ops(plan):
+            patch = fold_constraint_patch(mission.constraints, plan)
+        elif act is not None and act.kind.value in {
             "ask_about_item",
             "ask_about_set",
             "compare_items",
@@ -52,8 +56,8 @@ def make_merge_mission_state():
                 "constraints_before": mission.constraints,
                 "requires_clarification": False,
             }
-
-        patch = state["intent_patch"]
+        else:
+            patch = state["intent_patch"]
         constraints = mission.constraints
 
         if patch.requires_clarification and not constraints.query:

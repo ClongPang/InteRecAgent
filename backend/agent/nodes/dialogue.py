@@ -1,21 +1,16 @@
 """对话分类、路由、缓存复用与 grounded 回复。"""
 from __future__ import annotations
 
-from ...application.dto import IntentPatch, RunnerStatus
-from ...application.dto.dialogue import DialogueAct, DialogueActKind, NextMove, TurnPlan, TurnRoute
-from ...application.errors import ModelUnavailableError
+from ...application.dto import IntentPatch
+from ...application.dto.dialogue import DialogueAct, DialogueActKind, NextMove
 from ...application.ports import ModelBackend
-from ...application.services.dialogue import (
-    apply_act_effects,
-    classify_turn,
-    ground_dialogue_act,
-    reuse_key_matches,
-)
+from ...application.services.decide_oral import decide_oral_turn
+from ...application.services.dialogue import apply_act_effects
+from ...application.services.execute_ops import finish_world_route
 from ...application.services.grounded import compose_talk_reply
+from ...application.services.turn_actions import NOTHING_TO_UNDO_MESSAGE
 from ...application.services.parse_intent import CLARIFYING_QUESTION
-from ...application.services.plan import propose_plan
 from ...application.services.present import hydrate_candidate_payload
-from ...application.services.route import decide_route
 from ...application.services.working_set import WorkingSet
 from ..state import MissionGraphState
 
@@ -57,39 +52,22 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
         ranked = list(working.display)
         context["ranked"] = ranked
         context["pool"] = list(working.bind_records)
-        plan = propose_plan(text, current_query=current_query, world=working.world())
-        # LLM 优先：配置了模型时由 parse_turn 直接给出行为+patch（含开放式 soft_prefs），
-        # 确定性 classify_turn 仅作 fallback。这里已越过命令层预判短路，
-        # 故重算路由（decided_route=None 交给 route_turn 依 LLM 行为推断）。
-        if model_backend.is_configured():
-            try:
-                act = await model_backend.parse_turn(
-                    text, current_query=current_query, context=context
-                )
-                act = ground_dialogue_act(act, text, current_query=current_query, ranked=list(working.bind_records))
-                return {
-                    "dialogue_act": act,
-                    "intent_patch": act.patch or IntentPatch(),
-                    "turn_plan": _plan_with_primary(plan, act),
-                    "decided_route": None,
-                }
-            except ModelUnavailableError:
-                pass
-        act = classify_turn(text, current_query=current_query, context=context)
-        act = ground_dialogue_act(act, text, current_query=current_query, ranked=list(working.bind_records))
+        plan = await decide_oral_turn(
+            text,
+            current_query=current_query,
+            context=context,
+            ranked=list(working.bind_records),
+            backend=model_backend,
+        )
+        act = plan.primary
         return {
             "dialogue_act": act,
             "intent_patch": act.patch or IntentPatch(),
-            "turn_plan": _plan_with_primary(plan, act),
+            "turn_plan": plan,
+            "decided_route": None,
         }
 
     return classify_dialogue_act
-
-
-def _plan_with_primary(plan: TurnPlan, act: DialogueAct) -> TurnPlan:
-    rest = [item for item in plan.ops if item.kind != act.kind]
-    leftover = [item for item in plan.leftover if item.kind != act.kind]
-    return TurnPlan(ops=[act] + rest, leftover=leftover, lead=act)
 
 
 async def apply_turn_effects(state: MissionGraphState) -> dict:
@@ -98,12 +76,20 @@ async def apply_turn_effects(state: MissionGraphState) -> dict:
     控制反转后由图承担（原属命令层 DialoguePolicy）；与 DialoguePolicy 共用
     apply_act_effects，保证确定性与 LLM 两条路径信念演化一致。"""
     mission = state["mission"]
+    plan = state.get("turn_plan")
+    ops = list(getattr(plan, "ops", None) or [])
     act = state.get("dialogue_act")
-    if act is None:
+    if act is not None and act not in ops:
+        ops = [act, *ops]
+    if not ops:
         return {}
-    belief, dialogue = apply_act_effects(
-        mission.belief, mission.dialogue, act, cache_payload=state.get("cache_payload")
-    )
+    belief, dialogue = mission.belief, mission.dialogue
+    for op in ops:
+        if op.kind == DialogueActKind.UNDO:
+            continue
+        belief, dialogue = apply_act_effects(
+            belief, dialogue, op, cache_payload=state.get("cache_payload")
+        )
     return {"mission": mission.model_copy(update={"belief": belief, "dialogue": dialogue})}
 
 
@@ -118,41 +104,18 @@ def _turn_context(state: MissionGraphState) -> dict:
 
 
 async def route_turn(state: MissionGraphState) -> dict:
-    act = state.get("dialogue_act") or DialogueAct(kind=DialogueActKind.REFINE)
+    """兼容入口：只按世界变化选路，不再读 kind 查表。"""
     mission = state["mission"]
-    payload = state.get("cache_payload")
-    has_cache = bool(payload and payload.get("ranked"))
-    reuse_matches = reuse_key_matches(mission.constraints, (payload or {}).get("reuse_key"))
-    before = state.get("constraints_before") or mission.constraints
-    route = decide_route(
-        kind=act.kind,
-        has_query=bool(mission.constraints.query),
-        has_cache=has_cache,
-        reuse_matches=reuse_matches,
+    return finish_world_route(
+        state.get("turn_plan"),
+        mission=mission,
+        cache_payload=state.get("cache_payload"),
         skip_intent_patch=bool(state.get("skip_intent_patch")),
-        constraints_changed=before != mission.constraints,
-        merchants=list(mission.constraints.merchants),
-        ranked=list((payload or {}).get("ranked") or []),
-        pool=list((payload or {}).get("pool") or (payload or {}).get("ranked") or []),
+        constraints_before=state.get("constraints_before") or mission.constraints,
+        decided_route=state.get("decided_route"),
+        requires_clarification=bool(state.get("requires_clarification")),
+        clarification_question=state.get("clarification_question"),
     )
-    if state.get("decided_route"):
-        return {
-            "turn_route": state["decided_route"],
-            "requires_clarification": state["decided_route"] == TurnRoute.CLARIFY.value,
-        }
-    # 不支持维度的态度（如「更轻/太重」但快照无重量字段）：已在 apply_turn_effects 记为
-    # unsupported，改答复解释而非空排序（rerank 无维度支撑等于原地打转）。
-    if act.kind == DialogueActKind.STANCE and act.stance == "want_lighter":
-        return {"turn_route": TurnRoute.TALK.value, "requires_clarification": False}
-    if state.get("requires_clarification") or route == TurnRoute.CLARIFY:
-        if not mission.constraints.query:
-            return {
-                "turn_route": TurnRoute.CLARIFY.value,
-                "requires_clarification": True,
-                "clarification_question": state.get("clarification_question") or CLARIFYING_QUESTION,
-                "status": RunnerStatus.COMPLETED,
-            }
-    return {"turn_route": route.value, "requires_clarification": False}
 
 
 def make_load_cached_candidates():
@@ -175,6 +138,16 @@ def make_compose_grounded_reply():
 
     async def compose_grounded_reply(state: MissionGraphState) -> dict:
         act = state.get("dialogue_act") or DialogueAct(kind=DialogueActKind.META)
+        if act.kind == DialogueActKind.UNDO:
+            text = state.get("agent_message") or NOTHING_TO_UNDO_MESSAGE
+            return {
+                "agent_message": text,
+                "agent_snapshot_ids": [],
+                "agent_citations": [],
+                "agent_act": DialogueActKind.UNDO.value,
+                "agent_topic": None,
+                "agent_next_moves": [],
+            }
         payload = state.get("cache_payload") or {}
         ranked_records = list(payload.get("ranked") or [])
         mission = state["mission"]

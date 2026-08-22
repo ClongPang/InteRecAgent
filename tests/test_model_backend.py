@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.agent.graph import build_graph
 from backend.agent.runner import LangGraphMissionRunner
 from backend.application.dto import IntentPatch, RecommendationDraft
-from backend.application.dto.dialogue import DialogueAct, DialogueActKind
+from backend.application.dto.dialogue import DialogueAct, DialogueActKind, TurnPlan
 from backend.application.errors import ModelUnavailableError
 from backend.infrastructure.fx_sources.fixed import FixedFxSource
 from backend.infrastructure.llm.factory import UnsupportedLLMProviderError, build_model_backend
@@ -26,6 +26,7 @@ from backend.infrastructure.llm.openai_compat import (
     extract_json_object,
     sanitize_dialogue_act,
     sanitize_intent_patch,
+    turn_plan_from_payload,
 )
 from backend.infrastructure.llm.unconfigured import UnconfiguredModelBackend
 from backend.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
@@ -60,6 +61,13 @@ async def test_unconfigured_parse_intent_raises_clear_error() -> None:
 async def test_unconfigured_parse_turn_raises_clear_error() -> None:
     with pytest.raises(ModelUnavailableError) as exc:
         await UnconfiguredModelBackend().parse_turn("帮我比前两个")
+    assert "unconfigured" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_parse_decision_raises_clear_error() -> None:
+    with pytest.raises(ModelUnavailableError) as exc:
+        await UnconfiguredModelBackend().parse_decision("帮我比前两个")
     assert "unconfigured" in str(exc.value)
 
 
@@ -307,3 +315,48 @@ def test_sanitize_dialogue_act_strips_query_from_talk() -> None:
     assert act.patch is not None
     assert act.patch.query is None
     assert act.source == "model"
+
+
+def test_turn_plan_from_payload_wraps_single_act() -> None:
+    plan = turn_plan_from_payload(
+        {"kind": "compare_items", "referent_ranks": [1, 2], "patch": {"query": "前两个"}}
+    )
+    assert isinstance(plan, TurnPlan)
+    assert len(plan.ops) == 1
+    assert plan.primary.kind == DialogueActKind.COMPARE
+    assert plan.primary.patch is None or plan.primary.patch.query is None
+
+
+def test_turn_plan_from_payload_keeps_parallel_ops() -> None:
+    plan = turn_plan_from_payload(
+        {
+            "ops": [
+                {"kind": "compare_items", "referent_ranks": [1, 2]},
+                {"kind": "reject_item", "exclude_terms": ["入耳"]},
+            ]
+        }
+    )
+    assert [item.kind for item in plan.ops] == [
+        DialogueActKind.COMPARE,
+        DialogueActKind.REJECT,
+    ]
+    assert plan.primary.kind == DialogueActKind.COMPARE
+
+
+@pytest.mark.asyncio
+async def test_openai_compat_parse_decision_reads_ops() -> None:
+    content = (
+        '{"ops":[{"kind":"compare_items","referent_ranks":[1,2]},'
+        '{"kind":"reject_item","exclude_terms":["入耳"]}]}'
+    )
+    with respx.mock:
+        respx.post(CHAT_URL).mock(return_value=httpx.Response(200, json=_chat_response(content)))
+        plan = await OpenAICompatModelBackend("sk-test").parse_decision(
+            "帮我比前两个，不要入耳", current_query="降噪耳机"
+        )
+    assert [item.kind for item in plan.ops] == [
+        DialogueActKind.COMPARE,
+        DialogueActKind.REJECT,
+    ]
+    assert plan.ops[1].exclude_terms == ["入耳"]
+    assert all(item.source == "model" for item in plan.ops)

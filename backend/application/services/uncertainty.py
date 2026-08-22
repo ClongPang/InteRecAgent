@@ -1,7 +1,7 @@
 """把「会翻盘的未知条件」做成可计算事实，再升格为至多一条 Probe。
 
 问句必须能兑现（进 IntentPatch → 过滤/排序/检索）。直邮、保修、评分为不可问。
-LLM 不参与选题；生产和评测共用 SlotId。
+模型只从 assess 出的 Uncertainty[] 里挑一条；规则否决越界 slot。无 query 时 QUERY 不可跳过。
 """
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from ..dto.dialogue import DialogueAct, DialogueActKind, NextMove
 from ..dto.mission import MissionConstraints
 from ..dto.probe import Probe, ProbeOption, SlotId, Uncertainty
 from ..dto.runner import IntentPatch
+from ..errors import ModelUnavailableError
+from ..ports import ModelBackend
 from .next_move import next_moves_for
 from .parse_intent import CLARIFYING_QUESTION
 
@@ -129,18 +131,73 @@ def select_probe(
     ranked: list | None = None,
     last_act: DialogueAct | None = None,
 ) -> Probe | None:
-    """升格恰好一条。无 query 才 blocking。"""
-    blocked = set(belief.asked_slots) | set(belief.skipped_slots)
-    for item in assess_uncertainty(
+    """规则降级：升格恰好一条。无 query 才 blocking。"""
+    items = _actionable_uncertainties(
         constraints=constraints, belief=belief, ranked=ranked, last_act=last_act
-    ):
-        if not item.actionable or item.slot.value in blocked:
-            continue
-        if item.slot == SlotId.QUERY:
-            return _to_probe(item, blocking=True)
-        if not constraints.query:
-            continue
-        return _to_probe(item, blocking=False)
+    )
+    if not items:
+        return None
+    if not constraints.query:
+        query = next((item for item in items if item.slot == SlotId.QUERY), None)
+        return _to_probe(query, blocking=True) if query else None
+    return _to_probe(items[0], blocking=items[0].slot == SlotId.QUERY)
+
+
+async def choose_probe(
+    *,
+    constraints: MissionConstraints,
+    belief: PreferenceBelief,
+    ranked: list | None = None,
+    last_act: DialogueAct | None = None,
+    backend: ModelBackend | None = None,
+) -> Probe | None:
+    """模型从封闭 Uncertainty[] 挑一条；越界或失败回退 select_probe。"""
+    items = _actionable_uncertainties(
+        constraints=constraints, belief=belief, ranked=ranked, last_act=last_act
+    )
+    if not items:
+        return None
+    if not constraints.query:
+        query = next((item for item in items if item.slot == SlotId.QUERY), None)
+        return _to_probe(query, blocking=True) if query else None
+    if backend is not None and backend.is_configured():
+        try:
+            picked = await backend.pick_probe(items)
+        except ModelUnavailableError:
+            picked = None
+        slot = _coerce_slot(picked)
+        allowed = {item.slot for item in items}
+        if slot in allowed:
+            chosen = next(item for item in items if item.slot == slot)
+            return _to_probe(chosen, blocking=chosen.slot == SlotId.QUERY)
+    return _to_probe(items[0], blocking=items[0].slot == SlotId.QUERY)
+
+
+def _actionable_uncertainties(
+    *,
+    constraints: MissionConstraints,
+    belief: PreferenceBelief,
+    ranked: list | None,
+    last_act: DialogueAct | None,
+) -> list[Uncertainty]:
+    blocked = set(belief.asked_slots) | set(belief.skipped_slots)
+    return [
+        item
+        for item in assess_uncertainty(
+            constraints=constraints, belief=belief, ranked=ranked, last_act=last_act
+        )
+        if item.actionable and item.slot.value not in blocked
+    ]
+
+
+def _coerce_slot(value: object) -> SlotId | None:
+    if isinstance(value, SlotId):
+        return value
+    if isinstance(value, str):
+        try:
+            return SlotId(value)
+        except ValueError:
+            return None
     return None
 
 

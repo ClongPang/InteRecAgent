@@ -13,6 +13,7 @@ from .dialogue import (
     ThreadMessage,
     ThreadView,
     TurnCommand,
+    TurnPlan,
     TurnRoute,
 )
 from .mission import (
@@ -77,6 +78,7 @@ __all__ = [
     "ThreadView",
     "TurnCommand",
     "TurnPhase",
+    "TurnPlan",
     "TurnRoute",
     "mission_view",
     "next_constraints_version",

@@ -8,8 +8,11 @@ from ..dto import (
     DialogueAct,
     IntentPatch,
     RecommendationDraft,
+    SlotId,
     ToolSpec,
+    TurnPlan,
 )
+from ..dto.probe import Uncertainty
 
 
 @runtime_checkable
@@ -18,7 +21,7 @@ class ModelBackend(Protocol):
 
     编排接缝：
     - 研究环：``complete_json`` 做 keep / 改写 / TopK；未配置则跳过模型步。
-    - 对话 / 起草：``parse_intent`` / ``parse_turn`` / ``draft_recommendation``。
+    - 对话 / 起草：``parse_decision`` / ``parse_turn`` / ``parse_intent`` / ``draft_recommendation``。
     - ``chat`` + ``supports_tools`` 仍可用于探测原生 tool-calling，研究控环不再依赖它。
     未配置时由 UnconfiguredModelBackend 抛出 ModelUnavailableError。
     """
@@ -47,6 +50,16 @@ class ModelBackend(Protocol):
         context: dict | None = None,
     ) -> IntentPatch: ...
 
+    async def parse_decision(
+        self,
+        text: str,
+        *,
+        current_query: str | None = None,
+        context: dict | None = None,
+    ) -> TurnPlan:
+        """口语一次决策：优先 ``{ops:[...]}``；兼容单 act JSON。"""
+        ...
+
     async def parse_turn(
         self,
         text: str,
@@ -54,6 +67,10 @@ class ModelBackend(Protocol):
         current_query: str | None = None,
         context: dict | None = None,
     ) -> DialogueAct: ...
+
+    async def pick_probe(self, uncertainties: list[Uncertainty]) -> SlotId | None:
+        """从封闭 Uncertainty 列表里挑一个 SlotId。不得发明列表外的槽。"""
+        ...
 
     async def draft_recommendation(
         self,

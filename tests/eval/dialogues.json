@@ -1,5 +1,5 @@
 {
-  "description": "离线多轮评测：直接驱动运行时图节点 classify_turn→apply_turn_effects→merge→route_turn，不打 BuyWhere / LLM。",
+  "description": "离线多轮评测：直接驱动运行时图节点 decide_oral→effects→merge→route，不打 BuyWhere / LLM。",
   "cache_ranked": [
     {
       "snapshot_id": "s1",

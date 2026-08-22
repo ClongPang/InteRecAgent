@@ -63,7 +63,13 @@ class _NeverInvoked:
     async def parse_intent(self, *a, **k):
         raise AssertionError("结构测试不应执行节点")
 
+    async def parse_decision(self, *a, **k):
+        raise AssertionError("结构测试不应执行节点")
+
     async def parse_turn(self, *a, **k):
+        raise AssertionError("结构测试不应执行节点")
+
+    async def pick_probe(self, *a, **k):
         raise AssertionError("结构测试不应执行节点")
 
     async def draft_recommendation(self, *a, **k):
@@ -96,17 +102,8 @@ def test_node_names_match_spec() -> None:
     filter/rank 节点保留供 refilter/rerank 增量路径复用。"""
     assert NODE_NAMES == (
         "receive_message",
-        "classify_dialogue_act",
-        "apply_turn_effects",
-        "merge_mission_state",
-        "route_turn",
-        "load_cached_candidates",
-        "compose_grounded_reply",
-        "research",
-        "filter_hard_constraints",
-        "rank_candidates",
-        "verify_evidence",
-        "compose_recommendation",
+        "decide",
+        "execute_ops",
         "persist_decision_snapshot",
     )
 

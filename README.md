@@ -63,4 +63,5 @@ make acceptance          # 最终机械验收
 - `docs/project-skeleton-execution.md` — 工作包执行台账
 - `docs/cross-border-shopping-agent-prd.md` — 产品需求
 - `docs/technical-architecture-and-selection.md` — 技术架构与选型
+- `docs/agent-architecture-walkthrough.md` — Agent 现行架构走读（入口分流、图、研究环、模型/规则对照）
 - `docs/project-directory-design.md` — 目录设计
