@@ -182,7 +182,7 @@ def _map_event(event: dict) -> ThreadMessage | None:
             sequence=sequence,
             kind="warning",
             role="system",
-            text="本轮结果不完整，请查看任务警告。",
+            text="本轮结果不完整；未满足硬约束或证据不足的商品已被阻断。",
             constraints_version=version,
             run_id=run_id,
             created_at=created,

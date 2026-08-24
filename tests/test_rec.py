@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from backend.application.dto.belief import PreferenceBelief
+from backend.application.dto.goal import GoalTarget, RetrievalScope, ShoppingGoal
 from backend.application.dto.mission import MissionConstraints, ShoppingMission
 from backend.application.services.grounded import compose_talk_reply
 from backend.application.services.nlu import (
@@ -32,15 +33,17 @@ def test_exact_model_is_precise_keyword() -> None:
     assert looks_like_exact_model("通勤降噪耳机") is False
 
 
-def test_chinese_exploratory_query_uses_hybrid() -> None:
+def test_chinese_exploratory_query_prioritizes_buywhere_canonical_variant() -> None:
     mission = ShoppingMission(
         owner_id="u",
         title="t",
         constraints=MissionConstraints(query="通勤降噪耳机"),
     )
     plan = plan_search(rec_state_from_mission(mission))
-    assert plan.mode == "hybrid"
+    assert plan.query == "noise cancelling headphones"
+    assert plan.mode == "keyword"
     assert plan.recall_mode == "exploratory"
+    assert plan.query_variants == ["noise cancelling headphones", "通勤降噪耳机"]
     from backend.domain.models import DEFAULT_MARKETS
 
     assert plan.markets == list(DEFAULT_MARKETS)
@@ -55,6 +58,25 @@ def test_search_plan_appends_use_case() -> None:
     )
     plan = plan_search(rec_state_from_mission(mission))
     assert plan.query == "27 寸 4K 显示器 远程办公"
+
+
+def test_monitor_search_plan_has_english_buywhere_variant() -> None:
+    mission = ShoppingMission(
+        owner_id="u",
+        title="t",
+        constraints=MissionConstraints(query="27 英寸 4K 显示器", budget_cny=5000),
+        goal=ShoppingGoal(
+            legacy_belief_migrated=True,
+            target=GoalTarget(
+                item_type="monitor",
+                canonical_description="27 英寸 4K 显示器",
+            ),
+            retrieval_scope=RetrievalScope(markets_requested=["US", "SG"]),
+        ),
+    )
+    plan = plan_search(rec_state_from_mission(mission))
+    assert plan.query == "27 inch 4K computer monitor"
+    assert "27 inch 4K computer monitor" in plan.query_variants
 
 
 def test_search_plan_appends_merchant_filter() -> None:

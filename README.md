@@ -45,8 +45,7 @@ make backend-integration # PostgreSQL 集成测试
 make architecture        # 导入依赖方向检查
 make agent-test          # Agent 状态图
 make api-test            # FastAPI HTTP/SSE
-make frontend-check      # 前端 lint/typecheck/unit/build
-make e2e                 # Playwright 闭环
+make frontend-check      # 前端 TypeScript 检查与生产构建
 make check               # 无 Key CI 等价门禁
 make acceptance          # 最终机械验收
 ```

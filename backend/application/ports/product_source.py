@@ -8,8 +8,12 @@ from ..dto import ProductSearchResult
 
 @runtime_checkable
 class ProductSource(Protocol):
-    """商品源 Port。返回已归一化的领域商品；供应商原始响应只在 Infrastructure 内出现。
-    无价格商品在适配器内跳过并计入 skipped_no_price。实现：infrastructure/product_sources/{buywhere,fixture}.py。"""
+    """商品源 Port。
+
+    Search returns normalized products together with page metadata and sanitized
+    provider observations. Secrets, headers and unbounded response bodies never
+    cross this boundary.
+    """
 
     async def search(
         self,

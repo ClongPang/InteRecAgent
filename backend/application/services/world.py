@@ -121,7 +121,8 @@ def token_variants(needle: str) -> tuple[str, ...]:
 
 
 def _record_blob(item: dict) -> str:
-    attrs = item.get("attrs") if isinstance(item.get("attrs"), dict) else {}
+    raw_attrs = item.get("attrs")
+    attrs: dict = raw_attrs if isinstance(raw_attrs, dict) else {}
     return " ".join(
         str(part)
         for part in (

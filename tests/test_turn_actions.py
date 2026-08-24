@@ -10,7 +10,7 @@ from backend.agent.nodes.dialogue import (
     make_classify_dialogue_act,
     make_compose_grounded_reply,
 )
-from backend.agent.nodes.execute import apply_world_ops
+from backend.agent.nodes.world import apply_world_ops
 from backend.application.dto.dialogue import DialogueAct, DialogueActKind, TurnRoute
 from backend.application.dto.mission import MissionConstraints, ShoppingMission
 from backend.application.dto.runner import IntentPatch

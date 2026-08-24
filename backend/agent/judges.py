@@ -1,8 +1,9 @@
-"""研究环里三次单次 JSON：本轮 keep、改写 query、从池子选 TopK。
+"""研究环里的受控 JSON 决策：本轮语义 keep 与 query 改写。
 
 失败返回「未决定」，由控制器跳过或回退确定性步骤。输出必须和已有 ID / 已用过的
-检索词求交，模型不能发明商品或改预算。
+检索词求交，模型不能发明商品或改预算；最终排序由代码完成。
 """
+
 from __future__ import annotations
 
 import json
@@ -10,11 +11,18 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from ..application.dto import EvidenceRef, ProductSemanticProfile, SemanticProfileMethod
 from ..application.errors import ModelUnavailableError
 from ..application.ports import ModelBackend
 from ..application.services.rec.rank import rank_with_belief
+from ..application.services.rec.semantic import (
+    SEMANTIC_MODEL_SHADOW_VERSION,
+    adjudicate_profile,
+    build_rule_profile,
+)
 from ..application.services.rec.state import rec_state_from_mission
 from ..domain.models import NormalizedProduct
+from ..domain.product_ontology import DETECTED_ITEM_TYPES
 from .tools.context import ResearchContext
 
 logger = logging.getLogger(__name__)
@@ -35,12 +43,11 @@ _REWRITE_SYSTEM = """你是检索词改写器。只输出一个 JSON 对象，�
 - 可以换成英文型号、同义词、更具体的形态词。
 - 不要写预算、市场或整句说明。"""
 
-_TOPK_SYSTEM = """你是候选比较器。只输出一个 JSON 对象，不要解释。
-字段：ranked，按推荐优先级排列的 ID 数组，长度最多为 k。
-规则：
-- 只能从 candidates 的 id 里选。
-- 优先主体商品、更贴近预算与偏好的项。
-- 不得编造 ID，不得编造价格或库存。"""
+_SEMANTIC_PROFILE_SYSTEM = """你是商品 listing 语义分类器。只输出一个 JSON 对象。
+字段 profiles：数组；每项包含 id, item_type, relation, brand, model, confidence,
+evidence_spans。relation 只能是 product/accessory/bundle/service/consumable/
+replacement/unknown。只能使用输入 listing 的原文片段作为 evidence_spans；不能生成规格、
+库存、保修或其他输入中不存在的事实。不确定时 item_type 为 null、relation 为 unknown。"""
 
 
 @dataclass(frozen=True)
@@ -72,7 +79,12 @@ def preselect_for_judge(
     return ranked[:limit]
 
 
-async def _ask(backend: ModelBackend, *, system: str, user: str) -> JsonDecision:
+async def _ask(
+    backend: ModelBackend, ctx: ResearchContext, *, system: str, user: str
+) -> JsonDecision:
+    if not ctx.reserve_model_call(system=system, user=user):
+        ctx.add_warnings("模型调用或 Token 预算已用尽，回退确定性策略")
+        return JsonDecision(False, {})
     try:
         payload = await backend.complete_json(system=system, user=user)
     except ModelUnavailableError:
@@ -93,14 +105,16 @@ async def judge_keep(
     if not batch:
         return []
     visible = preselect_for_judge(ctx, batch)
+    rec = rec_state_from_mission(ctx.mission)
     decision = await _ask(
         backend,
+        ctx,
         system=_KEEP_SYSTEM,
         user=json.dumps(
             {
                 "task": "keep",
-                "query": ctx.mission.constraints.query,
-                "use_case": getattr(ctx.mission.belief, "use_case", None),
+                "query": rec.query,
+                "use_case": rec.use_case,
                 "candidates": [_brief(item) for item in visible],
             },
             ensure_ascii=False,
@@ -114,16 +128,138 @@ async def judge_keep(
     return [str(item).strip() for item in raw if str(item).strip()]
 
 
+async def shadow_semantic_profiles(
+    backend: ModelBackend,
+    ctx: ResearchContext,
+    products: list[NormalizedProduct],
+) -> None:
+    """Record bounded model proposals and deterministic adjudication without enforcement."""
+    if not products:
+        return
+    visible = preselect_for_judge(ctx, products)
+    stats = ctx.semantic_shadow_stats
+    stats["attempted_count"] += len(visible)
+    decision = await _ask(
+        backend,
+        ctx,
+        system=_SEMANTIC_PROFILE_SYSTEM,
+        user=json.dumps(
+            {
+                "task": "semantic_profile_shadow",
+                "listings": [
+                    {
+                        "id": item.id,
+                        "title": item.title,
+                        "metadata": {
+                            key: value
+                            for key, value in (item.attrs or {}).items()
+                            if key in {"category", "product_type", "tags", "brand", "model"}
+                        },
+                    }
+                    for item in visible
+                ],
+            },
+            ensure_ascii=False,
+        ),
+    )
+    if not decision.decided or not isinstance(decision.payload.get("profiles"), list):
+        stats["invalid_proposal_count"] += len(visible)
+        return
+    by_id = {item.id: item for item in visible}
+    valid_relations = {
+        "product",
+        "accessory",
+        "bundle",
+        "service",
+        "consumable",
+        "replacement",
+        "unknown",
+    }
+    seen_ids: set[str] = set()
+    for raw in decision.payload["profiles"]:
+        if not isinstance(raw, dict):
+            stats["invalid_proposal_count"] += 1
+            continue
+        candidate_id = str(raw.get("id") or "")
+        product = by_id.get(candidate_id)
+        if product is None or candidate_id in seen_ids:
+            stats["invalid_proposal_count"] += 1
+            continue
+        seen_ids.add(candidate_id)
+        invalid_schema = False
+        item_type = raw.get("item_type")
+        if item_type is not None and str(item_type) not in DETECTED_ITEM_TYPES:
+            item_type = None
+            invalid_schema = True
+        relation = str(raw.get("relation") or "unknown")
+        if relation not in valid_relations:
+            relation = "unknown"
+            invalid_schema = True
+        evidence_payload = raw.get("evidence_spans") or []
+        if not isinstance(evidence_payload, list):
+            evidence_payload = []
+            invalid_schema = True
+        raw_spans = [str(span).strip() for span in evidence_payload]
+        spans = [
+            str(span).strip()
+            for span in raw_spans
+            if str(span).strip()
+            and str(span).strip().casefold() in (product.title or "").casefold()
+        ][:8]
+        stats["raw_evidence_span_count"] += len(raw_spans)
+        stats["valid_evidence_span_count"] += len(spans)
+        try:
+            confidence = min(1.0, max(0.0, float(raw.get("confidence") or 0.0)))
+        except (TypeError, ValueError):
+            confidence = 0.0
+            invalid_schema = True
+        if invalid_schema:
+            stats["invalid_proposal_count"] += 1
+        proposal = ProductSemanticProfile(
+            category_id=str(item_type) if item_type else None,
+            item_type=str(item_type) if item_type else None,
+            relation=relation,
+            brand=str(raw["brand"]).strip() if raw.get("brand") else None,
+            model=str(raw["model"]).strip() if raw.get("model") else None,
+            method=SemanticProfileMethod.MODEL,
+            confidence=confidence,
+            evidence_spans=spans,
+            evidence_refs=[
+                EvidenceRef(
+                    source="normalized",
+                    path="normalized.title",
+                    value=span,
+                    evidence_level="observed",
+                )
+                for span in spans
+            ],
+            classifier_version=SEMANTIC_MODEL_SHADOW_VERSION,
+        )
+        guard = build_rule_profile(product)
+        adjudicated = adjudicate_profile(guard, proposal)
+        ctx.semantic_profile_proposals[candidate_id] = proposal.model_dump(mode="json")
+        stats["proposal_count"] += 1
+        ctx.semantic_profile_shadow[candidate_id] = {
+            "observed_text": product.title,
+            "guard": guard.model_dump(mode="json"),
+            "adjudicated": adjudicated.model_dump(mode="json"),
+            "would_change_active_profile": adjudicated != guard,
+        }
+    stats["invalid_proposal_count"] += len(set(by_id) - seen_ids)
+
+
 async def rewrite_query(backend: ModelBackend, ctx: ResearchContext) -> JsonDecision:
     sample = [_brief(item) for item in ctx.pool[:8]]
+    rec = rec_state_from_mission(ctx.mission)
     return await _ask(
         backend,
+        ctx,
         system=_REWRITE_SYSTEM,
         user=json.dumps(
             {
                 "task": "rewrite",
                 "query": ctx.current_query,
-                "intent_query": ctx.mission.constraints.query,
+                "intent_query": rec.query,
                 "previous_queries": [ctx.plan.query, *ctx.rewritten_queries],
                 "pool_size": len(ctx.pool),
                 "pool_sample": sample,
@@ -143,30 +279,3 @@ def parse_rewrite(decision: JsonDecision, ctx: ResearchContext) -> str | None:
     if not query or query == ctx.current_query or query in ctx.rewritten_queries:
         return None
     return query
-
-
-async def select_topk(backend: ModelBackend, ctx: ResearchContext) -> list[str] | None:
-    if not ctx.pool:
-        return []
-    decision = await _ask(
-        backend,
-        system=_TOPK_SYSTEM,
-        user=json.dumps(
-            {
-                "task": "select_topk",
-                "k": ctx.limits.top_k,
-                "query": ctx.mission.constraints.query,
-                "budget_cny": ctx.mission.constraints.budget_cny,
-                "preference": ctx.mission.constraints.preference,
-                "use_case": getattr(ctx.mission.belief, "use_case", None),
-                "candidates": [_brief(item) for item in ctx.pool],
-            },
-            ensure_ascii=False,
-        ),
-    )
-    if not decision.decided:
-        return None
-    raw = decision.payload.get("ranked")
-    if not isinstance(raw, list):
-        return None
-    return [str(item).strip() for item in raw if str(item).strip()]

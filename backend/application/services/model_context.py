@@ -24,7 +24,7 @@ def _cny_of(item: object) -> float | None:
 
 def _title_of(item: object) -> str:
     if hasattr(item, "title"):
-        return str(getattr(item, "title") or "")
+        return str(item.title or "")
     if isinstance(item, dict):
         return str(item.get("title") or "")
     return ""
@@ -32,7 +32,7 @@ def _title_of(item: object) -> str:
 
 def _id_of(item: object) -> str | None:
     if hasattr(item, "id"):
-        value = getattr(item, "id")
+        value = item.id
         return str(value) if value else None
     if isinstance(item, dict):
         value = item.get("snapshot_id") or item.get("id") or item.get("source_product_id")

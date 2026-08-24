@@ -5,24 +5,58 @@
 - 库存事实判定、排除项、否定候选都在流水线内完成。
 因此无论 LLM 以何种顺序调用工具，事实层结果都正确、可审计。
 """
+
 from __future__ import annotations
 
 from typing import Any
 
 from ...application.dto import ToolCall, ToolSpec
+from ...application.dto.belief import SpecGate
+from ...application.dto.research import QueryPurpose, ResearchQueryTrace
+from ...application.errors import UpstreamUnavailableError
 from ...application.ports import FxSource, ProductSource, RunProgress
+from ...application.services.goal import constraint_view_from_goal, ensure_goal_authority
 from ...application.services.model_context import catalog_stats
 from ...application.services.rec import (
+    assess_goal_coverage,
     market_native_caps,
     normalize_products,
+    rec_state_from_mission,
     run_filter,
     run_fx,
     run_rank,
     run_search,
 )
+from ...application.services.rec.qualify import qualify_product
+from ...domain.models import NormalizedProduct
+from ...domain.policies.score import dimension_matches, title_matches_preference
 from .context import ResearchContext
 
 _MARKET_ENUM = ["US", "SG", "VN", "TH", "MY"]
+
+
+def _preference_evidence_coverage(ctx: ResearchContext) -> dict[str, float]:
+    rec = rec_state_from_mission(ctx.mission)
+    products = {
+        item.id: item for item in [*ctx.pool, *ctx.products, *ctx.evidence_candidates.values()]
+    }
+    eligible = [
+        products[item.candidate_id]
+        for item in ctx.qualifications.values()
+        if item.eligibility == "eligible" and item.candidate_id in products
+    ]
+    if not eligible:
+        return {}
+    result: dict[str, float] = {}
+    if rec.preference in {"battery", "noise"}:
+        hits = sum(title_matches_preference(item, rec.preference) for item in eligible)
+        result[rec.preference] = round(hits / len(eligible), 4)
+    for attr, _direction, status, cues in rec.soft_prefs:
+        if status != "active" or attr in {"price", "weight"}:
+            continue
+        hits = sum(dimension_matches(item, attr=attr, cues=cues) for item in eligible)
+        result[attr] = round(hits / len(eligible), 4)
+    return result
 
 
 def _brief(product: Any) -> dict[str, Any]:
@@ -157,7 +191,12 @@ class ResearchTools:
         query = str(args.get("query") or ctx.plan.query or "")
         markets = [m for m in (args.get("markets") or ctx.plan.markets) if m in _MARKET_ENUM]
         markets = markets or list(ctx.plan.markets)
-        mode = args.get("mode") if args.get("mode") in {"keyword", "hybrid"} else ctx.plan.mode
+        remaining_requests = ctx.limits.max_total_requests - ctx.request_count
+        if remaining_requests <= 0:
+            ctx.stop_reason = "request_budget_exhausted"
+            return {"found": 0, "error": "request_budget_exhausted"}
+        markets = markets[:remaining_requests]
+        mode = str(args.get("mode") if args.get("mode") in {"keyword", "hybrid"} else ctx.plan.mode)
         limit = int(args.get("limit") or ctx.plan.limit)
         skip_cap = bool(args.get("skip_budget_cap"))
         caps: dict[str, float] = {}
@@ -177,17 +216,26 @@ class ResearchTools:
             limit=limit,
             max_concurrency=self._max_concurrency,
             max_prices=caps or None,
+            goal_version=ctx.mission.goal.goal_version,
         )
         ctx.products = list(outcome.products)
+        ctx.request_count += len(outcome.executions)
+        ctx.search_executions.extend(outcome.executions)
+        for observation in outcome.observations:
+            ctx.product_observations[observation.source_product_id] = observation
         ctx.batch = []
         ctx.recall_count = len(ctx.products)
         ctx.failed_markets = list(outcome.failed_markets)
         ctx.searched = True
         ctx.converted = False
         ctx.add_warnings(outcome.warnings)
+        rec = rec_state_from_mission(ctx.mission)
         stats = catalog_stats(
             ctx.products,
-            gates=list(getattr(ctx.mission.belief, "spec_gates", []) or []),
+            gates=[
+                SpecGate(attr=attr, cues=list(cues), required=required)
+                for attr, cues, required in rec.spec_gates
+            ],
             found=len(ctx.products),
         )
         return {
@@ -215,33 +263,180 @@ class ResearchTools:
             "sample": [_brief(p) for p in ctx.products[:5]],
         }
 
-    async def _filter_candidates(self, ctx: ResearchContext, args: dict[str, Any]) -> dict[str, Any]:
+    async def _filter_candidates(
+        self, ctx: ResearchContext, args: dict[str, Any]
+    ) -> dict[str, Any]:
         del args
         if not ctx.converted:
             await self._convert_fx(ctx, {})
-        belief = ctx.mission.belief
-        products, warnings = run_filter(
+        rec = rec_state_from_mission(ctx.mission)
+        spec_gates = [
+            SpecGate(attr=attr, cues=list(cues), required=required)
+            for attr, cues, required in rec.spec_gates
+        ]
+        if ctx.mission.goal.target.item_type in ctx.enabled_item_types:
+            for product in ctx.products:
+                if product.country_code:
+                    ctx.candidate_markets[product.id] = product.country_code
+                qualification = qualify_product(product, ctx.mission.goal)
+                ctx.qualifications[product.id] = qualification
+                if qualification.eligibility == "needs_evidence":
+                    ctx.evidence_candidates[product.id] = product
+            ctx.goal_coverage = assess_goal_coverage(
+                list(ctx.qualifications.values()),
+                goal_version=ctx.mission.goal.goal_version,
+                minimum_eligible=ctx.limits.minimum_eligible,
+                search_attempt_count=ctx.search_count + 1,
+                request_count=ctx.request_count,
+                request_budget=ctx.limits.max_total_requests,
+                remaining_time_ms=ctx.remaining_time_ms(),
+                model_call_count=ctx.model_call_count,
+                model_call_budget=ctx.limits.max_model_calls,
+                estimated_token_count=ctx.estimated_token_count,
+                token_budget=ctx.limits.max_estimated_tokens,
+                marginal_unique_observations=ctx.marginal_unique_observations,
+                marginal_eligible_count=ctx.marginal_eligible_count,
+                consecutive_no_gain=ctx.consecutive_no_gain,
+                requested_markets=list(ctx.mission.goal.retrieval_scope.markets_requested),
+                eligible_markets=[
+                    ctx.candidate_markets.get(item.candidate_id, "")
+                    for item in ctx.qualifications.values()
+                    if item.eligibility == "eligible"
+                ],
+                preference_evidence_coverage=_preference_evidence_coverage(ctx),
+            )
+        canonical_goal = ensure_goal_authority(
+            ctx.mission.goal,
             ctx.mission.constraints,
+            version=max(ctx.mission.goal.goal_version, ctx.mission.constraints_version),
+            belief=ctx.mission.belief,
+        )
+        products, warnings = run_filter(
+            constraint_view_from_goal(canonical_goal, fallback=ctx.mission.constraints),
             ctx.products,
-            rejected_snapshot_ids=set(getattr(belief, "rejected_snapshot_ids", []) or []),
-            rejected_listing_keys=set(getattr(belief, "rejected_listing_keys", []) or []),
-            spec_gates=list(getattr(belief, "spec_gates", []) or []),
+            rejected_snapshot_ids=set(rec.rejected_snapshot_ids),
+            rejected_listing_keys=set(rec.rejected_listing_keys),
+            spec_gates=spec_gates,
             snapshot_map={},
+            goal=canonical_goal,
+            enabled_item_types=ctx.enabled_item_types,
         )
         ctx.products = products
         ctx.batch = list(products)
         ctx.add_warnings(warnings)
-        stats = catalog_stats(products, gates=list(getattr(belief, "spec_gates", []) or []))
-        return {"kept": len(products), "warnings": warnings, **stats.as_payload()}
+        stats = catalog_stats(products, gates=spec_gates)
+        return {
+            "kept": len(products),
+            "warnings": warnings,
+            "coverage": ctx.goal_coverage.model_dump(mode="json") if ctx.goal_coverage else None,
+            **stats.as_payload(),
+        }
+
+    async def supplement_evidence(self, ctx: ResearchContext) -> list[NormalizedProduct]:
+        """Fetch details only for candidates blocked by missing evidence."""
+        remaining_requests = max(0, ctx.limits.max_total_requests - ctx.request_count)
+        recall_reserve = (
+            min(len(ctx.plan.markets), remaining_requests)
+            if ctx.search_count + 1 < ctx.limits.max_searches
+            else 0
+        )
+        evidence_budget = max(0, remaining_requests - recall_reserve)
+        pending = [
+            product
+            for product_id, product in ctx.evidence_candidates.items()
+            if product_id not in ctx.evidence_attempted_ids
+        ][: min(ctx.limits.max_evidence_fetches, evidence_budget)]
+        enriched: list[NormalizedProduct] = []
+        for original in pending:
+            if ctx.request_count >= ctx.limits.max_total_requests:
+                ctx.stop_reason = "request_budget_exhausted"
+                break
+            if ctx.wall_time_exhausted():
+                ctx.stop_reason = "time_budget_exhausted"
+                break
+            ctx.evidence_attempted_ids.add(original.id)
+            ctx.query_trace.append(
+                ResearchQueryTrace(
+                    query=f"detail:{original.id}",
+                    markets=[original.country_code] if original.country_code else [],
+                    purpose=QueryPurpose.EVIDENCE_SUPPLEMENT,
+                    search_index=ctx.search_count,
+                )
+            )
+            try:
+                ctx.request_count += 1
+                detail_observation = None
+                detail_capability = getattr(self._products, "get_product_with_observation", None)
+                if callable(detail_capability):
+                    detailed = await detail_capability(original.id)
+                    if detailed is None:
+                        detail = None
+                    else:
+                        detail, detail_observation = detailed
+                else:
+                    detail = await self._products.get_product(original.id)
+            except UpstreamUnavailableError as exc:
+                ctx.add_warnings(f"商品 {original.id} 详情补证失败：{exc.code}")
+                continue
+            if detail is None:
+                continue
+            if detail_observation is not None:
+                ctx.product_observations[detail.id] = detail_observation.model_copy(
+                    update={"goal_version": ctx.mission.goal.goal_version}
+                )
+            detail = detail.model_copy(
+                update={
+                    "rmb_price": original.rmb_price,
+                    "fx_as_of": original.fx_as_of,
+                    "fx_failed": original.fx_failed,
+                }
+            )
+            qualification = qualify_product(detail, ctx.mission.goal)
+            if detail.country_code:
+                ctx.candidate_markets[detail.id] = detail.country_code
+            ctx.qualifications[detail.id] = qualification
+            ctx.evidence_candidates[detail.id] = detail
+            if qualification.eligibility == "eligible":
+                enriched.append(detail)
+        if ctx.qualifications:
+            ctx.goal_coverage = assess_goal_coverage(
+                list(ctx.qualifications.values()),
+                goal_version=ctx.mission.goal.goal_version,
+                minimum_eligible=ctx.limits.minimum_eligible,
+                search_attempt_count=ctx.search_count,
+                request_count=ctx.request_count,
+                request_budget=ctx.limits.max_total_requests,
+                remaining_time_ms=ctx.remaining_time_ms(),
+                model_call_count=ctx.model_call_count,
+                model_call_budget=ctx.limits.max_model_calls,
+                estimated_token_count=ctx.estimated_token_count,
+                token_budget=ctx.limits.max_estimated_tokens,
+                marginal_unique_observations=ctx.marginal_unique_observations,
+                marginal_eligible_count=ctx.marginal_eligible_count,
+                consecutive_no_gain=ctx.consecutive_no_gain,
+                requested_markets=list(ctx.mission.goal.retrieval_scope.markets_requested),
+                eligible_markets=[
+                    ctx.candidate_markets.get(item.candidate_id, "")
+                    for item in ctx.qualifications.values()
+                    if item.eligibility == "eligible"
+                ],
+                preference_evidence_coverage=_preference_evidence_coverage(ctx),
+            )
+        return enriched
 
     async def _rank_candidates(self, ctx: ResearchContext, args: dict[str, Any]) -> dict[str, Any]:
         del args
         if not ctx.converted:
             await self._convert_fx(ctx, {})
-        ranked, warnings = run_rank(ctx.mission, ctx.products, snapshot_map={})
+        ranked, warnings = run_rank(ctx.mission, ctx.products, snapshot_map={}, limit=None)
         ctx.ranked = ranked
         ctx.add_warnings(warnings)
-        stats = catalog_stats(ranked, gates=list(getattr(ctx.mission.belief, "spec_gates", []) or []))
+        rec = rec_state_from_mission(ctx.mission)
+        gates = [
+            SpecGate(attr=attr, cues=list(cues), required=required)
+            for attr, cues, required in rec.spec_gates
+        ]
+        stats = catalog_stats(ranked, gates=gates)
         return {"count": len(ranked), "ranked": stats.sample, **stats.as_payload()}
 
     async def emit_ranked(self, count: int) -> None:

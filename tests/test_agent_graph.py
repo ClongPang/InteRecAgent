@@ -10,19 +10,24 @@ import json
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.agent.graph import NODE_NAMES, build_graph
+from backend.agent.nodes.decide import released_category_clarification
 from backend.agent.runner import LangGraphMissionRunner
 from backend.application.dto import ProductSearchResult, ShoppingMission
 from backend.application.errors import UpstreamUnavailableError
 from backend.application.services import MissionCommandService
 from backend.domain.models import FxSnapshot
-from backend.domain.policies.normalize import normalize_item
 from backend.infrastructure.fx_sources.fixed import FixedFxSource
 from backend.infrastructure.llm.unconfigured import UnconfiguredModelBackend
+from backend.infrastructure.persistence.orm import ProductSnapshotRow
 from backend.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
-from backend.infrastructure.product_sources.buywhere import BuyWhereSearchResponse
+from backend.infrastructure.product_sources.buywhere import (
+    BuyWhereSearchResponse,
+    _normalize_response,
+)
 from backend.infrastructure.product_sources.fixture import FixtureProductSource
 from backend.infrastructure.runtime.in_process_dispatcher import InProcessRunDispatcher
 
@@ -96,16 +101,23 @@ def test_graph_has_required_nodes_and_routes() -> None:
 
 
 def test_node_names_match_spec() -> None:
-    """节点集必须与对话路由后的显式节点清单一致。
+    """Goal V2 artifact boundaries must be explicit graph nodes."""
+    required = {
+        "assess_next_action", "plan_research", "retrieve_buywhere",
+        "normalize_observation", "build_semantic_profile", "qualify_candidates",
+        "assess_coverage", "rank_feasible", "build_answer_plan", "verify_claims",
+        "render_response", "completion_check", "persist_decision_snapshot",
+    }
+    assert required <= set(NODE_NAMES)
+    assert "execute_ops" not in NODE_NAMES
 
-    检索子图已从线性链收敛为单个 research 节点（LLM 自主编排 + 动态 tool-use，AGT-001）；
-    filter/rank 节点保留供 refilter/rerank 增量路径复用。"""
-    assert NODE_NAMES == (
-        "receive_message",
-        "decide",
-        "execute_ops",
-        "persist_decision_snapshot",
-    )
+
+def test_unreleased_category_message_uses_actual_feature_gate() -> None:
+    message = released_category_clarification(frozenset({"smartphone", "headphones"}))
+
+    assert "手机、耳机" in message
+    assert "显示器" not in message
+    assert "尚未开放" in message
 
 
 def test_bind_trigger_uses_this_run_event() -> None:
@@ -166,8 +178,7 @@ async def db():
 def _sony_result() -> ProductSearchResult:
     body = json.loads((FIXTURES / "search_sony_keyword_us.json").read_text(encoding="utf-8"))
     resp = BuyWhereSearchResponse.model_validate(body)
-    products = [normalize_item(i) for i in resp.data if i.price and i.price.amount]
-    return ProductSearchResult(products=products)
+    return _normalize_response(resp, retrieval_context={"test_fixture": True})
 
 
 def _runner(sf, *, products=None, fx=None) -> LangGraphMissionRunner:
@@ -199,6 +210,11 @@ async def _load_mission(sf, mission_id: str) -> ShoppingMission:
         return mission
 
 
+async def _candidate_set(sf, candidate_set_id: str) -> dict | None:
+    async with SqlAlchemyUnitOfWork(sf) as uow:
+        return await uow.candidate_sets.get(candidate_set_id)
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_normal_path_reaches_ready(db) -> None:
@@ -216,6 +232,82 @@ async def test_normal_path_reaches_ready(db) -> None:
     assert loaded.candidate_set_id == result.candidate_set_id
     assert loaded.constraints.query == "通勤降噪耳机"
     assert loaded.constraints.budget_cny == 4000
+    async with SqlAlchemyUnitOfWork(db) as uow:
+        stored_run = await uow.recommendation_runs.get(result.recommendation_run_id)
+        events = await uow.events.list_since(mission_id=mission.id)
+    assert stored_run is not None
+    assert stored_run["final_json"]["verification"] == "passed"
+    assert stored_run["final_json"]["claim_ledger"]["candidate_set_id"] == result.candidate_set_id
+    bundle = stored_run["final_json"]["decision_bundle"]
+    assert bundle["schema_version"] == "decision-bundle-v1"
+    assert bundle["goal_version"] == loaded.goal.goal_version
+    assert bundle["candidate_set_id"] == result.candidate_set_id
+    assert bundle["answer_plan"] == stored_run["final_json"]["answer_plan"]
+    assert bundle["claim_ledger"] == stored_run["final_json"]["claim_ledger"]
+    assert any(event["event_type"] == "answer.claims_verified" for event in events)
+    candidate_set = await _candidate_set(db, result.candidate_set_id)
+    assert candidate_set is not None
+    assert candidate_set["search_executions"]
+    assert candidate_set["product_observations"]
+    assert all(item.get("snapshot_id") for item in candidate_set["product_observations"])
+    assert all(item.get("rank_explanation") for item in candidate_set["ranked"])
+    assert all(
+        item["rank_explanation"]["assessment_reason_codes"]
+        for item in candidate_set["ranked"]
+    )
+    assert all(
+        item["goal_version"] == loaded.goal.goal_version
+        for item in candidate_set["search_executions"]
+    )
+    assert all(
+        item["goal_version"] == loaded.goal.goal_version
+        for item in candidate_set["product_observations"]
+    )
+    assert all(
+        item["goal_version"] == loaded.goal.goal_version
+        and all(
+            assessment["goal_version"] == loaded.goal.goal_version
+            for assessment in item["assessments"]
+        )
+        for item in candidate_set["qualifications"]
+    )
+    async with db() as session:
+        snapshot = (await session.scalars(select(ProductSnapshotRow).limit(1))).first()
+    assert snapshot is not None
+    assert snapshot.raw_json["source_product_id"]
+    assert snapshot.raw_json["raw_item"]["title"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_goal_revision_is_committed_before_product_source_call(db) -> None:
+    mission = await _create_mission_with_message(db, "Sony 耳机，预算 2500 元，美国")
+
+    class AssertCommittedSource:
+        async def search(self, query, *, country_code, mode="keyword", limit=20, max_price=None):
+            del query, country_code, mode, limit, max_price
+            current = await _load_mission(db, mission.id)
+            assert current.constraints_version == 2
+            assert current.goal.target.item_type == "headphones"
+            assert current.goal.target.brand == "Sony"
+            async with SqlAlchemyUnitOfWork(db) as uow:
+                events = await uow.events.list_since(mission_id=mission.id)
+            kinds = [event["event_type"] for event in events]
+            assert "goal.operations_proposed" in kinds
+            assert "goal.operations_committed" in kinds
+            return _sony_result()
+
+        async def get_product(self, product_id):
+            del product_id
+            return None
+
+    result = await _runner(db, products=AssertCommittedSource()).run(
+        owner_id=OWNER,
+        mission_id=mission.id,
+        run_id="00000000-0000-0000-0000-00000000000b",
+        constraints_version=1,
+    )
+    assert result.status.value in {"completed", "degraded"}
 
 
 @pytest.mark.integration
@@ -228,22 +320,57 @@ async def test_clarification_when_no_query(db) -> None:
     assert result.status.value == "completed"
     loaded = await _load_mission(db, mission.id)
     assert loaded.stage.value == "clarifying"
-    # 无商品查询时不推进约束版本
-    assert loaded.constraints_version == 1
+    # 预算本身是有效 Goal revision：先原子提交，再就缺失品类澄清。
+    assert loaded.constraints_version == 2
+    assert loaded.constraints.budget_cny == 2000
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_unvalidated_fourth_category_is_blocked_before_search(db) -> None:
+    class FailOnSearch:
+        async def search(self, *args, **kwargs):
+            raise AssertionError("未通过品类门槛时不得访问商品源")
+
+        async def get_product(self, product_id):
+            del product_id
+            return None
+
+    mission = await _create_mission_with_message(db, "MacBook Air laptop")
+    result = await _runner(db, products=FailOnSearch()).run(
+        owner_id=OWNER,
+        mission_id=mission.id,
+        run_id="00000000-0000-0000-0000-00000000000c",
+        constraints_version=1,
+    )
+    assert result.status.value == "completed"
+    loaded = await _load_mission(db, mission.id)
+    assert loaded.stage.value == "clarifying"
+    assert loaded.goal.target.item_type == "laptop"
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_no_results_is_degraded(db) -> None:
-    # TH 无 fixture → 空结果
-    mission = await _create_mission_with_message(db, "索尼耳机，泰国")
+    # Use a query that remains empty even after the agent widens markets.
+    expected_mission = await _create_mission_with_message(
+        db, "iPhone 15 Pro, budget CNY 1, Thailand"
+    )
     result = await _runner(db).run(
-        owner_id=OWNER, mission_id=mission.id, run_id="00000000-0000-0000-0000-000000000003", constraints_version=1
+        owner_id=OWNER, mission_id=expected_mission.id, run_id="00000000-0000-0000-0000-000000000003", constraints_version=1
     )
     assert result.status.value == "degraded"
-    loaded = await _load_mission(db, mission.id)
+    loaded = await _load_mission(db, expected_mission.id)
     assert loaded.stage.value == "degraded"
     assert loaded.candidate_set_id is not None  # 空候选集也已记录
+    async with SqlAlchemyUnitOfWork(db) as uow:
+        candidate_set = await uow.candidate_sets.get(loaded.candidate_set_id)
+        events = await uow.events.list_since(mission_id=expected_mission.id)
+    assert candidate_set is not None
+    assert candidate_set["coverage"]["status"] == "insufficient"
+    assert candidate_set["ranked"] == []
+    assert any(event["event_type"] == "goal.operations_committed" for event in events)
+    assert any(event["event_type"] == "coverage.assessed" for event in events)
 
 
 @pytest.mark.integration

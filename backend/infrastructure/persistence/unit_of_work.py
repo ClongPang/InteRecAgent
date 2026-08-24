@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Self
 
+from anyio import CancelScope
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ...application.ports.event_broker import MissionEventBroker
@@ -75,12 +76,18 @@ class SqlAlchemyUnitOfWork:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
-        if exc_type is not None and self._session is not None:
-            self._pending.clear()
-            await self._session.rollback()
-        if self._session is not None:
-            await self._session.close()
+        session = self._session
         self._session = None
+        if session is None:
+            return
+        # Starlette/AnyIO uses level cancellation for disconnected streaming
+        # requests. A shielded AnyIO scope guarantees rollback/close completes
+        # before the original request cancellation propagates.
+        with CancelScope(shield=True):
+            if exc_type is not None:
+                self._pending.clear()
+                await session.rollback()
+            await session.close()
 
     async def commit(self) -> None:
         assert self._session is not None

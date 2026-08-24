@@ -191,7 +191,8 @@ async def test_update_constraints_dispatches_new_version() -> None:
     assert version == 3
     assert missions.missions["m1"].constraints_version == 3
     assert missions.missions["m1"].constraints.budget_cny == 3000
-    assert events.events[0][1] == "constraints.updated"
+    assert any(item[1] == "constraints.updated" for item in events.events)
+    assert any(item[1] == "goal.operations_committed" for item in events.events)
     assert missions.missions["m1"].turn_phase.value == "researching"
 
 

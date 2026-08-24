@@ -10,6 +10,11 @@ const REASON_TEXT: Record<string, string> = {
   matches_noise_cue: '标题含降噪线索',
   matches_battery_cue: '标题含续航线索',
   price_sensitive: '按更便宜态度加权',
+  item_type_match: '商品品类符合需求',
+  relation_match: '确认是目标商品本体',
+  brand_match: '品牌符合需求',
+  stock_match: '库存状态符合要求',
+  budget_match: '价格在预算范围内',
 }
 
 export function preferenceText(preference: Preference): string {
@@ -27,7 +32,7 @@ export function budgetText(budget: number | null | undefined): string {
 }
 
 export function reasonText(reason: string): string {
-  return REASON_TEXT[reason] ?? reason
+  return REASON_TEXT[reason] ?? '符合当前筛选条件'
 }
 
 export function reasonsText(reasons: string[] | undefined): string {

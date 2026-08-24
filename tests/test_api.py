@@ -10,6 +10,7 @@ import asyncio
 import httpx
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 
 from backend.api.app import create_app
 from backend.bootstrap.container import Container
@@ -30,7 +31,7 @@ TRUNCATE_SQL = (
 
 @pytest.fixture
 async def client():
-    engine = create_async_engine(TEST_DB_URL)
+    engine = create_async_engine(TEST_DB_URL, poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.exec_driver_sql(TRUNCATE_SQL)
     await engine.dispose()
@@ -120,7 +121,7 @@ async def test_create_mission_runs_agent_to_ready(client) -> None:
     ranked = cands.json()["ranked"]
     assert ranked
     assert ranked[0]["snapshot_id"]
-    assert ranked[0]["source_product_id"]
+    assert "source_product_id" not in ranked[0]
     assert "owner_id" not in mission
 
 
@@ -175,7 +176,7 @@ async def test_comparison_two_to_four_boundary(client) -> None:
     # 5 件 → 校验错误
     bad5 = await client.put(
         f"/api/v1/missions/{mission_id}/comparison",
-        json={"constraints_version": version, "snapshot_ids": ids[:5]},
+        json={"constraints_version": version, "snapshot_ids": (ids * 3)[:5]},
         headers=_headers(),
     )
     assert bad5.status_code in (400, 422)

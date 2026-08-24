@@ -104,3 +104,42 @@ def test_talk_and_present_do_not_call_product_detail() -> None:
         text = path.read_text(encoding="utf-8")
         for pat in banned:
             assert pat not in text, f"{_rel(path)} 不应调用详情/比较接口: {pat}"
+
+
+def test_only_explicit_v2_execution_path_can_be_wired() -> None:
+    """Full release must not retain a callable legacy graph or traffic splitter."""
+    forbidden_files = [
+        BACKEND / "agent" / "nodes" / "execute.py",
+        BACKEND / "agent" / "nodes" / "clarify.py",
+        BACKEND / "agent" / "nodes" / "parse_intent.py",
+        BACKEND / "application" / "services" / "execute_ops.py",
+    ]
+    assert not any(path.exists() for path in forbidden_files)
+
+    scanned = [
+        BACKEND / "agent" / "graph.py",
+        BACKEND / "agent" / "runner.py",
+        BACKEND / "bootstrap" / "container.py",
+        BACKEND / "bootstrap" / "settings.py",
+    ]
+    banned = (
+        "CanaryMissionRunner",
+        "legacy_execute_ops",
+        "explicit_graph_canary_percent",
+        "rollout_cohort",
+    )
+    for path in scanned:
+        source = path.read_text(encoding="utf-8")
+        for token in banned:
+            assert token not in source, f"{_rel(path)} reintroduced legacy route: {token}"
+
+
+def test_persist_is_a_validator_not_an_artifact_fallback_factory() -> None:
+    source = (BACKEND / "agent" / "nodes" / "persist.py").read_text(encoding="utf-8")
+    banned = (
+        "build_recommendation_answer_plan",
+        "build_candidate_claim_ledger",
+        '"normalized_fallback"',
+    )
+    for token in banned:
+        assert token not in source, f"persist reintroduced artifact fallback: {token}"

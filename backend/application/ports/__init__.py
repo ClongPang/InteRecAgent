@@ -5,7 +5,6 @@ from .fx_source import FxSource
 from .mission_runner import MissionRunner
 from .model_backend import ModelBackend
 from .product_source import ProductSource
-from .run_progress import RunProgress
 from .repositories import (
     CandidateSetRepository,
     FxSnapshotRepository,
@@ -16,6 +15,7 @@ from .repositories import (
     RecommendationRunRepository,
 )
 from .run_dispatcher import RunDispatcher
+from .run_progress import RunProgress
 from .unit_of_work import UnitOfWork
 
 __all__ = [

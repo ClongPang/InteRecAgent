@@ -9,11 +9,17 @@ from ...application.dto import (
     DialogueState,
     MissionConstraints,
     MissionStage,
+    ShoppingGoal,
     ShoppingMission,
     TurnPhase,
 )
 from ...application.dto.belief import PreferenceBelief
 from ...application.errors import MissionVersionConflict
+from ...application.services.goal import (
+    belief_view_from_goal,
+    constraint_view_from_goal,
+    ensure_goal_authority,
+)
 from ...domain.models import FxSnapshot, NormalizedProduct
 from .orm import (
     CandidateSetRow,
@@ -26,30 +32,64 @@ from .orm import (
 )
 
 
+def _goal_has_state(goal: ShoppingGoal) -> bool:
+    return bool(
+        goal.target.canonical_description
+        or goal.target.item_type
+        or goal.constraints
+        or goal.preferences
+        or goal.retrieval_scope.markets_requested
+        or goal.retrieval_scope.merchants
+        or goal.rejected_entities
+    )
+
+
+def _canonical_goal(mission: ShoppingMission) -> tuple[ShoppingGoal, MissionConstraints]:
+    goal = ensure_goal_authority(
+        mission.goal,
+        mission.constraints,
+        version=max(mission.goal.goal_version, mission.constraints_version),
+        belief=mission.belief,
+    )
+    return goal, constraint_view_from_goal(goal, fallback=mission.constraints)
+
+
 def _mission_payload(mission: ShoppingMission) -> dict:
     """ShoppingMission 业务字段 → constraints_json（title/constraints/推荐与候选指针）。"""
+    _goal, constraints = _canonical_goal(mission)
     return {
         "title": mission.title,
-        "constraints": mission.constraints.model_dump(mode="json"),
+        "constraints": constraints.model_dump(mode="json"),
         "candidate_set_id": mission.candidate_set_id,
         "comparison_snapshot_ids": mission.comparison_snapshot_ids,
         "recommendation_run_id": mission.recommendation_run_id,
         "warnings": mission.warnings,
         "turn_phase": mission.turn_phase.value,
         "dialogue": mission.dialogue.model_dump(mode="json"),
-        "belief": mission.belief.model_dump(mode="json"),
+        "belief": belief_view_from_goal(_goal, fallback=mission.belief).model_dump(mode="json"),
     }
 
 
 def _row_to_mission(row: ShoppingMissionRow) -> ShoppingMission:
     data = row.constraints_json or {}
+    stored_constraints = MissionConstraints(**(data.get("constraints") or {}))
+    goal_payload = row.goal_json or data.get("goal") or {}
+    stored_goal = ShoppingGoal(**goal_payload)
+    belief = PreferenceBelief(**(data.get("belief") or {}))
+    goal = ensure_goal_authority(
+        stored_goal,
+        stored_constraints,
+        version=max(stored_goal.goal_version, row.goal_version, row.constraints_version),
+        belief=belief,
+    )
+    projected_constraints = constraint_view_from_goal(goal, fallback=stored_constraints)
     return ShoppingMission(
         id=str(row.id),
         owner_id=str(row.owner_id),
         title=data.get("title") or "未命名选购",
         stage=MissionStage(row.stage) if row.stage else MissionStage.COLLECTING,
         constraints_version=row.constraints_version,
-        constraints=MissionConstraints(**(data.get("constraints") or {})),
+        constraints=projected_constraints,
         active_run_id=str(row.active_run_id) if row.active_run_id else None,
         candidate_set_id=data.get("candidate_set_id"),
         comparison_snapshot_ids=data.get("comparison_snapshot_ids") or [],
@@ -57,7 +97,8 @@ def _row_to_mission(row: ShoppingMissionRow) -> ShoppingMission:
         warnings=data.get("warnings") or [],
         turn_phase=TurnPhase(data["turn_phase"]) if data.get("turn_phase") else TurnPhase.IDLE,
         dialogue=DialogueState(**(data.get("dialogue") or {})),
-        belief=PreferenceBelief(**(data.get("belief") or {})),
+        belief=belief_view_from_goal(goal, fallback=belief),
+        goal=goal,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -94,11 +135,16 @@ class PostgresMissionRepository:
 
     async def create(self, *, owner_id: str, title: str) -> ShoppingMission:
         mission = ShoppingMission(owner_id=owner_id, title=title)
+        goal, constraints = _canonical_goal(mission)
+        canonical = mission.model_copy(update={"goal": goal, "constraints": constraints})
         row = ShoppingMissionRow(
             owner_id=uuid.UUID(owner_id),
-            stage=mission.stage.value,
-            constraints_json=_mission_payload(mission),
+            stage=canonical.stage.value,
+            constraints_json=_mission_payload(canonical),
             constraints_version=1,
+            goal_json=goal.model_dump(mode="json"),
+            goal_version=goal.goal_version,
+            schema_version="goal-v2",
         )
         self._session.add(row)
         await self._session.flush()
@@ -106,18 +152,25 @@ class PostgresMissionRepository:
 
     async def save(self, mission: ShoppingMission, *, expected_version: int | None = None) -> None:
         """写回任务。expected_version 非空时做版本条件更新；行版本不匹配抛冲突（DAT-005）。"""
+        goal, constraints = _canonical_goal(mission)
+        canonical = mission.model_copy(update={"goal": goal, "constraints": constraints})
         values = {
-            "stage": mission.stage.value,
-            "constraints_json": _mission_payload(mission),
-            "constraints_version": mission.constraints_version,
-            "active_run_id": uuid.UUID(mission.active_run_id) if mission.active_run_id else None,
-            "updated_at": mission.updated_at,
+            "stage": canonical.stage.value,
+            "constraints_json": _mission_payload(canonical),
+            "constraints_version": canonical.constraints_version,
+            "goal_json": goal.model_dump(mode="json"),
+            "goal_version": goal.goal_version,
+            "schema_version": "goal-v2",
+            "active_run_id": uuid.UUID(canonical.active_run_id)
+            if canonical.active_run_id
+            else None,
+            "updated_at": canonical.updated_at,
         }
         stmt = update(ShoppingMissionRow).where(ShoppingMissionRow.id == uuid.UUID(mission.id))
         if expected_version is not None:
             stmt = stmt.where(ShoppingMissionRow.constraints_version == expected_version)
         result = await self._session.execute(stmt.values(**values))
-        if expected_version is not None and result.rowcount == 0:
+        if expected_version is not None and getattr(result, "rowcount", 0) == 0:
             raise MissionVersionConflict(
                 f"mission {mission.id} 约束版本已变化，期望 {expected_version}"
             )
@@ -177,18 +230,26 @@ class PostgresProductSnapshotRepository:
         self._session = session
 
     async def save(
-        self, *, product: NormalizedProduct, raw_payload: dict, contract_version: str
+        self,
+        *,
+        product: NormalizedProduct,
+        raw_payload: dict,
+        contract_version: str,
+        snapshot_id: str | None = None,
     ) -> str:
+        resolved_snapshot_id = uuid.UUID(snapshot_id) if snapshot_id else uuid.uuid4()
+        persisted_raw = {**raw_payload, "snapshot_id": str(resolved_snapshot_id)}
         row = ProductSnapshotRow(
+            id=resolved_snapshot_id,
             source="buywhere",
             source_product_id=product.id,
             contract_version=contract_version,
-            raw_json=raw_payload,
+            raw_json=persisted_raw,
             normalized_json=product.model_dump(mode="json"),
         )
         self._session.add(row)
         await self._session.flush()
-        return str(row.id)
+        return str(resolved_snapshot_id)
 
     async def get(self, snapshot_id: str) -> dict | None:
         try:
@@ -203,6 +264,8 @@ class PostgresProductSnapshotRepository:
             "source": row.source,
             "source_product_id": row.source_product_id,
             "normalized": row.normalized_json,
+            "raw": row.raw_json,
+            "contract_version": row.contract_version,
             "fetched_at": row.fetched_at,
         }
 
@@ -231,9 +294,16 @@ class PostgresCandidateSetRepository:
         self._session = session
 
     async def save(
-        self, *, mission_id: str, run_id: str, constraints_version: int, payload: dict
+        self,
+        *,
+        mission_id: str,
+        run_id: str,
+        constraints_version: int,
+        payload: dict,
+        candidate_set_id: str | None = None,
     ) -> str:
         row = CandidateSetRow(
+            id=uuid.UUID(candidate_set_id) if candidate_set_id else uuid.uuid4(),
             mission_id=uuid.UUID(mission_id),
             run_id=uuid.UUID(run_id),
             constraints_version=constraints_version,
@@ -312,7 +382,7 @@ class PostgresRecommendationRunRepository:
             .where(RecommendationRunRow.status.in_(["accepted", "running"]))
             .values(status="interrupted")
         )
-        return result.rowcount
+        return int(getattr(result, "rowcount", 0))
 
 
 class PostgresIdempotencyRepository:

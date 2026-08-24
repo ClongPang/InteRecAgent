@@ -85,3 +85,30 @@ def test_nullable_fields_stay_none():
     p = normalize_item(_item(region=None, image_url=None))
     assert p.region is None
     assert p.image_url is None
+
+
+def test_semantic_metadata_is_preserved_without_fabrication():
+    p = normalize_item(
+        _item(
+            title="WH-1000XM5 Black",
+            metadata={
+                "brand": "Sony Corporation",
+                "vendor": "Sony",
+                "category": "Audio Headphones",
+                "product_type": "Wireless Audio",
+                "tags": ["noise cancelling", "headphones"],
+                "rating": 4.9,
+            },
+        )
+    )
+    assert p.attrs == {
+        "brand": "Sony Corporation",
+        "vendor": "Sony",
+        "category": "Audio Headphones",
+        "product_type": "Wireless Audio",
+        "tags": "noise cancelling | headphones",
+        "model": "WH-1000XM5",
+        "color": "black",
+    }
+    assert "brand" not in p.derived_fields
+    assert "rating" not in p.attrs

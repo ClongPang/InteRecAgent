@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     # 上游控制
     buywhere_timeout: float = 15.0
     buywhere_max_retries: int = 3
+    buywhere_max_concurrency: int = Field(default=3, ge=1)
     fx_timeout: float = 10.0
     fx_max_retries: int = 3
     search_max_concurrency: int = 3
+    research_max_wall_time_ms: int = Field(default=45_000, ge=1_000)
+    # Runtime category allow-list; it may only narrow published CategoryContracts.
+    # INTEREC_V2_ENABLED_ITEM_TYPES='["smartphone","headphones"]'
+    v2_enabled_item_types: list[str] = Field(
+        default_factory=lambda: ["smartphone", "headphones"]
+    )

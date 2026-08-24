@@ -6,6 +6,14 @@ from __future__ import annotations
 
 from ..dto.dialogue import DialogueAct, DialogueActKind, TurnRoute
 from ..dto.mission import DialogueState, MissionConstraints, ShoppingMission, TurnPhase
+from .goal import (
+    apply_goal_operations,
+    belief_view_from_goal,
+    compile_constraint_operations,
+    constraint_view_from_goal,
+    ensure_goal_authority,
+    validate_goal_operations,
+)
 from .route import preview_turn
 
 NOTHING_TO_UNDO_MESSAGE = "没有可撤销的约束变更。"
@@ -29,9 +37,27 @@ def find_restorable_constraints(events: list[dict]) -> MissionConstraints | None
 
 def apply_undo_constraints(mission: ShoppingMission, restored: MissionConstraints) -> ShoppingMission:
     dialogue = mission.dialogue if isinstance(mission.dialogue, DialogueState) else DialogueState()
+    goal = ensure_goal_authority(
+        mission.goal,
+        mission.constraints,
+        version=max(mission.goal.goal_version, mission.constraints_version),
+        belief=mission.belief,
+    )
+    operations = compile_constraint_operations(
+        mission.constraints,
+        restored,
+        goal=goal,
+        origin="deterministic",
+    )
+    validation = validate_goal_operations(goal, operations)
+    if validation.conflicts:
+        raise ValueError(validation.conflicts[0].message)
+    goal = apply_goal_operations(goal, validation.operations)
     return mission.model_copy(
         update={
-            "constraints": restored,
+            "constraints": constraint_view_from_goal(goal, fallback=restored),
+            "goal": goal,
+            "belief": belief_view_from_goal(goal, fallback=mission.belief),
             "dialogue": dialogue.model_copy(update={"last_act": DialogueActKind.UNDO.value}),
         }
     )

@@ -38,6 +38,28 @@ async def test_merge_mission_state_does_not_increment_version() -> None:
 
 
 @pytest.mark.asyncio
+async def test_goal_operation_remains_authoritative_over_legacy_projection() -> None:
+    """兼容层不得撤销本轮 GoalOperation 新增、而旧解析器遗漏的硬约束。"""
+    mission = ShoppingMission(id="m-stock", owner_id="u1", title="t", constraints_version=1)
+    state = {
+        "mission": mission,
+        "run_id": "r-stock",
+        # 模拟旧解析器漏掉库存要求；V2 编译器仍必须成为权威来源。
+        "intent_patch": IntentPatch(query="iPhone 15 Pro 手机", budget_cny=9000),
+        "text": "iPhone 15 Pro 手机，预算 9000 元，只看有货",
+        "skip_intent_patch": False,
+    }
+
+    out = await make_merge_mission_state()(state)
+
+    stock = out["mission"].goal.active_constraint("stock")
+    assert stock is not None
+    assert stock.value is True
+    assert stock.unknown_policy.value == "block"
+    assert out["mission"].constraints.only_in_stock is True
+
+
+@pytest.mark.asyncio
 async def test_merge_folds_open_soft_prefs_into_belief() -> None:
     """LLM 产出的开放式软偏好经 merge 并入信念，供通用打分使用（§5.1）。"""
     mission = ShoppingMission(id="m2", owner_id="u1", title="t", constraints_version=1)

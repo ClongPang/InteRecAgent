@@ -22,6 +22,7 @@ export function MissionView({ currency }: { currency: Currency }) {
   const ranked = workspace.ranked
   const thread = workspace.queries.thread.data
   const recommendation = workspace.queries.recommendation.data
+  const coverage = workspace.queries.candidates.data?.coverage
   const rates = ratesFromCandidates(ranked)
   const rejected = new Set(beliefOf(mission ?? { belief: null }).rejected_snapshot_ids)
   const lowestId = ranked.reduce<string | null>((best, item) => {
@@ -79,6 +80,23 @@ export function MissionView({ currency }: { currency: Currency }) {
         </div>
       </div>
       {ranked.length > 0 ? <FxStrip candidates={ranked} /> : null}
+      {coverage?.missing_markets?.length ? (
+        <div className="coverage-notice" role="status">
+          指定市场暂时没有合格候选：{coverage.missing_markets.join(' / ')}。未自动扩大市场范围。
+        </div>
+      ) : null}
+      {mission.constraints.preference === 'battery'
+        && coverage?.preference_evidence_coverage?.battery === 0 ? (
+          <div className="coverage-notice" role="status">
+            已记录“优先续航”，但当前候选没有可验证的续航信息；本轮排序未使用续航维度。
+          </div>
+        ) : null}
+      {mission.constraints.preference === 'noise'
+        && coverage?.preference_evidence_coverage?.noise === 0 ? (
+          <div className="coverage-notice" role="status">
+            已记录“优先降噪”，但当前候选没有可验证的降噪信息；本轮排序未使用降噪维度。
+          </div>
+        ) : null}
       <div className="workspace-layout is-dialogue">
         <ConversationPanel
           mission={mission}
@@ -118,7 +136,10 @@ export function MissionView({ currency }: { currency: Currency }) {
                   budget={mission.constraints.budget_cny}
                   lowest={lowestId === product.snapshot_id}
                   currency={currency}
-                  lead={product.rank === 1 && !rejected.has(product.snapshot_id)}
+                  lead={
+                    recommendation?.primary?.snapshot_id === product.snapshot_id
+                    && !rejected.has(product.snapshot_id)
+                  }
                   rejected={rejected.has(product.snapshot_id)}
                 />
               ))}

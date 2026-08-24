@@ -42,12 +42,13 @@ def derive_title_attrs(product: NormalizedProduct) -> NormalizedProduct:
     lowered = title.lower()
     attrs = dict(product.attrs)
     derived = list(product.derived_fields)
-    for needle, label in _BRANDS:
-        if needle in lowered or needle in title:
-            attrs["brand"] = label
-            if "brand" not in derived:
-                derived.append("brand")
-            break
+    if "brand" not in attrs:
+        for needle, label in _BRANDS:
+            if needle in lowered or needle in title:
+                attrs["brand"] = label
+                if "brand" not in derived:
+                    derived.append("brand")
+                break
     for needle, label in _COLORS:
         if needle in lowered or needle in title:
             attrs["color"] = label

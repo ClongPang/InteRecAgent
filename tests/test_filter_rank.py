@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from backend.domain.models import FxSnapshot, NormalizedProduct
 from backend.application.dto.belief import SpecGate
+from backend.domain.models import FxSnapshot, NormalizedProduct
 from backend.domain.policies import (
     apply_budget_filter,
     apply_relevance_filter,
@@ -136,14 +136,14 @@ class TestSpecGates:
         assert [p.id for p in kept] == ["u"]
         assert [p.id for p in dropped] == ["f"]
 
-    def test_required_gate_rolls_back_when_empty(self):
+    def test_required_gate_returns_honest_empty_when_no_evidence_matches(self):
         fhd = _product("f", 80, title="27 Inch FHD Office Monitor")
         kept, dropped = apply_spec_gates(
             [fhd],
             [SpecGate(attr="4k", cues=["4k", "2160", "uhd"], required=True)],
         )
-        assert [p.id for p in kept] == ["f"]
-        assert dropped == []
+        assert kept == []
+        assert [p.id for p in dropped] == ["f"]
 
 
 class TestStockFilter:
@@ -212,6 +212,31 @@ class TestScore:
         assert dimension_matches(product, attr="防水", cues=["waterproof", "ip68"]) is True
         # 没有 cues 且标题里没有「防水」字面 → 不命中（不编造）
         assert dimension_matches(product, attr="防水", cues=[]) is False
+
+    def test_ascii_acronym_cue_requires_token_boundaries(self):
+        from backend.domain.policies.score import dimension_matches
+
+        false_positive = _product(
+            "fp",
+            100,
+            title="TOZO A1 Mini Earbuds Long-Distance Connection",
+        )
+        actual_match = _product(
+            "anc",
+            100,
+            title="Studio Pro ANC Noise-Cancelling Headphones",
+        )
+
+        assert dimension_matches(
+            false_positive,
+            attr="noise_cancelling",
+            cues=["anc"],
+        ) is False
+        assert dimension_matches(
+            actual_match,
+            attr="noise_cancelling",
+            cues=["anc", "noise cancelling"],
+        ) is True
 
     def test_open_soft_pref_lifts_matching_candidate(self):
         match = _product("m", 100, title="Garmin Waterproof Watch").model_copy(

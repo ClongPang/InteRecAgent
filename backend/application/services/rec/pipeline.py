@@ -4,6 +4,7 @@
 避免「静态编排」与「动态 tool-use」两套实现漂移。硬约束（FX→预算顺序、库存事实判定、
 排除项、否定候选）在此焊死，无论调用方以何种顺序驱动，事实层结果一致。
 """
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -20,11 +21,13 @@ from ....domain.policies import (
     dedupe_products,
     derive_title_attrs,
 )
+from ....domain.product_ontology import SUPPORTED_ITEM_TYPES
 from ...dto.mission import MissionConstraints, ShoppingMission
 from ...errors import UpstreamUnavailableError
 from ...ports import FxSource, ProductSource
 from ..market_search import MarketSearchOutcome, gather_market_products
 from .identity import expand_listing_keys, listing_keys_from_product
+from .qualify import qualify_products
 from .rank import preference_hits, rank_with_belief
 from .state import rec_state_from_mission
 
@@ -75,6 +78,7 @@ async def run_search(
     limit: int,
     max_concurrency: int = 3,
     max_prices: dict[str, float] | None = None,
+    goal_version: int | None = None,
 ) -> MarketSearchOutcome:
     """多市场受限并发检索。单市场 upstream 失败降级为 failed_markets，鉴权错误上抛。"""
     return await gather_market_products(
@@ -85,6 +89,7 @@ async def run_search(
         limit=limit,
         max_concurrency=max_concurrency,
         max_prices=max_prices,
+        goal_version=goal_version,
     )
 
 
@@ -122,6 +127,8 @@ def run_filter(
     rejected_listing_keys: set[str] | None = None,
     spec_gates: list | None = None,
     snapshot_map: dict[str, str] | None = None,
+    goal=None,
+    enabled_item_types: frozenset[str] | None = None,
 ) -> tuple[list[NormalizedProduct], list[str]]:
     """硬过滤：否定候选、已确认无货、排除词、预算。库存未知的商品留下。"""
     warnings: list[str] = []
@@ -181,15 +188,25 @@ def run_filter(
     if constraints.merchants:
         products, dropped = apply_merchant_filter(products, constraints.merchants)
         if dropped:
-            warnings.append(
-                f"已按商户过滤 {len(dropped)} 件（{'、'.join(constraints.merchants)}）"
-            )
+            warnings.append(f"已按商户过滤 {len(dropped)} 件（{'、'.join(constraints.merchants)}）")
 
     if constraints.budget_cny is not None:
         kept, over, fx_failed = apply_budget_filter(products, constraints.budget_cny)
         products = kept + fx_failed
         if over:
             warnings.append(f"{len(over)} 件商品超出预算 {constraints.budget_cny:.0f} 元")
+
+    enabled = SUPPORTED_ITEM_TYPES if enabled_item_types is None else enabled_item_types
+    if goal is not None and goal.target.item_type in enabled:
+        before = len(products)
+        products, qualifications = qualify_products(products, goal)
+        blocked = before - len(products)
+        if blocked:
+            ineligible = sum(item.eligibility == "ineligible" for item in qualifications)
+            needs_evidence = sum(item.eligibility == "needs_evidence" for item in qualifications)
+            warnings.append(
+                f"资格门已阻止 {blocked} 件（不合格 {ineligible}，证据不足 {needs_evidence}）"
+            )
 
     return products, warnings
 
@@ -203,6 +220,7 @@ def run_rank(
     products: list[NormalizedProduct],
     *,
     snapshot_map: dict[str, str] | None = None,
+    limit: int | None = MAX_RANKED_CANDIDATES,
 ) -> tuple[list[NormalizedProduct], list[str]]:
     """多目标排序。信念与标题派生进入打分；无线索时只警告，不编造分数。"""
     warnings: list[str] = []
@@ -230,11 +248,9 @@ def run_rank(
         if keys & rejected_keys:
             rejected.add(product.id)
     ranked = rank_with_belief(products, rec, rejected_source_ids=rejected)
-    if len(ranked) > MAX_RANKED_CANDIDATES:
-        warnings.append(
-            f"召回过滤后仍有 {len(ranked)} 件，已只保留排序前 {MAX_RANKED_CANDIDATES} 件供对照"
-        )
-        ranked = ranked[:MAX_RANKED_CANDIDATES]
+    if limit is not None and len(ranked) > limit:
+        warnings.append(f"召回过滤后仍有 {len(ranked)} 件，已只保留排序前 {limit} 件供对照")
+        ranked = ranked[:limit]
     return ranked, warnings
 
 

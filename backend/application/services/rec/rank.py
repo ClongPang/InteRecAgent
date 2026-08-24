@@ -19,7 +19,7 @@ def rank_with_belief(
         budget_cny=rec.budget_cny,
         rejected_source_ids=rejected_source_ids,
         preference=rec.preference,
-        soft_prefs=rec.soft_prefs,
+        soft_prefs=list(rec.soft_prefs),
         spec_gates=rec.spec_gates,
         price_sensitive=rec.price_sensitivity in {"too_expensive", "want_cheaper"},
     )

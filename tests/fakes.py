@@ -10,13 +10,13 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from backend.agent.nodes.execute import apply_world_ops
+from backend.agent.nodes.world import apply_world_ops
 from backend.application.dto import AssistantTurn, ChatMessage, IntentPatch, ToolSpec, TurnPlan
-from backend.application.services.decide_oral import decide_oral_turn
-from backend.infrastructure.llm.unconfigured import UnconfiguredModelBackend
 from backend.application.dto.belief import PreferenceBelief
 from backend.application.dto.mission import MissionConstraints, ShoppingMission
 from backend.application.errors import ModelUnavailableError
+from backend.application.services.decide_oral import decide_oral_turn
+from backend.infrastructure.llm.unconfigured import UnconfiguredModelBackend
 
 
 @dataclass
@@ -109,8 +109,6 @@ class FakeModelBackend:
 
     async def complete_json(self, *, system: str, user: str) -> dict[str, Any]:
         self.json_calls.append((system, user))
-        if self._json_replies:
-            return self._json_replies.pop(0)
         try:
             payload = json.loads(user) if user.lstrip().startswith("{") else {}
         except json.JSONDecodeError:
@@ -118,6 +116,12 @@ class FakeModelBackend:
         if not isinstance(payload, dict):
             payload = {}
         task = payload.get("task")
+        # Semantic profiling is an independent shadow channel and must not
+        # consume scripted keep/rewrite decisions.
+        if task == "semantic_profile_shadow":
+            return {"profiles": []}
+        if self._json_replies:
+            return self._json_replies.pop(0)
         candidates = payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
         ids = [str(item.get("id")) for item in candidates if isinstance(item, dict) and item.get("id")]
         if task == "keep":

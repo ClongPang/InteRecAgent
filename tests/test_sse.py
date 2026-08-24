@@ -15,6 +15,7 @@ import httpx
 import pytest
 import uvicorn
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 
 from backend.api.app import create_app
 from backend.bootstrap.container import Container
@@ -34,7 +35,7 @@ TRUNCATE_SQL = (
 
 @pytest.fixture
 async def live_server():
-    engine = create_async_engine(TEST_DB_URL)
+    engine = create_async_engine(TEST_DB_URL, poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.exec_driver_sql(TRUNCATE_SQL)
     await engine.dispose()
@@ -64,10 +65,16 @@ async def live_server():
         assert time.time() < deadline, "uvicorn 启动超时"
         time.sleep(0.05)
 
+    app_engine = container._engine
+    assert app_engine is not None
+    app_pool = app_engine.pool
+
     yield f"http://127.0.0.1:{port}"
 
     server.should_exit = True
     thread.join(timeout=10)
+    assert not thread.is_alive(), "uvicorn did not complete lifespan shutdown"
+    assert app_pool.checkedout() == 0, "application leaked a database connection"
 
 
 _H = {"X-Anonymous-User-ID": OWNER}

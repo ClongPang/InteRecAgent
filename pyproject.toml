@@ -31,7 +31,8 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-q"
+cache_dir = ".test-cache"
+addopts = "-q -p no:cacheprovider"
 asyncio_mode = "auto"
 markers = [
   "unit: 领域与应用层单元测试（默认离线）",

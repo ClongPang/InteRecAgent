@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from ..dto import RunnerResult
 
@@ -18,3 +18,7 @@ class MissionRunner(Protocol):
         run_id: str,
         constraints_version: int,
     ) -> RunnerResult: ...
+
+    def release_metadata(self, mission_id: str) -> dict[str, Any]:
+        """Return stable pre-run release metadata so failures remain observable."""
+        ...

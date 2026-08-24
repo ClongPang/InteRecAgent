@@ -34,10 +34,10 @@ const BATTERY_CUES = ['续航', 'battery', '小时', 'hours', 'hrs']
 const TITLE_BRANDS = ['Sony', 'Bose', 'Sennheiser', 'Soundcore', 'Apple', 'Samsung', 'Dell']
 
 const FIXTURE_IMAGES: Record<string, string> = {
-  'sony-xm5': 'https://cdn.shopify.com/s/files/1/0036/4806/1509/files/b73f824aaa21e37b422ae99d12023872287fc2d0_square3129229_1_6e0c1794-7f6e-4a1e-9b90-60ab71300eac.jpg?v=1770360676',
-  'bose-qc': 'https://cdn.shopify.com/s/files/1/0240/9337/files/1_JBudsOpen_Cloud.jpg?v=1773247734',
-  'senn-m4': 'https://cdn.shopify.com/s/files/1/0690/7201/files/Sony_Headphones_Audio_Cable_Original_1M_Black.png?v=1758987422',
-  q45: 'https://cdn.shopify.com/s/files/1/0036/4806/1509/files/b73f824aaa21e37b422ae99d12023872287fc2d0_square3129229_1_6e0c1794-7f6e-4a1e-9b90-60ab71300eac.jpg?v=1770360676',
+  'snap-sony': 'https://cdn.shopify.com/s/files/1/0036/4806/1509/files/b73f824aaa21e37b422ae99d12023872287fc2d0_square3129229_1_6e0c1794-7f6e-4a1e-9b90-60ab71300eac.jpg?v=1770360676',
+  'snap-bose': 'https://cdn.shopify.com/s/files/1/0240/9337/files/1_JBudsOpen_Cloud.jpg?v=1773247734',
+  'snap-m4': 'https://cdn.shopify.com/s/files/1/0690/7201/files/Sony_Headphones_Audio_Cable_Original_1M_Black.png?v=1758987422',
+  'snap-q45': 'https://cdn.shopify.com/s/files/1/0036/4806/1509/files/b73f824aaa21e37b422ae99d12023872287fc2d0_square3129229_1_6e0c1794-7f6e-4a1e-9b90-60ab71300eac.jpg?v=1770360676',
 }
 
 function derivedBrand(title: string): { brand: string | null; derived_fields: string[] } {
@@ -46,15 +46,14 @@ function derivedBrand(title: string): { brand: string | null; derived_fields: st
 }
 
 const CATALOG: ProductCandidate[] = [
-  candidate('snap-sony', 'sony-xm5', 'Sony WH-1000XM5 Wireless', 'amazon', 'US', 'USD', 299, 2149, 7.1882),
-  candidate('snap-bose', 'bose-qc', 'Bose QuietComfort Ultra', 'lazada', 'SG', 'SGD', 399, 2118, 5.3083),
-  candidate('snap-m4', 'senn-m4', 'Sennheiser Momentum 4 Wireless', 'bestbuy', 'US', 'USD', 329.95, 2378, 7.1882),
-  candidate('snap-q45', 'q45', 'Soundcore Space Q45', 'amazon', 'US', 'USD', 149.99, 1078, 7.1882),
+  candidate('snap-sony', 'Sony WH-1000XM5 Wireless', 'amazon', 'US', 'USD', 299, 2149, 7.1882),
+  candidate('snap-bose', 'Bose QuietComfort Ultra', 'lazada', 'SG', 'SGD', 399, 2118, 5.3083),
+  candidate('snap-m4', 'Sennheiser Momentum 4 Wireless', 'bestbuy', 'US', 'USD', 329.95, 2378, 7.1882),
+  candidate('snap-q45', 'Soundcore Space Q45', 'amazon', 'US', 'USD', 149.99, 1078, 7.1882),
 ]
 
 function candidate(
   snapshotId: string,
-  sourceId: string,
   title: string,
   merchant: string,
   market: string,
@@ -67,7 +66,6 @@ function candidate(
   return {
     snapshot_id: snapshotId,
     source: 'buywhere',
-    source_product_id: sourceId,
     title,
     merchant,
     market,
@@ -87,8 +85,8 @@ function candidate(
     specs: [],
     derived_fields: derived.derived_fields,
     unavailable_fields: ['rating', 'review_count', 'availability', 'structured_specs'],
-    merchant_url: `https://example.com/${sourceId}`,
-    image_url: FIXTURE_IMAGES[sourceId] ?? null,
+    merchant_url: `https://example.com/${snapshotId}`,
+    image_url: FIXTURE_IMAGES[snapshotId] ?? null,
     source_updated_at: '2026-08-15T14:32:00Z',
     rank: null,
     decision_reasons: [],
@@ -418,7 +416,7 @@ function snapshotOf(store: Store, mission: MissionView): Snapshot {
     constraints: { ...mission.constraints, excluded_terms: [...mission.constraints.excluded_terms] },
     belief: cloneBelief(mission.belief),
     dialogue: { ...(mission.dialogue ?? {}) },
-    candidates: store.candidates[mission.id] ?? { ranked: [], fx_snapshot_ids: [] },
+    candidates: store.candidates[mission.id] ?? { ranked: [], fx_snapshot_ids: [], coverage: null },
     recommendation: store.recommendations[mission.id] ?? null,
   }
 }
@@ -430,7 +428,7 @@ function remember(store: Store, mission: MissionView) {
 }
 
 function applyRanked(store: Store, missionId: string, ranked: ProductCandidate[], rejectedIds: string[]) {
-  store.candidates[missionId] = { ranked, fx_snapshot_ids: [] }
+  store.candidates[missionId] = { ranked, fx_snapshot_ids: [], coverage: null }
   const rejected = new Set(rejectedIds)
   const primary = ranked.find((item) => !rejected.has(item.snapshot_id)) ?? ranked[0] ?? null
   if (primary) {
@@ -671,7 +669,7 @@ export function createFixtureApi(): MissionApi {
       return updated
     },
     async getCandidates(missionId) {
-      return store.candidates[missionId] ?? { ranked: [], fx_snapshot_ids: [] }
+      return store.candidates[missionId] ?? { ranked: [], fx_snapshot_ids: [], coverage: null }
     },
     async getRecommendation(missionId) {
       return store.recommendations[missionId] ?? null

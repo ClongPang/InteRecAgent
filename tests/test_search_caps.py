@@ -14,7 +14,7 @@ from backend.application.services.rec import (
     plan_search,
     rec_state_from_mission,
 )
-from backend.domain.models import DEFAULT_MARKETS
+from backend.domain.models import DEFAULT_MARKETS, NormalizedProduct
 from backend.infrastructure.fx_sources.fixed import FixedFxSource
 from backend.infrastructure.product_sources.fixture import FixtureProductSource
 
@@ -71,3 +71,30 @@ async def test_deterministic_relaxes_native_cap_when_recall_empty() -> None:
     for product in ctx.ranked:
         if not product.fx_failed:
             assert product.rmb_price is not None and product.rmb_price <= 4000
+
+
+@pytest.mark.asyncio
+async def test_evidence_fetch_preserves_budget_for_next_market_recall() -> None:
+    source = FixtureProductSource(FIXTURES)
+    mission = ShoppingMission(
+        owner_id=OWNER,
+        title="t",
+        constraints=MissionConstraints(query="降噪耳机", markets=["US", "SG"]),
+    )
+    ctx = ResearchContext(mission=mission, plan=plan_search(rec_state_from_mission(mission)))
+    ctx.request_count = 2
+    ctx.evidence_candidates = {
+        f"unknown-{index}": NormalizedProduct(
+            id=f"unknown-{index}",
+            title=f"Unknown Headphones {index}",
+            native_price_amount=10,
+            native_currency="USD",
+        )
+        for index in range(5)
+    }
+
+    await ResearchTools(source, FixedFxSource()).supplement_evidence(ctx)
+
+    assert ctx.request_count == 4
+    assert len(ctx.evidence_attempted_ids) == 2
+    assert ctx.limits.max_total_requests - ctx.request_count == len(ctx.plan.markets)

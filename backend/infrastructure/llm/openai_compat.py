@@ -25,10 +25,12 @@ from ...application.dto import (
     ToolSpec,
     TurnPlan,
 )
-from ...application.dto.probe import Uncertainty
 from ...application.dto.belief import SoftPref
 from ...application.dto.dialogue import AskTopic
+from ...application.dto.probe import Uncertainty
 from ...application.errors import ModelUnavailableError, UpstreamUnavailableError
+from ...application.services.parse_intent import canonicalize_spec_gates
+from ...application.services.parse_intent import parse_intent as deterministic_parse_intent
 from ...domain.models import VALID_MARKETS
 from ..retry import is_retryable, retry_wait
 
@@ -118,6 +120,11 @@ def sanitize_intent_patch(patch: IntentPatch) -> IntentPatch:
         markets = [code for code in patch.markets if code in VALID_MARKETS] or None
     preference = patch.preference if patch.preference in _VALID_PREFERENCES else None
     query = (patch.query or "").strip() or None
+    clarification_updates = (
+        {"requires_clarification": False, "clarification_question": None}
+        if query
+        else {}
+    )
     return patch.model_copy(
         update={
             "query": query,
@@ -125,8 +132,55 @@ def sanitize_intent_patch(patch: IntentPatch) -> IntentPatch:
             "preference": preference,
             "soft_prefs": _sanitize_soft_prefs(patch.soft_prefs),
             "source": "model",
+            **clarification_updates,
         }
     )
+
+
+def merge_deterministic_intent(
+    model_patch: IntentPatch,
+    text: str,
+    *,
+    current_query: str | None = None,
+) -> IntentPatch:
+    """Make directly parsed user facts authoritative over stochastic output.
+
+    The model may enrich open-ended preferences, but it must not erase or
+    contradict a target, budget, market, stock request, use case, or hard spec
+    gate that the deterministic parser observed in the same utterance.
+    Clarification is derived after that merge so a transient model omission
+    cannot turn a fully specified request into an unnecessary question.
+    """
+    patch = sanitize_intent_patch(model_patch)
+    baseline = deterministic_parse_intent(text, current_query=current_query)
+    updates: dict[str, Any] = {}
+    normalized_model_gates = canonicalize_spec_gates(list(patch.spec_gates or []))
+    if normalized_model_gates != list(patch.spec_gates or []):
+        updates["spec_gates"] = normalized_model_gates or None
+    for field in (
+        "query",
+        "budget_cny",
+        "markets",
+        "preference",
+        "only_in_stock",
+        "exclude_terms",
+        "use_case",
+        "spec_gates",
+    ):
+        value = getattr(baseline, field)
+        if value is not None:
+            updates[field] = value
+    known_target = bool(updates.get("query") or patch.query or current_query)
+    if known_target:
+        updates.update(
+            requires_clarification=False,
+            clarification_question=None,
+        )
+    elif baseline.requires_clarification:
+        updates["requires_clarification"] = True
+        if not patch.clarification_question:
+            updates["clarification_question"] = baseline.clarification_question
+    return patch.model_copy(update=updates)
 
 
 def sanitize_dialogue_act(act: DialogueAct) -> DialogueAct:
@@ -344,7 +398,7 @@ class OpenAICompatModelBackend:
             patch = IntentPatch.model_validate(payload)
         except Exception as exc:
             raise ModelUnavailableError("模型意图结构无法通过 Schema 校验") from exc
-        return sanitize_intent_patch(patch)
+        return merge_deterministic_intent(patch, text, current_query=current_query)
 
     async def parse_turn(
         self, text: str, *, current_query: str | None = None, context: dict | None = None
@@ -440,17 +494,27 @@ class OpenAICompatModelBackend:
     async def _complete_json(self, *, system: str, user: str) -> dict[str, Any]:
         if not self._api_key:
             raise ModelUnavailableError("LLM API Key 未配置")
-        try:
-            body = await self._request(system=system, user=user)
-        except UpstreamUnavailableError as exc:
-            raise ModelUnavailableError("模型上游不可用，改用确定性解析") from exc
-        except httpx.HTTPError as exc:
-            raise ModelUnavailableError("无法连接模型服务") from exc
-        text = _message_text(body)
-        try:
-            return extract_json_object(text)
-        except (ValueError, json.JSONDecodeError) as exc:
-            raise ModelUnavailableError("模型未返回可用 JSON") from exc
+        parse_error: ValueError | json.JSONDecodeError | None = None
+        request_system = system
+        for attempt in range(2):
+            try:
+                body = await self._request(system=request_system, user=user)
+            except UpstreamUnavailableError as exc:
+                raise ModelUnavailableError("模型上游不可用，改用确定性解析") from exc
+            except httpx.HTTPError as exc:
+                raise ModelUnavailableError("无法连接模型服务") from exc
+            text = _message_text(body)
+            try:
+                return extract_json_object(text)
+            except (ValueError, json.JSONDecodeError) as exc:
+                parse_error = exc
+                if attempt == 0:
+                    request_system = (
+                        system
+                        + "\n上一次输出不是完整可解析的 JSON。"
+                        "请重新输出一个完整 JSON 对象，确保引号、方括号和花括号全部闭合。"
+                    )
+        raise ModelUnavailableError("模型未返回可用 JSON") from parse_error
 
     async def _request(self, *, system: str, user: str) -> dict[str, Any]:
         payload = {

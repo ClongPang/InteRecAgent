@@ -6,6 +6,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from .belief import PreferenceBelief
+from .coverage import GoalCoverage
 from .mission import DialogueState, MissionConstraints, MissionStage, ShoppingMission, TurnPhase
 
 SSE_PUBLIC_EVENTS = frozenset(
@@ -71,7 +72,6 @@ class ProductCandidate(BaseModel):
 
     snapshot_id: str
     source: str = "buywhere"
-    source_product_id: str
     title: str
     merchant: str | None = None
     market: str | None = None
@@ -96,6 +96,7 @@ class ProductCandidate(BaseModel):
 class CandidateSetView(BaseModel):
     ranked: list[ProductCandidate] = Field(default_factory=list)
     fx_snapshot_ids: list[str] = Field(default_factory=list)
+    coverage: GoalCoverage | None = None
 
 
 class RecommendationView(BaseModel):

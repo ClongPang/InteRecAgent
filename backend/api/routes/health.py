@@ -1,4 +1,4 @@
-"""健康检查"""
+"""Process liveness and dependency readiness endpoints."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -12,16 +12,16 @@ router = APIRouter(prefix="/health", tags=["health"])
 
 @router.get("/live")
 async def live() -> dict:
-    """进程存活"""
+    """Report whether the API process is alive."""
     return {"status": "ok"}
 
 
 @router.get("/ready")
-async def ready(session_factory=Depends(get_session_factory)) -> dict:
-    """就绪：DB 与组合根可用"""
+async def ready(session_factory=Depends(get_session_factory)) -> JSONResponse:
+    """Report whether the database and application composition are ready."""
     try:
         async with session_factory() as session:
             await session.execute(text("SELECT 1"))
     except Exception:
         return JSONResponse({"status": "unavailable"}, status_code=503)
-    return {"status": "ok"}
+    return JSONResponse({"status": "ok"})

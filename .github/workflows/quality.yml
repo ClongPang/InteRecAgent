@@ -1,0 +1,81 @@
+name: quality
+
+on:
+  pull_request:
+  push:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: interec
+          POSTGRES_PASSWORD: interec
+          POSTGRES_DB: interec_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U interec -d interec_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+      - run: uv sync --all-groups
+      - run: uv run alembic upgrade head
+        env:
+          INTEREC_DATABASE_URL: postgresql+asyncpg://interec:interec@localhost:5432/interec_test
+      - run: uv run ruff check backend tests scripts
+      - run: uv run mypy backend
+      - name: Goal/qualification/trajectory architecture gates
+        run: >-
+          uv run pytest -q
+          tests/test_goal_v2.py
+          tests/eval/test_goal_operation_corpus.py
+          tests/eval/test_qualification_gold.py
+          tests/eval/test_trajectory_replay_v2.py
+          tests/eval/test_research_invariants.py
+          tests/eval/test_metamorphic_v2.py
+          tests/eval/test_latency_budget.py
+          tests/test_canary_runner.py
+          tests/test_rollout_audit.py
+      - name: Offline suite with coverage gate
+        run: uv run pytest -m "not live" --cov=backend --cov-report=term-missing --cov-fail-under=75
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  buywhere-live-canary:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+      - run: uv sync --all-groups
+      - name: Require live canary credential
+        env:
+          INTEREC_BUYWHERE_API_KEY: ${{ secrets.INTEREC_BUYWHERE_API_KEY }}
+        run: test -n "$INTEREC_BUYWHERE_API_KEY"
+      - name: Run BuyWhere live contract smoke
+        env:
+          INTEREC_BUYWHERE_API_KEY: ${{ secrets.INTEREC_BUYWHERE_API_KEY }}
+        run: uv run pytest -q tests/test_live_smoke.py

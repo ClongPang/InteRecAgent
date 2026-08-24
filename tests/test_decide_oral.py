@@ -4,10 +4,11 @@ from __future__ import annotations
 import pytest
 
 from backend.agent.nodes.dialogue import make_classify_dialogue_act
-from backend.agent.nodes.execute import apply_world_ops
+from backend.agent.nodes.world import apply_world_ops
 from backend.application.dto.dialogue import DialogueAct, DialogueActKind, TurnPlan, TurnRoute
 from backend.application.dto.mission import MissionConstraints, ShoppingMission
 from backend.application.dto.runner import IntentPatch
+from backend.application.services.decide_oral import fold_constraint_patch
 from backend.application.services.nlu import ground_dialogue_act
 from tests.fakes import FakeModelBackend
 
@@ -35,6 +36,19 @@ def test_ground_does_not_cover_refine_with_stance_frame() -> None:
     act = DialogueAct(kind=DialogueActKind.REFINE, patch=IntentPatch(query="降噪耳机"))
     grounded = ground_dialogue_act(act, "太贵了", current_query="降噪耳机")
     assert grounded.kind == DialogueActKind.REFINE
+
+
+def test_fold_constraint_patch_preserves_model_origin() -> None:
+    plan = TurnPlan(
+        ops=[
+            DialogueAct(
+                kind=DialogueActKind.REFINE,
+                source="model",
+                patch=IntentPatch(query="27 inch 4K monitor", source="model"),
+            )
+        ]
+    )
+    assert fold_constraint_patch(MissionConstraints(), plan).source == "model"
 
 
 def test_ground_does_not_rewrite_ask_item_to_stock_filter() -> None:

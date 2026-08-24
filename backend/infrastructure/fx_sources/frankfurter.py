@@ -120,3 +120,4 @@ class FrankfurterFxSource:
                     date=str(body.get("date") or ""),
                     source=FX_SOURCE,
                 )
+        raise RuntimeError("FX retry loop exited without a result")

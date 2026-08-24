@@ -1,17 +1,26 @@
 """对话分类、路由、缓存复用与 grounded 回复。"""
+
 from __future__ import annotations
+
+from typing import Any
 
 from ...application.dto import IntentPatch
 from ...application.dto.dialogue import DialogueAct, DialogueActKind, NextMove
 from ...application.ports import ModelBackend
+from ...application.services.answer import (
+    build_talk_answer_artifacts,
+    render_answer_from_ledger,
+    verify_claim_ledger,
+    verify_rendered_answer,
+)
 from ...application.services.decide_oral import decide_oral_turn
 from ...application.services.dialogue import apply_act_effects
-from ...application.services.execute_ops import finish_world_route
 from ...application.services.grounded import compose_talk_reply
-from ...application.services.turn_actions import NOTHING_TO_UNDO_MESSAGE
 from ...application.services.parse_intent import CLARIFYING_QUESTION
 from ...application.services.present import hydrate_candidate_payload
+from ...application.services.turn_actions import NOTHING_TO_UNDO_MESSAGE
 from ...application.services.working_set import WorkingSet
+from ...application.services.world_route import finish_world_route
 from ..state import MissionGraphState
 
 
@@ -30,12 +39,13 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
                 "intent_patch": act.patch or IntentPatch(),
                 "turn_route": state.get("decided_route") or state.get("turn_route"),
             }
+        decided_act = state.get("decided_act")
         if (
-            isinstance(state.get("decided_act"), dict)
+            isinstance(decided_act, dict)
             and state.get("decided_route")
-            and state["decided_act"].get("kind") not in {DialogueActKind.UNKNOWN.value, None}
+            and decided_act.get("kind") not in {DialogueActKind.UNKNOWN.value, None}
         ):
-            act = DialogueAct.model_validate(state["decided_act"])
+            act = DialogueAct.model_validate(decided_act)
             return {
                 "dialogue_act": act,
                 "intent_patch": act.patch or IntentPatch(),
@@ -46,7 +56,9 @@ def make_classify_dialogue_act(model_backend: ModelBackend):
         context = dict(state.get("turn_context") or _turn_context(state))
         working = WorkingSet.from_cache(
             state.get("cache_payload"),
-            mentioned_ids=list(getattr(state["mission"].dialogue, "mentioned_snapshot_ids", None) or []),
+            mentioned_ids=list(
+                getattr(state["mission"].dialogue, "mentioned_snapshot_ids", None) or []
+            ),
             comparison_ids=list(state["mission"].comparison_snapshot_ids or []),
         )
         ranked = list(working.display)
@@ -90,7 +102,10 @@ async def apply_turn_effects(state: MissionGraphState) -> dict:
         belief, dialogue = apply_act_effects(
             belief, dialogue, op, cache_payload=state.get("cache_payload")
         )
-    return {"mission": mission.model_copy(update={"belief": belief, "dialogue": dialogue})}
+    return {
+        "mission": mission.model_copy(update={"belief": belief, "dialogue": dialogue}),
+        "belief_before": mission.belief,
+    }
 
 
 def _turn_context(state: MissionGraphState) -> dict:
@@ -120,7 +135,9 @@ async def route_turn(state: MissionGraphState) -> dict:
 
 def make_load_cached_candidates():
     async def load_cached_candidates(state: MissionGraphState) -> dict:
-        products, snapshot_map, rates, fx_ids = hydrate_candidate_payload(state.get("cache_payload"))
+        products, snapshot_map, rates, fx_ids = hydrate_candidate_payload(
+            state.get("cache_payload")
+        )
         return {
             "products": products,
             "snapshot_map": snapshot_map,
@@ -140,6 +157,14 @@ def make_compose_grounded_reply():
         act = state.get("dialogue_act") or DialogueAct(kind=DialogueActKind.META)
         if act.kind == DialogueActKind.UNDO:
             text = state.get("agent_message") or NOTHING_TO_UNDO_MESSAGE
+            answer_plan, claim_ledger = build_talk_answer_artifacts(
+                goal_version=state["mission"].goal.goal_version,
+                candidate_set_id=state["mission"].candidate_set_id,
+                act=act,
+                records=[],
+                snapshot_ids=[],
+                plan=state.get("turn_plan"),
+            )
             return {
                 "agent_message": text,
                 "agent_snapshot_ids": [],
@@ -147,6 +172,8 @@ def make_compose_grounded_reply():
                 "agent_act": DialogueActKind.UNDO.value,
                 "agent_topic": None,
                 "agent_next_moves": [],
+                "answer_plan": answer_plan.model_dump(mode="json"),
+                "claim_ledger": claim_ledger.model_dump(mode="json"),
             }
         payload = state.get("cache_payload") or {}
         ranked_records = list(payload.get("ranked") or [])
@@ -171,6 +198,29 @@ def make_compose_grounded_reply():
             working=working,
             plan=plan,
         )
+        answer_plan, claim_ledger = build_talk_answer_artifacts(
+            goal_version=mission.goal.goal_version,
+            candidate_set_id=mission.candidate_set_id,
+            act=act,
+            records=list(working.bind_records),
+            snapshot_ids=reply.snapshot_ids,
+            plan=plan,
+        )
+        verify_claim_ledger(
+            claim_ledger,
+            displayed_snapshot_ids=set(reply.snapshot_ids),
+        )
+        rendered = render_answer_from_ledger(answer_plan, claim_ledger)
+        verify_rendered_answer(
+            rendered.text,
+            claim_ledger,
+            forbidden_source_ids={
+                str(item["source_product_id"])
+                for item in working.bind_records
+                if item.get("source_product_id")
+            },
+            rendered_claim_ids=rendered.claim_ids,
+        )
         moves = list(reply.next_moves)
         leftover = list(getattr(plan, "leftover", None) or [])
         if any(item.kind == DialogueActKind.COMPARE for item in leftover):
@@ -179,13 +229,16 @@ def make_compose_grounded_reply():
         dialogue = mission.dialogue.model_copy(
             update={"pending_ops": [item.model_dump(mode="json") for item in leftover]}
         )
-        result = {
-            "agent_message": reply.text,
+        result: dict[str, Any] = {
+            "agent_message": rendered.text,
             "agent_snapshot_ids": reply.snapshot_ids,
             "agent_citations": reply.citations,
             "agent_act": act.kind.value,
             "agent_topic": act.topic.value if act.topic else None,
             "agent_next_moves": [item.model_dump(mode="json") for item in moves],
+            "answer_plan": answer_plan.model_dump(mode="json"),
+            "claim_ledger": claim_ledger.model_dump(mode="json"),
+            "rendered_claim_ids": sorted(rendered.claim_ids),
             "mission": mission.model_copy(update={"dialogue": dialogue}),
         }
         if reply.requires_clarification:

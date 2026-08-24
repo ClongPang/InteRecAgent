@@ -112,7 +112,6 @@ export type EstimatedCny = {
 export type ProductCandidate = {
   snapshot_id: string
   source: string
-  source_product_id: string
   title: string
   merchant: string | null
   market: string | null
@@ -137,6 +136,17 @@ export type ProductCandidate = {
 export type CandidateSetView = {
   ranked: ProductCandidate[]
   fx_snapshot_ids: string[]
+  coverage: GoalCoverage | null
+}
+
+export type GoalCoverage = {
+  status: 'sufficient' | 'insufficient' | 'blocked_on_evidence'
+  eligible_count: number
+  requested_markets: string[]
+  covered_markets: string[]
+  missing_markets: string[]
+  preference_evidence_coverage: Record<string, number>
+  stop_reason?: string | null
 }
 
 export type RecommendationView = {

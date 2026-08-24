@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -44,6 +45,7 @@ class SearchPlan(BaseModel):
     """确定性生成的搜索计划。mode 是 BuyWhere 参数；recall_mode 是对用户的质量承诺。"""
 
     query: str
+    query_variants: list[str] = Field(default_factory=list)
     markets: list[str] = Field(default_factory=lambda: list(DEFAULT_MARKETS))
     mode: str = "keyword"
     limit: int = 20
@@ -66,3 +68,4 @@ class RunnerResult(BaseModel):
     candidate_set_id: str | None = None
     recommendation_run_id: str | None = None
     warnings: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)

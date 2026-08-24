@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from ..models import API_MISSING_FIELDS, NormalizedProduct
 from .derive_attrs import derive_title_attrs
@@ -43,7 +43,7 @@ def _parse_iso(value: str | None) -> datetime | None:
         return None
 
 
-def normalize_item(item: RawProduct) -> NormalizedProduct:
+def normalize_item(item: Any) -> NormalizedProduct:
     """真实字段白名单映射。API 缺失的字段（rating/规格/库存等）显式标记 unavailable，
     不填默认值——遵循"不伪造字段"原则。"""
     price = item.price
@@ -51,6 +51,7 @@ def normalize_item(item: RawProduct) -> NormalizedProduct:
     unavailable = [name for name in API_MISSING_FIELDS]
     if in_stock is None:
         unavailable.append("availability")
+    observed_attrs = _metadata_attrs(getattr(item, "metadata", None))
     product = NormalizedProduct(
         id=item.id,
         title=item.title,
@@ -66,9 +67,27 @@ def normalize_item(item: RawProduct) -> NormalizedProduct:
         in_stock=in_stock,
         availability_status=status,
         stock_source=stock_source,
-        unavailable=unavailable,
+        attrs=observed_attrs,
+        unavailable=[name for name in unavailable if name != "brand" or "brand" not in observed_attrs],
     )
     return derive_title_attrs(product)
+
+
+def _metadata_attrs(raw: object | None) -> dict[str, str]:
+    """Preserve only BuyWhere metadata fields that carry product semantics."""
+    if not isinstance(raw, dict):
+        return {}
+    attrs: dict[str, str] = {}
+    for key in ("brand", "vendor", "category", "product_type"):
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            attrs[key] = value.strip()
+    tags = raw.get("tags")
+    if isinstance(tags, list):
+        clean = [str(value).strip() for value in tags if str(value).strip()]
+        if clean:
+            attrs["tags"] = " | ".join(clean[:50])
+    return attrs
 
 
 _STATUS = {

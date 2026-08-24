@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from ..models import NormalizedProduct
+from .text_match import text_matches_spec_cues
 
 NOISE_CUES = ("降噪", "noise", "cancelling", "anc", "wh-1000", "wh1000", "xm5", "xm4", "qc ultra")
 BATTERY_CUES = ("续航", "battery", "小时", "hours", "hrs")
@@ -30,8 +31,8 @@ def dimension_matches(
     if attrs.get(attr):
         return True
     text = product_text(product)
-    needles = [attr.lower(), *(cue.lower() for cue in cues)]
-    if any(needle and needle in text for needle in needles):
+    needles = [attr, *cues]
+    if text_matches_spec_cues(text, attr, needles):
         return True
     brand = (attrs.get("brand") or "").lower()
     return bool(brand) and brand == attr.lower()
@@ -50,7 +51,10 @@ def score_and_rank(
     budget_cny: float | None,
     rejected_source_ids: set[str] | None = None,
     preference: str = "balanced",
-    soft_prefs: Iterable[tuple[str, str, str]] | None = None,
+    soft_prefs: Iterable[
+        tuple[str, str, str] | tuple[str, str, str, tuple[str, ...]]
+    ]
+    | None = None,
     spec_gates: Iterable[tuple[str, tuple[str, ...], bool]] | None = None,
     price_sensitive: bool = False,
 ) -> list[NormalizedProduct]:
@@ -61,6 +65,23 @@ def score_and_rank(
     priced = [p.rmb_price for p in items if p.rmb_price is not None]
     lo, hi = (min(priced), max(priced)) if priced else (0.0, 0.0)
     want_lowest = preference == "lowest" or price_sensitive or _soft_price_lower(soft)
+    preference_has_evidence = preference in SEED_CUES and any(
+        title_matches_preference(product, preference) for product in items
+    )
+    available_soft = [
+        entry
+        for entry in soft
+        if entry[2] == "active"
+        and entry[0] not in {"price", "weight"}
+        and any(
+            dimension_matches(
+                product,
+                attr=entry[0],
+                cues=entry[3] if len(entry) > 3 else (),
+            )
+            for product in items
+        )
+    ]
 
     def _score(product: NormalizedProduct) -> tuple:
         parts: list[tuple[float, float]] = []
@@ -75,13 +96,13 @@ def score_and_rank(
             parts.append((1.0 if product.in_stock else 0.0, 0.15))
         if product.id in rejected:
             parts.append((0.0, 0.3))
-        if preference in SEED_CUES:
+        if preference_has_evidence:
             hit = title_matches_preference(product, preference)
             parts.append((1.0 if hit else 0.15, 0.40))
         for attr, cues, required in gates:
             hit = dimension_matches(product, attr=attr, cues=cues)
             parts.append((1.0 if hit else 0.1, 0.35 if required else 0.18))
-        for entry in soft:
+        for entry in available_soft:
             attr, _direction, status = entry[0], entry[1], entry[2]
             cues = entry[3] if len(entry) > 3 else ()
             if status != "active" or attr in {"price", "weight"}:

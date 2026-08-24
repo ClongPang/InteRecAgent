@@ -126,3 +126,4 @@ class FxRatesApiFxSource:
                     date=date,
                     source=FX_SOURCE,
                 )
+        raise RuntimeError("FX retry loop exited without a result")

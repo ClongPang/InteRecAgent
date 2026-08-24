@@ -1,7 +1,16 @@
 from __future__ import annotations
 
 from .agent import AssistantTurn, ChatMessage, ToolCall, ToolSpec
+from .answer import (
+    AnswerClaim,
+    AnswerObligation,
+    AnswerPlan,
+    ClaimLedger,
+    DecisionBundle,
+    ObligationStatus,
+)
 from .belief import Critique, PreferenceBelief, SoftPref
+from .coverage import CoverageStatus, GoalCoverage
 from .dialogue import (
     AskTopic,
     Citation,
@@ -16,6 +25,19 @@ from .dialogue import (
     TurnPlan,
     TurnRoute,
 )
+from .goal import (
+    ConstraintHardness,
+    ConstraintStatus,
+    GoalConstraint,
+    GoalRejectedEntity,
+    GoalTarget,
+    ProductRelation,
+    RejectedEntityKind,
+    RetrievalScope,
+    ShoppingGoal,
+    UnknownPolicy,
+)
+from .goal_ops import GoalOperation, GoalOperationKind
 from .mission import (
     DialogueState,
     MissionConstraints,
@@ -35,15 +57,57 @@ from .public import (
     RecommendationView,
     mission_view,
 )
+from .qualification import (
+    AssessmentVerdict,
+    CandidateEligibility,
+    CandidateQualification,
+    ConstraintAssessment,
+    EvidenceRef,
+    ProductSemanticProfile,
+    RankExplanation,
+    SemanticProfileMethod,
+)
+from .research import QueryPurpose, ResearchProposal, ResearchQueryTrace
 from .runner import IntentPatch, RecommendationDraft, RunnerResult, RunnerStatus, SearchPlan
-from .search import ProductSearchResult
+from .search import ProductObservation, ProductSearchResult, SearchExecution, SearchPageMeta
 
 __all__ = [
     "AssistantTurn",
+    "AnswerClaim",
+    "AnswerObligation",
+    "AnswerPlan",
+    "ClaimLedger",
+    "DecisionBundle",
+    "ObligationStatus",
     "ChatMessage",
     "ToolCall",
     "ToolSpec",
     "Critique",
+    "CoverageStatus",
+    "GoalCoverage",
+    "AssessmentVerdict",
+    "CandidateEligibility",
+    "CandidateQualification",
+    "ConstraintAssessment",
+    "ConstraintHardness",
+    "ConstraintStatus",
+    "EvidenceRef",
+    "GoalConstraint",
+    "GoalRejectedEntity",
+    "GoalOperation",
+    "GoalOperationKind",
+    "GoalTarget",
+    "ProductRelation",
+    "ProductSemanticProfile",
+    "RankExplanation",
+    "SemanticProfileMethod",
+    "QueryPurpose",
+    "ResearchProposal",
+    "ResearchQueryTrace",
+    "RetrievalScope",
+    "RejectedEntityKind",
+    "ShoppingGoal",
+    "UnknownPolicy",
     "PreferenceBelief",
     "Probe",
     "ProbeOption",
@@ -67,6 +131,9 @@ __all__ = [
     "MissionView",
     "ProductCandidate",
     "ProductSearchResult",
+    "ProductObservation",
+    "SearchExecution",
+    "SearchPageMeta",
     "RecommendationDraft",
     "RecommendationView",
     "RunnerResult",

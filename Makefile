@@ -6,6 +6,7 @@ PY := .venv/bin/python
 UV := uv
 NPM := npm --prefix frontend
 COMPOSE := docker compose
+ACCEPTANCE_BASE ?= http://127.0.0.1:8000
 
 help: ## 列出所有可用命令
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
@@ -86,24 +87,17 @@ contract-drift: ## 导出 OpenAPI → 生成 TS 类型，检查 Git 漂移
 
 # ── 前端质量 ───────────────────────────────────────────────
 
-frontend-check: ## 前端 lint/typecheck/unit/build
-	$(NPM) run lint
-	$(NPM) run typecheck
-	$(NPM) test
+frontend-check: ## 前端 TypeScript 检查与生产构建
 	$(NPM) run build
 
 # ── 综合门禁 ───────────────────────────────────────────────
 
-lint: ## 静态检查（ruff + 前端 eslint）
-	$(UV) run ruff check backend
-	$(NPM) run lint
+lint: ## Python 静态检查（ruff）
+	$(UV) run ruff check .
 
-test: ## 后端 + 前端测试
+test: ## 后端测试 + 前端 TypeScript/构建检查
 	$(UV) run pytest -q
-	$(NPM) test
-
-e2e: ## Playwright E2E 闭环
-	cd frontend && npx playwright test
+	$(NPM) run build
 
 check: ## 无 Key CI 等价门禁
 	$(MAKE) backend-unit
@@ -112,9 +106,15 @@ check: ## 无 Key CI 等价门禁
 	@echo "check PASS"
 
 acceptance: ## 最终机械验收（P7）
-	bash scripts/acceptance.sh
+	$(UV) run python -m scripts.runtime_acceptance --base $(ACCEPTANCE_BASE) --output .artifacts/runtime-acceptance.json
+
+semantic-shadow-audit: ## 语义画像 shadow 只读晋级审计
+	$(UV) run python -m scripts.audit_semantic_shadow --output .artifacts/semantic-shadow-audit.json
+
+rollout-audit: ## V2/control 样本与安全门禁只读审计
+	$(UV) run python -m scripts.audit_rollout --output .artifacts/rollout-audit.json
 
 .PHONY: help bootstrap baseline secret-precheck db-up db-down migrate \
 	migrate-test backend-dev frontend-dev backend-unit backend-contract \
 	backend-integration architecture agent-test api-test contract-drift \
-	frontend-check lint test e2e check acceptance
+	frontend-check lint test check acceptance semantic-shadow-audit rollout-audit

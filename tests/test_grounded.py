@@ -1,7 +1,7 @@
 """证据条件回复：只引用快照事实，不编造保修、库存或评分。"""
 from __future__ import annotations
 
-from backend.application.dto.dialogue import DialogueAct, DialogueActKind
+from backend.application.dto.dialogue import DialogueAct, DialogueActKind, SetPredicate
 from backend.application.dto.mission import MissionConstraints
 from backend.application.services.dialogue import classify_turn
 from backend.application.services.grounded import compose_ready_reply, compose_talk_reply
@@ -184,6 +184,34 @@ def test_ask_set_hits_current_set() -> None:
     assert "1 件" in reply.text
     assert "Sony" in reply.text
     assert reply.snapshot_ids == ["s2"]
+
+
+def test_ask_set_with_stock_answers_both_obligations() -> None:
+    ranked = [
+        {
+            **_ranked()[0],
+            "merchant": "lazada.sg",
+            "availability": "in_stock",
+            "stock_source": "top_level",
+        },
+        {
+            **_ranked()[1],
+            "merchant": "lazada.sg",
+            "availability": "unknown",
+        },
+    ]
+    reply = compose_talk_reply(
+        act=DialogueAct(
+            kind=DialogueActKind.ASK_SET,
+            predicate=SetPredicate(attr="merchant", values=["lazada"], label="Lazada"),
+        ),
+        text="Are these from Lazada and which are confirmed in stock?",
+        ranked=ranked,
+        constraints=MissionConstraints(query="headphones"),
+    )
+    assert "2 件" in reply.text
+    assert "确认有货" in reply.text
+    assert "没有足够强的库存证据" in reply.text
 
 
 def test_probe_and_compare_render_together() -> None:

@@ -56,6 +56,7 @@ def bind_oral_plan(
         ground_dialogue_act(item, text, current_query=current_query, ranked=ranked)
         for item in plan.leftover
     ]
+    lead: DialogueAct | None
     if plan.lead is not None:
         lead = ground_dialogue_act(plan.lead, text, current_query=current_query, ranked=ranked)
     else:
@@ -85,8 +86,11 @@ def fold_constraint_patch(constraints, plan: TurnPlan) -> IntentPatch:
     soft_prefs = None
     clarify = False
     question = None
+    source = "deterministic"
     for op in constraint_ops(plan):
         patch = op.patch or IntentPatch()
+        if op.source == "model" or patch.source == "model":
+            source = "model"
         for term in list(patch.exclude_terms or []) + list(op.exclude_terms):
             if term and term not in constraints.excluded_terms and term not in added:
                 added.append(term)
@@ -122,6 +126,7 @@ def fold_constraint_patch(constraints, plan: TurnPlan) -> IntentPatch:
         use_case=use_case,
         spec_gates=spec_gates,
         soft_prefs=soft_prefs,
+        source=source,
         requires_clarification=clarify and not (query or constraints.query),
         clarification_question=question,
     )

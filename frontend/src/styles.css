@@ -230,6 +230,7 @@ input, textarea { caret-color: var(--accent); }
 .thread-warning { display: flex; gap: 8px; align-items: flex-start; max-width: 96%; margin-bottom: 14px; padding: 9px 11px; border: 1px solid #d4a72c66; border-radius: var(--radius-sm); background: var(--amber-soft); color: var(--ink-soft); font-size: 11.5px; line-height: 1.5; }
 .thread-warning svg { flex: none; margin-top: 1px; color: var(--amber); }
 .thread-warning.is-stale { opacity: .62; }
+.coverage-notice { margin: 10px 42px 0; padding: 10px 12px; border: 1px solid #d4a72c66; border-radius: var(--radius-sm); background: var(--amber-soft); color: var(--ink-soft); font-size: 12px; line-height: 1.5; }
 .milestone-row { display: flex; align-items: center; gap: 7px; width: fit-content; margin: 0 auto 14px; padding: 5px 11px; border: 1px dashed var(--rule-strong); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 11px; }
 .milestone-row svg { color: var(--accent); }
 .milestone-row small { color: var(--faint); font: 400 10px var(--mono); }
@@ -704,7 +705,7 @@ input, textarea { caret-color: var(--accent); }
   .topbar { flex-wrap: wrap; height: auto; min-height: 62px; padding: 12px 22px; }
   .main-nav { order: 3; width: 100%; }
   .topbar-actions { margin-left: auto; }
-  .workspace-layout { grid-template-columns: 1fr; }
+  .workspace-layout, .workspace-layout.is-dialogue { grid-template-columns: minmax(0, 1fr); }
   .conversation-panel { position: static; height: auto; max-height: none; }
   .conversation-thread { max-height: clamp(300px, 42vh, 460px); }
   .compare-tray { width: min(900px, calc(100% - 36px)); flex-wrap: wrap; }
@@ -727,7 +728,9 @@ input, textarea { caret-color: var(--accent); }
   .home-view { padding-top: 36px; }
   .home-hero h1 { font-size: 34px; }
   .mission-header { flex-direction: column; align-items: flex-start; }
-  .results-region .products-grid { grid-template-columns: 1fr; }
+  .workspace-layout.is-dialogue .products-grid { grid-template-columns: minmax(0, 1fr); }
+  .decision-card { flex-direction: column; }
+  .decision-price { width: 100%; min-width: 0; padding: 12px 0 0; border-top: 1px solid #b7e1c4; border-left: 0; text-align: left; }
   .evidence-strip { display: grid; }
   .filter-bar { flex-direction: column; align-items: flex-start; }
   .compare-tray { bottom: 12px; align-items: stretch; }

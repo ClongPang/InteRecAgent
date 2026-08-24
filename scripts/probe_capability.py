@@ -17,6 +17,11 @@ import httpx
 
 from backend.bootstrap.settings import Settings
 from backend.infrastructure.llm.openai_compat import OpenAICompatModelBackend
+from backend.infrastructure.product_sources.contract import (
+    BUYWHERE_CONTRACT_VERSION,
+    CAPABILITY_MATRIX,
+    assess_buywhere_payload,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "artifacts" / "capability-probe.json"
@@ -153,31 +158,64 @@ async def probe_buywhere(settings: Settings) -> dict[str, Any]:
     headers = {"x-api-key": settings.buywhere_api_key, "Accept": "application/json"}
     calls: list[dict[str, Any]] = []
     products: list[dict] = []
+    request_count = 0
+    search_pages: dict[str, dict[str, Any]] = {}
     async with httpx.AsyncClient(base_url=API_BASE, headers=headers, timeout=20.0) as client:
         searches = [
-            ("sony wh1000xm5 headphones", "US", "keyword", 8),
-            ("sony wh1000xm5 headphones", "SG", "keyword", 8),
+            ("us_page_1", "sony wh1000xm5 headphones", "US", "keyword", 8, 0),
+            ("us_page_1_repeat", "sony wh1000xm5 headphones", "US", "keyword", 8, 0),
+            ("us_page_2", "sony wh1000xm5 headphones", "US", "keyword", 8, 8),
+            ("us_limit_50", "sony wh1000xm5 headphones", "US", "keyword", 50, 0),
+            ("sg_page_1", "sony wh1000xm5 headphones", "SG", "keyword", 8, 0),
         ]
-        for query, market, mode, limit in searches:
+        for label, query, market, mode, limit, offset in searches:
             result = await _get(
                 client,
                 "/v1/products/search",
-                {"q": query, "country_code": market, "mode": mode, "limit": limit},
+                {
+                    "q": query,
+                    "country_code": market,
+                    "mode": mode,
+                    "limit": limit,
+                    "offset": offset,
+                },
             )
+            request_count += 1
             data = result["body"].get("data") if isinstance(result["body"], dict) else None
             items = data if isinstance(data, list) else []
             products.extend(item for item in items if isinstance(item, dict))
+            meta = (
+                result["body"].get("meta") or {}
+                if isinstance(result["body"], dict)
+                else {}
+            )
+            search_pages[label] = {
+                "ids": [str(item.get("id") or "") for item in items if isinstance(item, dict)],
+                "meta": meta,
+                "status": result["status"],
+            }
             calls.append(
                 {
                     "op": "search",
+                    "label": label,
                     "query": query,
                     "market": market,
                     "mode": mode,
+                    "requested_limit": limit,
+                    "requested_offset": offset,
                     "status": result["status"],
                     "count": len(items),
-                    "meta_keys": sorted((result["body"].get("meta") or {}).keys())
-                    if isinstance(result["body"], dict)
-                    else [],
+                    "meta": {
+                        key: meta.get(key)
+                        for key in (
+                            "total",
+                            "limit",
+                            "offset",
+                            "has_more",
+                            "cached",
+                            "response_time_ms",
+                        )
+                    },
                     "samples": [_redact_product(item) for item in items[:3]],
                 }
             )
@@ -194,6 +232,7 @@ async def probe_buywhere(settings: Settings) -> dict[str, Any]:
         detail_items: list[dict] = []
         for pid in ids[:2]:
             result = await _get(client, f"/v1/products/{pid}")
+            request_count += 1
             data = result["body"].get("data") if isinstance(result["body"], dict) else None
             items = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
             detail_items.extend(item for item in items if isinstance(item, dict))
@@ -211,6 +250,7 @@ async def probe_buywhere(settings: Settings) -> dict[str, Any]:
 
         if len(ids) >= 2:
             result = await _get(client, "/v1/products/compare", {"ids": ",".join(ids[:2])})
+            request_count += 1
             data = result["body"].get("data") if isinstance(result["body"], dict) else None
             items = data if isinstance(data, list) else []
             calls.append(
@@ -228,6 +268,7 @@ async def probe_buywhere(settings: Settings) -> dict[str, Any]:
         price_calls = []
         for pid in ids[:2]:
             result = await _get(client, f"/v1/products/{pid}/prices", {"days": 30})
+            request_count += 1
             payload = result["body"].get("data") if isinstance(result["body"], dict) else None
             payload = payload if isinstance(payload, dict) else {}
             history = payload.get("history") if isinstance(payload.get("history"), list) else []
@@ -246,12 +287,45 @@ async def probe_buywhere(settings: Settings) -> dict[str, Any]:
         calls.append({"op": "prices", "items": price_calls})
 
     search_items = [item for item in products if isinstance(item, dict)]
+    contract = assess_buywhere_payload({"data": search_items})
     assumed_present = {
         name: any(name in item for item in search_items) for name in DOC_ASSUMED_MISSING
     }
+    page_1_ids = set(search_pages.get("us_page_1", {}).get("ids") or [])
+    page_1_repeat_ids = set(search_pages.get("us_page_1_repeat", {}).get("ids") or [])
+    page_2_ids = set(search_pages.get("us_page_2", {}).get("ids") or [])
+    repeat_union = page_1_ids | page_1_repeat_ids
+    repeat_stability = (
+        round(len(page_1_ids & page_1_repeat_ids) / len(repeat_union), 4)
+        if repeat_union
+        else None
+    )
+    page_overlap = (
+        round(len(page_1_ids & page_2_ids) / len(page_2_ids), 4)
+        if page_2_ids
+        else None
+    )
     return {
-        "request_count": 2 + len(ids[:2]) + (1 if len(ids) >= 2 else 0) + len(ids[:2]),
+        "contract_version": BUYWHERE_CONTRACT_VERSION,
+        "contract_compatible": contract.compatible,
+        "contract_breaking_paths": list(contract.breaking_paths),
+        "contract_additive_fields": list(contract.additive_fields),
+        "capability_matrix": CAPABILITY_MATRIX,
+        "request_count": request_count,
         "calls": calls,
+        "pagination_probe": {
+            "page_1_count": len(page_1_ids),
+            "page_2_count": len(page_2_ids),
+            "page_overlap_rate": page_overlap,
+            "repeat_jaccard": repeat_stability,
+            "repeat_cached": (
+                search_pages.get("us_page_1_repeat", {}).get("meta") or {}
+            ).get("cached"),
+            "requested_limit_50_returned": len(
+                search_pages.get("us_limit_50", {}).get("ids") or []
+            ),
+            "page_2_meta": search_pages.get("us_page_2", {}).get("meta") or {},
+        },
         "search_field_stats": _field_stats(search_items),
         "detail_field_stats": _field_stats(detail_items),
         "doc_assumed_fields_present_in_search": assumed_present,

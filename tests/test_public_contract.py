@@ -14,7 +14,11 @@ from backend.application.services.present import (
     product_candidate_from_snapshot,
     remap_draft,
 )
-from backend.application.services.rec.identity import merchant_page_url, page_key, unwrap_merchant_url
+from backend.application.services.rec.identity import (
+    merchant_page_url,
+    page_key,
+    unwrap_merchant_url,
+)
 from backend.domain.models import FxSnapshot, NormalizedProduct
 
 
@@ -151,7 +155,7 @@ def test_legacy_ranked_item_still_maps() -> None:
     }
     candidate = product_candidate_from_record(item, rank=2)
     assert candidate is not None
-    assert candidate.source_product_id == "src-1"
+    assert "source_product_id" not in candidate.model_dump()
     assert candidate.rank == 2
     assert candidate.estimated_cny is not None
 
@@ -181,5 +185,5 @@ def test_snapshot_envelope_maps_to_candidate() -> None:
     )
     assert candidate is not None
     assert candidate.snapshot_id == "snap-uuid"
-    assert candidate.source_product_id == "src-1"
+    assert "source_product_id" not in candidate.model_dump()
     assert candidate.image_url == "https://cdn.example/sony.jpg"

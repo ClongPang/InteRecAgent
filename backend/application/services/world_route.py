@@ -1,11 +1,10 @@
-"""按已执行的世界变化选计算工具。不读 DialogueAct.kind 查表。"""
+"""Choose the next graph route after Goal-owned world changes are committed."""
 from __future__ import annotations
 
 from ..dto.dialogue import DialogueActKind, TurnPlan, TurnRoute
 from .decide_oral import constraint_ops, leftover_after_route
 from .nlu import reuse_key_matches
 from .route import escalate_empty_merchant_filter
-
 
 _TALK = {
     DialogueActKind.ASK_ITEM,
@@ -23,9 +22,12 @@ def world_flags(plan: TurnPlan | None, *, constraints_changed: bool) -> dict:
     stances = [item for item in work if item.kind == DialogueActKind.STANCE]
     need_filter = bool(rejects) or constraints_changed
     need_rank = bool(stances) and not need_filter
-    want_lighter_only = bool(stances) and all(
-        item.stance == "want_lighter" for item in stances
-    ) and not rejects and not constraints_changed
+    want_lighter_only = (
+        bool(stances)
+        and all(item.stance == "want_lighter" for item in stances)
+        and not rejects
+        and not constraints_changed
+    )
     return {
         "talk_only": bool(talk) and not work,
         "needs_filter": need_filter,
@@ -93,9 +95,9 @@ def finish_world_route(
     reuse_matches = reuse_key_matches(mission.constraints, payload.get("reuse_key"))
     constraints_changed = constraints_before != mission.constraints
     flags = world_flags(plan, constraints_changed=constraints_changed)
-    if requires_clarification and not mission.constraints.query:
+    if requires_clarification:
         route = TurnRoute.CLARIFY
-        result = {
+        result: dict[str, object] = {
             "turn_route": route.value,
             "requires_clarification": True,
             "clarification_question": clarification_question,

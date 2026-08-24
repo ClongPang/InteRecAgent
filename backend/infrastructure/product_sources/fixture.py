@@ -28,14 +28,27 @@ class FixtureProductSource:
         limit: int = 20,
         max_price: float | None = None,
     ) -> ProductSearchResult:
-        del query, mode
         resp = self._load_market(country_code)
-        result = _normalize_response(resp)
+        result = _normalize_response(
+            resp,
+            retrieval_context={
+                "query": query,
+                "country_code": country_code,
+                "mode": mode,
+                "limit": limit,
+                "max_price": max_price,
+                "fixture": True,
+            },
+        )
         if max_price is not None:
             result.products = [
                 item for item in result.products if item.native_price_amount <= max_price
             ]
         result.products = result.products[:limit]
+        kept_ids = {item.id for item in result.products}
+        result.observations = [
+            item for item in result.observations if item.source_product_id in kept_ids
+        ]
         return result
 
     async def get_product(self, product_id: str) -> NormalizedProduct | None:
@@ -45,6 +58,17 @@ class FixtureProductSource:
                     from ...domain.policies.normalize import normalize_item
 
                     return normalize_item(item)
+        return None
+
+    async def get_product_with_observation(self, product_id: str):
+        for resp in self._load_all():
+            result = _normalize_response(
+                resp,
+                retrieval_context={"product_id": product_id, "fixture": True},
+            )
+            for product, observation in zip(result.products, result.observations, strict=False):
+                if product.id == product_id:
+                    return product, observation.model_copy(update={"operation": "detail"})
         return None
 
     def _load_market(self, country_code: str) -> BuyWhereSearchResponse:

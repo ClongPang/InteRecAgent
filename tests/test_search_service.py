@@ -12,6 +12,7 @@ import pytest
 from backend.application.dto import ProductSearchResult
 from backend.application.errors import UpstreamUnavailableError
 from backend.application.services import SearchService
+from backend.application.services.market_search import gather_market_products
 from backend.domain.models import FxSnapshot, SearchMode, SearchParams
 from backend.domain.policies.normalize import normalize_item
 from backend.infrastructure.product_sources.buywhere import BuyWhereSearchResponse
@@ -120,6 +121,34 @@ async def test_no_results_is_degraded() -> None:
     result = await svc.run(SearchParams(query="nothing", markets=["US"]))
     assert result.products == []
     assert result.degraded is True
+
+
+@pytest.mark.asyncio
+async def test_search_execution_records_request_contract_and_query_fingerprints() -> None:
+    source = StubProducts(
+        {
+            "US": ProductSearchResult(
+                products=[],
+                provider_contract_version="fixture-v1",
+                contract_fingerprint="contract-sha",
+            )
+        }
+    )
+    outcome = await gather_market_products(
+        source,
+        query="  Sony   Headphones ",
+        markets=["US"],
+        mode="keyword",
+        limit=7,
+        goal_version=9,
+    )
+    execution = outcome.executions[0]
+    assert execution.goal_version == 9
+    assert execution.requested_params["q"] == "  Sony   Headphones "
+    assert execution.requested_params["country_code"] == "US"
+    assert execution.contract_fingerprint == "contract-sha"
+    assert execution.query_fingerprint
+    assert execution.response_meta == execution.page_meta.model_dump(mode="json")
 
 
 @pytest.mark.asyncio

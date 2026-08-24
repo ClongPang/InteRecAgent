@@ -81,11 +81,14 @@ def cited_facts(record: dict) -> CitedFacts | None:
     snapshot_id = record.get("snapshot_id")
     if not snapshot_id:
         return None
-    native = record.get("native_price") if isinstance(record.get("native_price"), dict) else {}
-    estimated = record.get("estimated_cny") if isinstance(record.get("estimated_cny"), dict) else {}
+    raw_native = record.get("native_price")
+    raw_estimated = record.get("estimated_cny")
+    native: dict = raw_native if isinstance(raw_native, dict) else {}
+    estimated: dict = raw_estimated if isinstance(raw_estimated, dict) else {}
     native_amount = native.get("amount", record.get("native_price_amount"))
     cny = estimated.get("amount", record.get("rmb_price"))
-    attrs = record.get("attrs") if isinstance(record.get("attrs"), dict) else {}
+    raw_attrs = record.get("attrs")
+    attrs: dict = raw_attrs if isinstance(raw_attrs, dict) else {}
     return CitedFacts(
         snapshot_id=str(snapshot_id),
         title=str(record.get("title") or "当前候选"),
@@ -280,8 +283,8 @@ def _resolve_items(
         bind_records=universe,
     )
     if hinted:
-        items = [cited_facts(by_id[sid]) for sid in hinted if sid in by_id]
-        found = [item for item in items if item is not None]
+        hinted_items = [cited_facts(by_id[sid]) for sid in hinted if sid in by_id]
+        found = [item for item in hinted_items if item is not None]
         if found:
             return found
     hint = detect_referent_hint(text or "")
@@ -364,12 +367,23 @@ def _set_query_reply(
         names = "、".join(hit.display_name for hit in result.hits[:4])
         text_out = f"当前对照里有 {len(result.hits)} 件{result.predicate.label}：{names}。"
         cited = []
+        matched_facts: list[CitedFacts] = []
         for hit in result.hits[:4]:
             record = next((item for item in ranked if str(item.get("snapshot_id")) == hit.snapshot_id), None)
             if record:
                 item = cited_facts(record)
                 if item:
+                    matched_facts.append(item)
                     cited.append(cite_item(item, role="set"))
+        if detect_ask_topic(text) == AskTopic.STOCK or any(
+            token in (text or "").lower() for token in ("stock", "in stock", "有货", "库存")
+        ):
+            confirmed = [item.title for item in matched_facts if item.availability == "in_stock" and item.stock_source == "top_level"]
+            unknown = [item.title for item in matched_facts if item.title not in confirmed]
+            if confirmed:
+                text_out += f"BuyWhere 顶层库存标记确认有货的有 {len(confirmed)} 件。"
+            if unknown:
+                text_out += f"其余 {len(unknown)} 件没有足够强的库存证据，不能确认有货。"
         return TalkReply(
             text=text_out,
             snapshot_ids=[hit.snapshot_id for hit in result.hits],

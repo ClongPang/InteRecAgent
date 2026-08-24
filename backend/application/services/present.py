@@ -118,8 +118,7 @@ def remap_draft(draft: RecommendationDraft, snapshot_map: dict[str, str]) -> Rec
 
 def product_candidate_from_record(item: dict, *, rank: int | None = None) -> ProductCandidate | None:
     snapshot_id = item.get("snapshot_id")
-    source_product_id = item.get("source_product_id") or item.get("id")
-    if not snapshot_id or not source_product_id:
+    if not snapshot_id:
         return None
     native = item.get("native_price")
     if isinstance(native, dict) and native.get("amount") is not None:
@@ -133,11 +132,11 @@ def product_candidate_from_record(item: dict, *, rank: int | None = None) -> Pro
         return None
     estimated = _estimated_cny(item)
     updated = _parse_dt(item.get("source_updated_at") or item.get("updated_at"))
-    attrs = item.get("attrs") if isinstance(item.get("attrs"), dict) else {}
+    raw_attrs = item.get("attrs")
+    attrs: dict = raw_attrs if isinstance(raw_attrs, dict) else {}
     return ProductCandidate(
         snapshot_id=str(snapshot_id),
         source=str(item.get("source") or "buywhere"),
-        source_product_id=str(source_product_id),
         title=str(item.get("title") or ""),
         merchant=item.get("merchant"),
         market=item.get("market") or item.get("country_code"),

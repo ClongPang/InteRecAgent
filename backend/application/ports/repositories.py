@@ -41,7 +41,12 @@ class ProductSnapshotRepository(Protocol):
     """商品快照仓储 Port。原始 payload 只存受控 JSONB，不返回给 API。"""
 
     async def save(
-        self, *, product: NormalizedProduct, raw_payload: dict, contract_version: str
+        self,
+        *,
+        product: NormalizedProduct,
+        raw_payload: dict,
+        contract_version: str,
+        snapshot_id: str | None = None,
     ) -> str: ...
 
     async def get(self, snapshot_id: str) -> dict | None: ...
@@ -56,7 +61,15 @@ class FxSnapshotRepository(Protocol):
 class CandidateSetRepository(Protocol):
     """候选集仓储 Port。保存保留/排除原因、排序位置与确定性评分输入。"""
 
-    async def save(self, *, mission_id: str, run_id: str, constraints_version: int, payload: dict) -> str: ...
+    async def save(
+        self,
+        *,
+        mission_id: str,
+        run_id: str,
+        constraints_version: int,
+        payload: dict,
+        candidate_set_id: str | None = None,
+    ) -> str: ...
 
     async def get(self, candidate_set_id: str) -> dict | None: ...
 

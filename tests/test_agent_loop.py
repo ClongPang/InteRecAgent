@@ -5,9 +5,16 @@ from pathlib import Path
 
 import pytest
 
+from backend.agent.judges import shadow_semantic_profiles
 from backend.agent.loop import run_agent, run_deterministic
 from backend.agent.tools import ResearchContext, ResearchLimits, ResearchTools
-from backend.application.dto import ProductSearchResult
+from backend.application.dto import (
+    GoalConstraint,
+    GoalTarget,
+    ProductSearchResult,
+    RetrievalScope,
+    ShoppingGoal,
+)
 from backend.application.dto.mission import MissionConstraints, ShoppingMission
 from backend.application.errors import ModelUnavailableError
 from backend.application.services.rec import plan_search, rec_state_from_mission
@@ -70,6 +77,17 @@ class _ScriptedSource:
     async def get_product(self, product_id):
         del product_id
         return None
+
+
+class _DetailSource(_ScriptedSource):
+    def __init__(self, waves, details):
+        super().__init__(waves)
+        self.details = details
+        self.detail_calls: list[str] = []
+
+    async def get_product(self, product_id):
+        self.detail_calls.append(product_id)
+        return self.details.get(product_id)
 
 
 def _assert_traceable(ctx: ResearchContext) -> None:
@@ -138,11 +156,38 @@ async def test_agent_loop_falls_back_when_json_unavailable() -> None:
 
     ctx = _context("索尼降噪耳机", markets=["US"])
     await run_agent(ctx, _tools(), Boom())
-    assert ctx.pool == [], "keep JSON 失败不得把未判定批次整批并入"
+    assert ctx.pool, "模型不可用时，资格门通过的候选仍应进入可行集"
 
 
 @pytest.mark.asyncio
-async def test_keep_empty_does_not_merge_batch() -> None:
+async def test_semantic_model_proposals_are_recorded_as_shadow_only() -> None:
+    class SemanticBackend(FakeModelBackend):
+        async def complete_json(self, *, system: str, user: str):
+            del system, user
+            return {
+                "profiles": [
+                    {
+                        "id": "a",
+                        "item_type": "headphones",
+                        "relation": "product",
+                        "confidence": 0.97,
+                        "evidence_spans": ["Headphones"],
+                    }
+                ]
+            }
+
+    item = _product("a", "Sony WH-1000XM5 Headphones")
+    ctx = _context("耳机", markets=["US"])
+    await shadow_semantic_profiles(SemanticBackend(), ctx, [item])
+    assert ctx.semantic_profile_proposals["a"]["method"] == "model"
+    shadow = ctx.semantic_profile_shadow["a"]
+    assert shadow["adjudicated"]["method"] == "adjudicated"
+    assert shadow["guard"]["method"] == "rule"
+    assert ctx.products == []  # shadow analysis cannot change the active candidate bus
+
+
+@pytest.mark.asyncio
+async def test_keep_empty_cannot_erase_qualified_batch() -> None:
     wave = [_product("a", "Sony WH-1000XM5 Headphones"), _product("b", "Sony WH-CH720 Headphones")]
     tools = ResearchTools(_ScriptedSource([wave]), FixedFxSource())
     ctx = _context(
@@ -152,8 +197,8 @@ async def test_keep_empty_does_not_merge_batch() -> None:
     )
     backend = FakeModelBackend(json_replies=[{"keep": []}, {"ranked": ["a"]}])
     await run_agent(ctx, tools, backend)
-    assert ctx.pool == []
-    assert ctx.ranked == []
+    assert [item.id for item in ctx.pool] == ["a", "b"]
+    assert [item.id for item in ctx.ranked] == ["a", "b"]
 
 
 @pytest.mark.asyncio
@@ -168,7 +213,7 @@ async def test_keep_grounds_unknown_ids() -> None:
     backend = FakeModelBackend(json_replies=[{"keep": ["b", "ghost", "a"]}, {"ranked": ["ghost", "b"]}])
     await run_agent(ctx, tools, backend)
     assert [item.id for item in ctx.pool] == ["b", "a"]
-    assert [item.id for item in ctx.ranked] == ["b"]
+    assert [item.id for item in ctx.ranked] == ["a", "b"]
 
 
 @pytest.mark.asyncio
@@ -212,5 +257,180 @@ async def test_rewrite_merges_second_search() -> None:
     await run_agent(ctx, tools, backend)
     assert ctx.search_count == 2
     assert [item.id for item in ctx.pool] == ["a", "c"]
-    assert [item.id for item in ctx.ranked] == ["c", "a"]
+    assert [item.id for item in ctx.ranked] == ["a", "c"]
     assert ctx.rewritten_queries == ["bose qc"]
+
+
+@pytest.mark.asyncio
+async def test_model_and_token_budgets_are_hard_limits() -> None:
+    source = _ScriptedSource([[_product("a", "Sony Headphones")]])
+    limits = ResearchLimits(
+        max_searches=2,
+        max_model_calls=1,
+        max_estimated_tokens=2_000,
+    )
+    ctx = _context("headphones", markets=["US"], limits=limits)
+    backend = FakeModelBackend(json_replies=[{"keep": ["a"]}, {"query": "sony"}])
+    await run_agent(ctx, ResearchTools(source, FixedFxSource()), backend)
+    assert ctx.model_call_count == 1
+    assert ctx.estimated_token_count <= limits.max_estimated_tokens
+    assert any("Token 预算" in warning for warning in ctx.warnings)
+
+
+@pytest.mark.asyncio
+async def test_goal_coverage_stops_research_when_eligible_minimum_is_met() -> None:
+    wave = [_product(f"h{i}", f"Wireless Headphones {i}") for i in range(4)]
+    source = _ScriptedSource([wave])
+    ctx = _context(
+        "headphones",
+        limits=ResearchLimits(max_searches=3, minimum_eligible=3),
+    )
+    ctx.mission = ctx.mission.model_copy(
+        update={"goal": ShoppingGoal(target=GoalTarget(item_type="headphones"))}
+    )
+    await run_deterministic(ctx, ResearchTools(source, FixedFxSource()))
+    assert ctx.search_count == 1
+    assert ctx.goal_coverage is not None
+    assert ctx.goal_coverage.status == "sufficient"
+    assert len(ctx.ranked) == 4
+
+
+@pytest.mark.asyncio
+async def test_blocked_candidate_triggers_targeted_detail_evidence_fetch() -> None:
+    summary = _product("sony-1", "WH1000XM5 Black")
+    detail = summary.model_copy(
+        update={"attrs": {"category": "Audio Headphones", "vendor": "Sony"}}
+    )
+    source = _DetailSource([[summary]], {"sony-1": detail})
+    ctx = _context(
+        "headphones",
+        limits=ResearchLimits(max_searches=1, minimum_eligible=1),
+    )
+    ctx.mission = ctx.mission.model_copy(
+        update={"goal": ShoppingGoal(target=GoalTarget(item_type="headphones"))}
+    )
+    await run_deterministic(ctx, ResearchTools(source, FixedFxSource()))
+    assert source.detail_calls == ["sony-1"]
+    assert ctx.goal_coverage is not None
+    assert ctx.goal_coverage.status == "sufficient"
+    assert [item.id for item in ctx.ranked] == ["sony-1"]
+
+
+@pytest.mark.asyncio
+async def test_failed_evidence_fetch_is_disclosed_and_never_promoted() -> None:
+    summary = _product("unknown-1", "Unknown Model X")
+    source = _DetailSource([[summary]], {})
+    ctx = _context(
+        "Unknown Model X",
+        limits=ResearchLimits(max_searches=1, minimum_eligible=1),
+    )
+    ctx.mission = ctx.mission.model_copy(
+        update={"goal": ShoppingGoal(target=GoalTarget(item_type="headphones"))}
+    )
+    await run_deterministic(ctx, ResearchTools(source, FixedFxSource()))
+    assert source.detail_calls == ["unknown-1"]
+    assert ctx.ranked == []
+    assert ctx.goal_coverage is not None
+    assert ctx.goal_coverage.status == "blocked_on_evidence"
+    assert any("仍缺少" in warning for warning in ctx.warnings)
+    assert any(item.purpose == "evidence_supplement" for item in ctx.query_trace)
+
+
+@pytest.mark.asyncio
+async def test_requested_market_is_never_silently_expanded() -> None:
+    source = _ScriptedSource([[]])
+    ctx = _context("headphones", markets=["TH"])
+    ctx.mission = ctx.mission.model_copy(
+        update={
+            "goal": ShoppingGoal(
+                target=GoalTarget(item_type="headphones"),
+                retrieval_scope=RetrievalScope(markets_requested=["TH"]),
+            )
+        }
+    )
+    await run_deterministic(ctx, ResearchTools(source, FixedFxSource()))
+    assert ctx.search_count == 1
+    assert ctx.plan.markets == ["TH"]
+    assert len(ctx.proposals) == 1
+    assert ctx.proposals[0].kind == "expand_markets"
+    assert ctx.proposals[0].status == "pending_user_confirmation"
+
+
+@pytest.mark.asyncio
+async def test_model_cannot_stop_a_deterministic_budget_retry() -> None:
+    first = [_product("a", "Sony Headphones")]
+    source = _ScriptedSource([first, first])
+    ctx = _context(
+        "headphones",
+        budget_cny=4000,
+        limits=ResearchLimits(max_searches=2, minimum_eligible=3),
+    )
+    ctx.mission = ctx.mission.model_copy(
+        update={"goal": ShoppingGoal(target=GoalTarget(item_type="headphones"))}
+    )
+    backend = FakeModelBackend(
+        json_replies=[
+            {"keep": ["a"]},
+            {"query": None},
+            {"keep": ["a"]},
+            {"ranked": ["a"]},
+        ]
+    )
+    await run_agent(ctx, ResearchTools(source, FixedFxSource()), backend)
+    assert ctx.search_count == 2
+    assert ctx.relaxed_native_cap is True
+
+
+@pytest.mark.asyncio
+async def test_no_eligible_gain_stops_even_when_new_wrong_type_items_arrive() -> None:
+    first = [_product("a", "iPhone 16 Case")]
+    second = [_product("b", "iPhone 16 Charger")]
+    source = _ScriptedSource([first, second])
+    ctx = _context(
+        "headphones",
+        limits=ResearchLimits(max_searches=4, max_consecutive_no_gain=2),
+    )
+    ctx.mission = ctx.mission.model_copy(
+        update={"goal": ShoppingGoal(target=GoalTarget(item_type="headphones"))}
+    )
+    backend = FakeModelBackend(json_replies=[{"query": "wireless headphones"}])
+    await run_agent(ctx, ResearchTools(source, FixedFxSource()), backend)
+    assert ctx.search_count == 2
+    assert ctx.stop_reason == "consecutive_no_gain"
+    assert ctx.goal_coverage is not None
+    assert ctx.goal_coverage.marginal_eligible_count == 0
+
+
+@pytest.mark.asyncio
+async def test_monitor_vertical_slice_qualifies_only_required_4k_products() -> None:
+    wave = [
+        _product("4k", "Dell 27 Inch 4K UHD Monitor"),
+        _product("fhd", "Dell 27 Inch FHD Monitor"),
+        _product("arm", "Dual Monitor Arm Desk Mount"),
+    ]
+    ctx = _context(
+        "27 inch 4k monitor",
+        limits=ResearchLimits(max_searches=1, minimum_eligible=1),
+    )
+    ctx.mission = ctx.mission.model_copy(
+        update={
+            "goal": ShoppingGoal(
+                target=GoalTarget(item_type="monitor"),
+                constraints=[
+                    GoalConstraint(
+                        constraint_id="spec-4k",
+                        facet="spec_gate:4k",
+                        operator="matches",
+                        value={"attr": "4k", "cues": ["4k", "uhd"], "required": True},
+                    )
+                ],
+            )
+        }
+    )
+    # Offline vertical-slice evaluation opts in explicitly; runtime publication
+    # is still controlled by CategoryContract.
+    ctx.enabled_item_types = frozenset({"monitor"})
+    await run_deterministic(ctx, ResearchTools(_ScriptedSource([wave]), FixedFxSource()))
+    assert [item.id for item in ctx.ranked] == ["4k"]
+    assert ctx.goal_coverage is not None
+    assert ctx.goal_coverage.status == "sufficient"

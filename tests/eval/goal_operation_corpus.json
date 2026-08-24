@@ -1,0 +1,26 @@
+{
+  "schema_version": "goal-operation-corpus-v1",
+  "reviewed_by": "architecture-baseline",
+  "cases": [
+    {"text":"iPhone under CNY 8000", "expect":{"target":"smartphone", "brand":"Apple", "budget":8000}},
+    {"text":"My budget was CNY 6000 for an iPhone", "expect":{"target":"smartphone", "brand":"Apple", "budget":6000}},
+    {"text":"预算 4000 元的降噪耳机", "expect":{"target":"headphones", "budget":4000}},
+    {"text":"Sony headphones below RMB 3000", "expect":{"target":"headphones", "brand":"Sony", "budget":3000}},
+    {"text":"Bose headphones up to 2500 yuan", "expect":{"target":"headphones", "brand":"Bose", "budget":2500}},
+    {"text":"在美国找 iPhone 15", "expect":{"target":"smartphone", "brand":"Apple", "markets":["US"]}},
+    {"text":"在新加坡找降噪耳机", "expect":{"target":"headphones", "markets":["SG"]}},
+    {"text":"search US or Singapore for headphones", "expect":{"target":"headphones", "markets":["US","SG"]}},
+    {"text":"Amazon 上的 Sony headphones", "expect":{"target":"headphones", "brand":"Sony", "platforms":["amazon"]}},
+    {"text":"Lazada 上找 iPhone", "expect":{"target":"smartphone", "brand":"Apple", "platforms":["lazada"]}},
+    {"text":"Shopee 上的耳机", "expect":{"target":"headphones", "platforms":["shopee"]}},
+    {"text":"Best Buy iPhone under CNY 7000", "expect":{"target":"smartphone", "brand":"Apple", "budget":7000, "platforms":["bestbuy"]}},
+    {"text":"不要配件，只要 iPhone", "expect":{"target":"smartphone", "brand":"Apple", "relation":"product"}},
+    {"text":"not cases or kits, only headphones", "expect":{"target":"headphones", "relation":"product"}},
+    {"text":"只看有货的降噪耳机", "expect":{"target":"headphones", "stock":true}},
+    {"text":"iPhone in-stock only", "expect":{"target":"smartphone", "brand":"Apple", "stock":true}},
+    {"text":"不是 Bose，是 Sony 耳机", "expect":{"target":"headphones", "brand":"Sony", "correction":true}},
+    {"text":"I mean Apple iPhone rather than Samsung", "expect":{"target":"smartphone", "brand":"Apple", "correction":true}},
+    {"text":"Sony WH 1000 XM5 headphones", "expect":{"target":"headphones", "brand":"Sony", "budget":null}},
+    {"text":"a gift for my mother: Bose headphones", "expect":{"target":"headphones", "brand":"Bose", "markets":[]}}
+  ]
+}

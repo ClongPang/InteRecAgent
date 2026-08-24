@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import time
 
+from anyio import CancelScope
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
@@ -36,9 +37,14 @@ async def stream_events(
         last_beat = time.monotonic()
         try:
             while True:
-                events = await svc.list_events(
-                    owner_id=owner_id, mission_id=mission_id, after=last_seq
-                )
+                # A disconnect may cancel this response task during pool
+                # checkout. Finish the short durable read first so asyncpg can
+                # return the connection cleanly, then observe cancellation at
+                # the next stream boundary.
+                with CancelScope(shield=True):
+                    events = await svc.list_events(
+                        owner_id=owner_id, mission_id=mission_id, after=last_seq
+                    )
                 if events:
                     for event in events:
                         last_seq = event["sequence"]
@@ -98,13 +104,15 @@ async def stream_run_text(
             while True:
                 snap = hub.snapshot(run_id) if hub is not None else None
                 if snap is None:
-                    replayed = await svc.replay_run_text(
-                        owner_id=owner_id, mission_id=mission_id, run_id=run_id
-                    )
-                    if replayed is None:
-                        mission = await svc.get_mission(
-                            owner_id=owner_id, mission_id=mission_id
+                    with CancelScope(shield=True):
+                        replayed = await svc.replay_run_text(
+                            owner_id=owner_id, mission_id=mission_id, run_id=run_id
                         )
+                    if replayed is None:
+                        with CancelScope(shield=True):
+                            mission = await svc.get_mission(
+                                owner_id=owner_id, mission_id=mission_id
+                            )
                         if (
                             mission.turn_phase.value == "idle"
                             and mission.active_run_id != run_id

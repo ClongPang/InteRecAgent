@@ -25,7 +25,18 @@ from ..errors import (
     SnapshotNotFound,
 )
 from ..ports import MissionEventBroker, RunDispatcher, RunTextHub, UnitOfWork
+from .answer import build_candidate_claim_ledger, verify_claim_ledger
 from .dialogue import project_thread, stage_for_phase
+from .goal import (
+    apply_goal_operations,
+    belief_view_from_goal,
+    compile_constraint_operations,
+    compile_preference_operations,
+    compile_rejection_operations,
+    constraint_view_from_goal,
+    ensure_goal_authority,
+    validate_goal_operations,
+)
 from .nlu import is_undo_text
 from .policy import DialoguePolicy, TurnDecision, TurnInput
 from .present import image_url_of, product_candidate_from_record, product_candidate_from_snapshot
@@ -169,7 +180,9 @@ class MissionCommandService:
             )
         return run_id, new_version
 
-    async def undo(self, *, owner_id: str, mission_id: str, constraints_version: int) -> tuple[str, int]:
+    async def undo(
+        self, *, owner_id: str, mission_id: str, constraints_version: int
+    ) -> tuple[str, int]:
         """撤销最近一次可撤销条件变更。仅当恢复后的约束与当前不同时递增版本。"""
         async with self._uow_factory() as uow:
             mission = await uow.missions.get(owner_id=owner_id, mission_id=mission_id)
@@ -350,9 +363,7 @@ class MissionCommandService:
             raise SnapshotNotFound(snapshot_id)
         return candidate
 
-    async def list_events(
-        self, *, owner_id: str, mission_id: str, after: int = 0
-    ) -> list[dict]:
+    async def list_events(self, *, owner_id: str, mission_id: str, after: int = 0) -> list[dict]:
         """事件流（OBS-003）。跨 owner 一律 404。"""
         async with self._uow_factory() as uow:
             mission = await uow.missions.get(owner_id=owner_id, mission_id=mission_id)
@@ -462,28 +473,91 @@ class MissionCommandService:
         run_id = str(uuid4())
         before = mission.constraints
         after = decision.constraints if decision.apply_constraints else mission.constraints
-        new_version = (
-            next_constraints_version(mission.constraints_version, before, after)
-            if decision.apply_constraints
-            else mission.constraints_version
-        )
         warnings = list(dict.fromkeys([*mission.warnings, *decision.warnings]))
+        baseline_goal = ensure_goal_authority(
+            mission.goal,
+            mission.constraints,
+            version=max(mission.goal.goal_version, mission.constraints_version),
+            belief=mission.belief,
+        )
+        goal = baseline_goal
+        operations = []
+        if decision.apply_constraints and after != before:
+            operations.extend(
+                compile_constraint_operations(
+                    before,
+                    after,
+                    goal=goal,
+                    source_turn_id=run_id,
+                    origin="deterministic",
+                )
+            )
+        if decision.belief != mission.belief:
+            operations.extend(
+                compile_preference_operations(
+                    goal_version=goal.goal_version,
+                    source_turn_id=run_id,
+                    origin="deterministic",
+                    soft_prefs=list(decision.belief.soft),
+                    spec_gates=list(decision.belief.spec_gates),
+                    use_case=decision.belief.use_case,
+                    price_sensitivity=decision.belief.price_sensitivity,
+                )
+            )
+            operations.extend(
+                compile_rejection_operations(
+                    goal=goal,
+                    source_turn_id=run_id,
+                    snapshot_ids=list(decision.belief.rejected_snapshot_ids),
+                    listing_keys=list(decision.belief.rejected_listing_keys),
+                )
+            )
+        if operations:
+            validation = validate_goal_operations(goal, operations)
+            if validation.conflicts:
+                raise ValueError(validation.conflicts[0].message)
+            goal = apply_goal_operations(goal, validation.operations)
+            after = constraint_view_from_goal(goal, fallback=after)
+        revision_changed = goal != baseline_goal or after != before
+        new_version = mission.constraints_version + (1 if revision_changed else 0)
         updated = mission.model_copy(
             update={
                 "constraints": after,
+                "goal": goal,
                 "constraints_version": new_version,
                 "stage": stage_for_phase(decision.phase, mission.stage)
                 if decision.dispatch
                 else mission.stage,
                 "turn_phase": decision.phase if decision.dispatch else TurnPhase.IDLE,
                 "dialogue": decision.dialogue,
-                "belief": decision.belief,
+                "belief": belief_view_from_goal(goal, fallback=decision.belief),
                 "warnings": warnings,
                 "active_run_id": run_id if decision.dispatch else mission.active_run_id,
                 "updated_at": utcnow(),
             }
         )
         await uow.missions.save(updated, expected_version=expected_version)
+        if operations:
+            serialized_operations = [item.model_dump(mode="json") for item in operations]
+            await uow.events.append(
+                mission_id=mission.id,
+                event_type="goal.operations_proposed",
+                payload={
+                    "run_id": run_id,
+                    "base_goal_version": mission.goal.goal_version,
+                    "operations": serialized_operations,
+                },
+            )
+            await uow.events.append(
+                mission_id=mission.id,
+                event_type="goal.operations_committed",
+                payload={
+                    "run_id": run_id,
+                    "goal_version": goal.goal_version,
+                    "constraints_version": new_version,
+                    "operations": serialized_operations,
+                },
+            )
         if user_text:
             await uow.events.append(
                 mission_id=mission.id,
@@ -499,11 +573,10 @@ class MissionCommandService:
                     "turn_route": decision.route.value,
                     "act_payload": decision.act.model_dump(mode="json"),
                     "skip_intent_patch": decision.apply_constraints
-                    or decision.act.kind.value
-                    not in {"refine_constraints", "unknown"},
+                    or decision.act.kind.value not in {"refine_constraints", "unknown"},
                 },
             )
-        if decision.apply_constraints and after != before:
+        if revision_changed and after != before:
             await uow.events.append(
                 mission_id=mission.id,
                 event_type="constraints.updated",
@@ -556,14 +629,25 @@ class MissionCommandService:
     def _candidate_set_view(payload: dict | None) -> CandidateSetView:
         if not payload:
             return CandidateSetView()
+        records = list(payload.get("ranked") or [])
+        displayed_ids = {
+            str(item.get("snapshot_id")) for item in records if item.get("snapshot_id")
+        }
+        ledger = build_candidate_claim_ledger(
+            "public-candidate-set",
+            records,
+            goal_version=max(1, int(payload.get("goal_version") or 1)),
+        )
+        verify_claim_ledger(ledger, displayed_snapshot_ids=displayed_ids)
         ranked: list[ProductCandidate] = []
-        for index, item in enumerate(payload.get("ranked") or [], start=1):
+        for index, item in enumerate(records, start=1):
             candidate = product_candidate_from_record(item, rank=index)
             if candidate is not None:
                 ranked.append(candidate)
         return CandidateSetView(
             ranked=ranked,
             fx_snapshot_ids=list(payload.get("fx_snapshot_ids") or []),
+            coverage=payload.get("coverage"),
         )
 
     @staticmethod
@@ -579,5 +663,3 @@ class MissionCommandService:
             for item in payload.get("ranked") or []
             if item.get("snapshot_id")
         }
-
-

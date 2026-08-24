@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from ..agent.graph import build_graph
 from ..agent.runner import LangGraphMissionRunner
 from ..application.ports import FxSource, ModelBackend, ProductSource
 from ..application.services import MissionCommandService, SearchService
+from ..application.services.rec.semantic import PROFILE_VERSION
+from ..domain.category_contracts import publishable_item_types, validate_category_contracts
+from ..domain.product_ontology import DETECTED_ITEM_TYPES
 from ..infrastructure.fx_sources.fixed import FixedFxSource
 from ..infrastructure.fx_sources.fxratesapi import FxRatesApiFxSource
 from ..infrastructure.llm.factory import UnsupportedLLMProviderError, build_model_backend
@@ -38,7 +41,7 @@ class Container:
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or Settings()
-        self._engine = None
+        self._engine: AsyncEngine | None = None
         self._product_source: ProductSource | None = None
         self._fx_source: FxSource | None = None
         self._model_backend: ModelBackend | None = None
@@ -50,7 +53,8 @@ class Container:
         """共享 AsyncEngine 驱动的会话工厂（请求级会话）。"""
         if self._engine is None:
             self._engine = create_engine(self.settings.database_url)
-        return session_factory(self._engine)
+        engine = self._engine
+        return session_factory(engine)
 
     async def aclose(self) -> None:
         """关闭共享资源（lifespan 结束时调用）。"""
@@ -84,6 +88,7 @@ class Container:
             api_key=self.settings.buywhere_api_key,
             timeout=self.settings.buywhere_timeout,
             max_retries=self.settings.buywhere_max_retries,
+            max_concurrency=self.settings.buywhere_max_concurrency,
         )
 
     def build_fx_source(self) -> FxSource:
@@ -139,17 +144,32 @@ class Container:
 
     def build_mission_runner(
         self, session_factory: async_sessionmaker[AsyncSession]
-    ) -> LangGraphMissionRunner:
+    ):
         """装配 Agent 状态图。每个图节点运行时各自打开独立事务。"""
-        graph = build_graph(
+        validate_category_contracts(
+            qualification_profile_version=PROFILE_VERSION,
+            detected_item_types=DETECTED_ITEM_TYPES,
+        )
+        graph_args = dict(
             products=self.build_product_source(),
             fx=self.build_fx_source(),
             model_backend=self.build_model_backend(),
             uow_factory=self._uow_factory(session_factory),
             max_concurrency=self.settings.search_max_concurrency,
+            max_wall_time_ms=self.settings.research_max_wall_time_ms,
             text_hub=self.build_text_hub(),
+            enabled_item_types=(
+                publishable_item_types(self.settings.v2_enabled_item_types)
+                & DETECTED_ITEM_TYPES
+            ),
         )
-        return LangGraphMissionRunner(graph)
+        flags = {
+            "enabled_item_types": sorted(graph_args["enabled_item_types"]),
+            "qualification_profile_version": PROFILE_VERSION,
+            "execution_path": "explicit_v2",
+            "release_state": "full",
+        }
+        return LangGraphMissionRunner(build_graph(**graph_args), feature_flags=flags)
 
     def build_run_dispatcher(
         self, session_factory: async_sessionmaker[AsyncSession]

@@ -10,6 +10,7 @@ import asyncio
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from backend.application.dto import RunnerResult, RunnerStatus
 from backend.application.errors import DispatcherNotAccepting
 from backend.infrastructure.persistence.orm import ShoppingMissionRow
 from backend.infrastructure.persistence.unit_of_work import SqlAlchemyUnitOfWork
@@ -46,6 +47,35 @@ class SlowRunner:
     async def run(self, **kwargs):
         self.runs += 1
         await asyncio.sleep(self.delay)
+
+
+class RolloutRunner:
+    async def run(self, **kwargs):
+        return RunnerResult(
+            status=RunnerStatus.COMPLETED,
+            metadata={
+                "feature_flags": {
+                    "execution_path": "explicit_v2",
+                    "release_state": "full",
+                }
+            },
+        )
+
+
+class FailingRolloutRunner:
+    def release_metadata(self, mission_id: str) -> dict:
+        del mission_id
+        return {
+            "feature_flags": {
+                "execution_path": "explicit_v2",
+                "release_state": "full",
+                "qualification_profile_version": "ontology-rules-v10",
+            }
+        }
+
+    async def run(self, **kwargs):
+        del kwargs
+        raise RuntimeError("controlled runner failure")
 
 
 async def _insert_mission(sf) -> None:
@@ -124,3 +154,52 @@ async def test_dispatch_after_stop_is_rejected(db) -> None:
         await dispatcher.dispatch(
             owner_id=OWNER, mission_id=MISSION, run_id=RUN, constraints_version=1
         )
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_persists_release_observation(db) -> None:
+    await _insert_mission(db)
+    dispatcher = InProcessRunDispatcher(RolloutRunner(), db)
+    await dispatcher.start()
+    await dispatcher.dispatch(
+        owner_id=OWNER,
+        mission_id=MISSION,
+        run_id=RUN,
+        constraints_version=1,
+    )
+    await dispatcher.stop(grace_seconds=1)
+    async with SqlAlchemyUnitOfWork(db) as uow:
+        events = await uow.events.list_since(mission_id=MISSION)
+    observed = next(item for item in events if item["event_type"] == "run.release_observed")
+
+    assert observed["payload"]["run_id"] == RUN
+    assert observed["payload"]["feature_flags"]["execution_path"] == "explicit_v2"
+    assert observed["payload"]["feature_flags"]["release_state"] == "full"
+    assert isinstance(observed["payload"]["run_latency_ms"], int)
+    assert observed["payload"]["run_latency_ms"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_persists_failed_release_before_marking_run_failed(db) -> None:
+    await _insert_mission(db)
+    dispatcher = InProcessRunDispatcher(FailingRolloutRunner(), db)
+    await dispatcher.start()
+    await dispatcher.dispatch(
+        owner_id=OWNER,
+        mission_id=MISSION,
+        run_id=RUN,
+        constraints_version=1,
+    )
+    await dispatcher.stop(grace_seconds=1)
+    async with SqlAlchemyUnitOfWork(db) as uow:
+        events = await uow.events.list_since(mission_id=MISSION)
+    observed = next(item for item in events if item["event_type"] == "run.release_observed")
+
+    assert await _get_run_status(db) == "failed"
+    assert observed["payload"]["status"] == "failed"
+    assert observed["payload"]["feature_flags"] == {
+        "execution_path": "explicit_v2",
+        "release_state": "full",
+        "qualification_profile_version": "ontology-rules-v10",
+    }
+    assert observed["payload"]["run_latency_ms"] >= 0

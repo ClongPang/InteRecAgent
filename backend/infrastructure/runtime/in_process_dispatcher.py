@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ...application.dto import MissionStage, TurnPhase
+from ...application.dto import MissionStage, RunnerResult, RunnerStatus, TurnPhase
 from ...application.errors import DispatcherNotAccepting
 from ...application.ports import MissionEventBroker, MissionRunner, RunTextHub
 from ...domain.models import utcnow
@@ -110,13 +111,27 @@ class InProcessRunDispatcher:
     async def _execute(
         self, owner_id: str, mission_id: str, run_id: str, constraints_version: int
     ) -> None:
+        started_at = time.perf_counter()
+        metadata_provider = getattr(self._runner, "release_metadata", None)
+        release_metadata = (
+            dict(metadata_provider(mission_id)) if callable(metadata_provider) else {}
+        )
         await self._mark_run(mission_id, run_id, "running")
         try:
-            await self._runner.run(
+            result = await self._runner.run(
                 owner_id=owner_id,
                 mission_id=mission_id,
                 run_id=run_id,
                 constraints_version=constraints_version,
+            )
+            if not result.metadata and release_metadata:
+                result = result.model_copy(update={"metadata": release_metadata})
+            run_latency_ms = max(0, round((time.perf_counter() - started_at) * 1000))
+            await self._record_release_observation(
+                mission_id,
+                run_id,
+                result,
+                run_latency_ms=run_latency_ms,
             )
         except asyncio.CancelledError:
             if run_id in self._user_cancels:
@@ -130,10 +145,54 @@ class InProcessRunDispatcher:
                 "mission run failed",
                 extra={"mission_id": mission_id, "run_id": run_id},
             )
+            if release_metadata:
+                try:
+                    await self._record_release_observation(
+                        mission_id,
+                        run_id,
+                        RunnerResult(
+                            status=RunnerStatus.FAILED,
+                            metadata=release_metadata,
+                        ),
+                        run_latency_ms=max(
+                            0, round((time.perf_counter() - started_at) * 1000)
+                        ),
+                    )
+                except Exception:
+                    logger.exception(
+                        "failed to persist release failure observation",
+                        extra={"mission_id": mission_id, "run_id": run_id},
+                    )
             await self._mark_run(mission_id, run_id, "failed")
             await self._mark_mission_failed(owner_id, mission_id, run_id)
             if self._text_hub is not None:
                 self._text_hub.abort(run_id)
+
+    async def _record_release_observation(
+        self,
+        mission_id: str,
+        run_id: str,
+        result: RunnerResult,
+        *,
+        run_latency_ms: int,
+    ) -> None:
+        feature_flags = result.metadata.get("feature_flags") if result.metadata else None
+        if not isinstance(feature_flags, dict) or not feature_flags.get("execution_path"):
+            return
+        async with self._uow() as uow:
+            await uow.events.append(
+                mission_id=mission_id,
+                event_type="run.release_observed",
+                payload={
+                    "run_id": run_id,
+                    "status": result.status.value,
+                    "candidate_set_id": result.candidate_set_id,
+                    "recommendation_run_id": result.recommendation_run_id,
+                    "run_latency_ms": run_latency_ms,
+                    "feature_flags": feature_flags,
+                },
+            )
+            await uow.commit()
 
     async def _mark_run(self, mission_id: str, run_id: str, status: str) -> None:
         async with self._uow() as uow:

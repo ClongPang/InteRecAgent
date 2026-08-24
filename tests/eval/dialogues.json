@@ -143,7 +143,7 @@
       "text": "改找 27 寸 4K 显示器",
       "query": "通勤降噪耳机",
       "has_cache": true,
-      "expect": {"kind": "refine_constraints", "route": "research"}
+      "expect": {"kind": "refine_constraints", "route": "clarify"}
     },
     {
       "id": "19-budget-only",
@@ -196,14 +196,14 @@
       "text": "轻便徒步鞋，预算 1000 元",
       "query": null,
       "has_cache": false,
-      "expect": {"kind": "refine_constraints", "route": "research", "query": "轻便徒步鞋", "budget_cny": 1000}
+      "expect": {"kind": "refine_constraints", "route": "clarify", "query": "轻便徒步鞋", "budget_cny": 1000}
     },
     {
       "id": "26-monitor",
       "text": "27 寸 4K 显示器，预算 3000 元",
       "query": null,
       "has_cache": false,
-      "expect": {"kind": "refine_constraints", "route": "research", "budget_cny": 3000}
+      "expect": {"kind": "refine_constraints", "route": "clarify", "budget_cny": 3000}
     },
     {
       "id": "27-second-item",

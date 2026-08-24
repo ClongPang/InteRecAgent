@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ...domain.models import DEFAULT_MARKETS, utcnow
 from .belief import PreferenceBelief
+from .goal import ShoppingGoal
 
 
 class MissionStage(StrEnum):
@@ -46,7 +47,7 @@ class MissionConstraints(BaseModel):
     """当前生效的购物约束。country_code 只表示商品市场，不表示配送目的地。"""
 
     query: str | None = None
-    budget_cny: float | None = None
+    budget_cny: float | None = Field(default=None, gt=0)
     markets: list[str] = Field(default_factory=lambda: list(DEFAULT_MARKETS))
     preference: str = "balanced"
     only_in_stock: bool = False
@@ -79,5 +80,6 @@ class ShoppingMission(BaseModel):
     turn_phase: TurnPhase = TurnPhase.IDLE
     dialogue: DialogueState = Field(default_factory=DialogueState)
     belief: PreferenceBelief = Field(default_factory=PreferenceBelief)
+    goal: ShoppingGoal = Field(default_factory=ShoppingGoal)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

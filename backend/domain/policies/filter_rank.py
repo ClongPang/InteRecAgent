@@ -2,8 +2,16 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from typing import Protocol, cast
 
 from ..models import FxSnapshot, NormalizedProduct
+from .text_match import text_matches_spec_cues
+
+
+class _SpecGate(Protocol):
+    attr: str
+    cues: tuple[str, ...] | list[str]
+    required: bool
 
 
 def convert_products(
@@ -203,8 +211,8 @@ def apply_spec_gates(
 ) -> tuple[list[NormalizedProduct], list[NormalizedProduct]]:
     """required 门闩：标题须命中 cues。会清空则原样返回。"""
     items = list(products)
-    required = [
-        gate
+    required: list[_SpecGate] = [
+        cast(_SpecGate, gate)
         for gate in gates
         if getattr(gate, "required", False) and getattr(gate, "cues", None)
     ]
@@ -213,13 +221,11 @@ def apply_spec_gates(
     kept: list[NormalizedProduct] = []
     dropped: list[NormalizedProduct] = []
     for product in items:
-        title = (product.title or "").lower()
-        if all(any(str(cue).lower() in title for cue in gate.cues if cue) for gate in required):
+        title = product.title or ""
+        if all(text_matches_spec_cues(title, gate.attr, gate.cues) for gate in required):
             kept.append(product)
         else:
             dropped.append(product)
-    if not kept:
-        return items, []
     return kept, dropped
 
 

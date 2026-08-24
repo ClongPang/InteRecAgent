@@ -9,6 +9,7 @@ import os
 
 import pytest
 
+from backend.agent.runner import LangGraphMissionRunner
 from backend.bootstrap.container import ConfigurationError, Container
 from backend.bootstrap.settings import Settings
 from backend.infrastructure.fx_sources.fixed import FixedFxSource
@@ -77,6 +78,19 @@ def test_settings_reads_interec_env_vars() -> None:
     finally:
         del os.environ["INTEREC_DATA_SOURCE"]
         del os.environ["INTEREC_BUYWHERE_API_KEY"]
+
+
+def test_released_categories_are_enabled_by_default() -> None:
+    assert set(Settings().v2_enabled_item_types) == {"smartphone", "headphones"}
+
+
+def test_explicit_v2_graph_is_fully_released_by_default() -> None:
+    settings = _settings(data_source="fixture")
+    container = Container(settings)
+    runner = container.build_mission_runner(container.build_session_factory())
+    assert isinstance(runner, LangGraphMissionRunner)
+    assert runner._feature_flags["execution_path"] == "explicit_v2"
+    assert runner._feature_flags["release_state"] == "full"
 
 
 def test_unconfigured_model_backend_is_default() -> None:

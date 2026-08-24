@@ -7,11 +7,10 @@ import pytest
 
 from backend.agent.graph import NODE_NAMES, build_graph
 from backend.agent.nodes.dialogue import make_classify_dialogue_act
+from backend.agent.nodes.world import apply_world_ops
 from backend.application.dto.dialogue import DialogueAct, DialogueActKind, TurnPlan, TurnRoute
 from backend.application.dto.mission import MissionConstraints, ShoppingMission
-from backend.application.dto.runner import IntentPatch
-from backend.agent.nodes.execute import apply_world_ops
-from backend.application.services.execute_ops import route_after_world
+from backend.application.services.world_route import route_after_world
 from tests.fakes import FakeModelBackend
 from tests.test_agent_graph import _NeverInvoked, _stub_uow_factory
 
@@ -141,7 +140,7 @@ def test_world_route_honors_channel_decided_route() -> None:
     )
 
 
-def test_outer_graph_is_receive_decide_execute_persist() -> None:
+def test_outer_graph_exposes_v2_artifact_boundaries() -> None:
     graph = build_graph(
         products=_NeverInvoked(),
         fx=_NeverInvoked(),
@@ -149,20 +148,16 @@ def test_outer_graph_is_receive_decide_execute_persist() -> None:
         uow_factory=_stub_uow_factory(),
     )
     nodes = set(graph.get_graph().nodes.keys())
-    assert NODE_NAMES == (
-        "receive_message",
-        "decide",
-        "execute_ops",
-        "persist_decision_snapshot",
-    )
     assert all(name in nodes for name in NODE_NAMES)
-    assert "classify_dialogue_act" not in nodes
-    assert "route_turn" not in nodes
-    assert "bind_turn_actions" not in nodes
+    assert "execute_ops" not in nodes
     edges = {(edge.source, edge.target) for edge in graph.get_graph().edges}
     assert ("receive_message", "decide") in edges
-    assert ("decide", "execute_ops") in edges
-    assert ("execute_ops", "persist_decision_snapshot") in edges
+    assert ("decide", "commit_goal_revision") in edges
+    assert ("plan_research", "retrieve_buywhere") in edges
+    assert ("retrieve_buywhere", "normalize_observation") in edges
+    assert ("qualify_candidates", "assess_coverage") in edges
+    assert ("verify_claims", "render_response") in edges
+    assert ("completion_check", "persist_decision_snapshot") in edges
 
 
 @pytest.mark.asyncio

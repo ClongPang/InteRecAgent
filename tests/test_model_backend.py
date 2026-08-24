@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import httpx
@@ -15,6 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.agent.graph import build_graph
 from backend.agent.runner import LangGraphMissionRunner
 from backend.application.dto import IntentPatch, RecommendationDraft
+from backend.application.dto.belief import SpecGate
 from backend.application.dto.dialogue import DialogueAct, DialogueActKind, TurnPlan
 from backend.application.errors import ModelUnavailableError
 from backend.infrastructure.fx_sources.fixed import FixedFxSource
@@ -24,6 +26,7 @@ from backend.infrastructure.llm.openai_compat import (
     OpenAICompatModelBackend,
     completions_url,
     extract_json_object,
+    merge_deterministic_intent,
     sanitize_dialogue_act,
     sanitize_intent_patch,
     turn_plan_from_payload,
@@ -167,6 +170,56 @@ def test_sanitize_intent_patch_drops_unknown_markets() -> None:
     assert patch.source == "model"
 
 
+def test_sanitize_intent_patch_does_not_clarify_after_target_is_known() -> None:
+    patch = sanitize_intent_patch(
+        IntentPatch(
+            query="通勤降噪耳机",
+            requires_clarification=True,
+            clarification_question="更喜欢头戴式还是入耳式？",
+        )
+    )
+
+    assert patch.requires_clarification is False
+    assert patch.clarification_question is None
+
+
+def test_merge_canonicalizes_model_only_spec_gates() -> None:
+    patch = merge_deterministic_intent(
+        IntentPatch(
+            query="headphones",
+            spec_gates=[
+                SpecGate(attr="anc", cues=[]),
+                SpecGate(attr="noise_reduction_type", cues=["ANC"]),
+                SpecGate(attr="invented_facet", cues=[]),
+            ],
+        ),
+        "headphones",
+    )
+
+    assert [gate.attr for gate in patch.spec_gates or []] == ["noise_cancelling"]
+
+
+@pytest.mark.asyncio
+async def test_model_cannot_erase_deterministic_target_or_hard_slots() -> None:
+    content = (
+        '{"query":null,"budget_cny":999,"markets":["SG"],'
+        '"requires_clarification":true,"clarification_question":"Which form?"}'
+    )
+    with respx.mock:
+        respx.post(CHAT_URL).mock(
+            return_value=httpx.Response(200, json=_chat_response(content))
+        )
+        patch = await OpenAICompatModelBackend("sk-test").parse_intent(
+            "commuting noise cancelling headphones under CNY 2500, US only"
+        )
+
+    assert patch.query == "commuting noise cancelling headphones"
+    assert patch.budget_cny == 2500
+    assert patch.markets == ["US"]
+    assert patch.requires_clarification is False
+    assert patch.clarification_question is None
+
+
 def test_sanitize_intent_patch_cleans_open_soft_prefs() -> None:
     from backend.application.dto.belief import SoftPref
 
@@ -254,6 +307,25 @@ async def test_openai_compat_invalid_json_and_401_are_unavailable() -> None:
 
 
 @pytest.mark.asyncio
+async def test_openai_compat_retries_truncated_json_once() -> None:
+    valid = '{"query":"headphones","budget_cny":2500,"requires_clarification":false}'
+    with respx.mock:
+        route = respx.post(CHAT_URL).mock(
+            side_effect=[
+                httpx.Response(200, json=_chat_response('{"query":"headphones"')),
+                httpx.Response(200, json=_chat_response(valid)),
+            ]
+        )
+        patch = await OpenAICompatModelBackend("sk-test").parse_intent("headphones 2500")
+
+    assert route.call_count == 2
+    assert patch.query == "headphones"
+    assert patch.budget_cny == 2500
+    second_payload = json.loads(route.calls[1].request.content)
+    assert "上一次输出" in second_payload["messages"][0]["content"]
+
+
+@pytest.mark.asyncio
 async def test_openai_compat_draft_recommendation_validates_schema() -> None:
     content = (
         '{"primary_snapshot_id":"p1","alternative_snapshot_ids":["p2"],'
@@ -315,6 +387,15 @@ def test_sanitize_dialogue_act_strips_query_from_talk() -> None:
     assert act.patch is not None
     assert act.patch.query is None
     assert act.source == "model"
+
+
+def test_dialogue_act_accepts_blank_optional_model_scalars() -> None:
+    act = DialogueAct.model_validate(
+        {"kind": "compare_items", "topic": "", "stance": ""}
+    )
+
+    assert act.topic is None
+    assert act.stance is None
 
 
 def test_turn_plan_from_payload_wraps_single_act() -> None:

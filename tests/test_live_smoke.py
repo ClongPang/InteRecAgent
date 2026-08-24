@@ -16,14 +16,19 @@ pytestmark = [pytest.mark.live, pytest.mark.asyncio]
 
 
 def _api_key() -> str | None:
-    for env in ("BuyWhere_API", "BUYWHERE_API_KEY"):
+    for env in ("INTEREC_BUYWHERE_API_KEY", "BuyWhere_API", "BUYWHERE_API_KEY"):
         if os.getenv(env):
             return os.environ[env]
     env_path = REPO_ROOT / ".env"
     if env_path.exists():
         for line in env_path.read_text(encoding="utf-8").splitlines():
-            if line.strip().startswith("BuyWhere_API="):
-                return line.split("=", 1)[1].strip()
+            key, separator, value = line.partition("=")
+            if separator and key.strip() in {
+                "INTEREC_BUYWHERE_API_KEY",
+                "BuyWhere_API",
+                "BUYWHERE_API_KEY",
+            }:
+                return value.strip()
     return None
 
 

@@ -4,12 +4,20 @@ from __future__ import annotations
 from ..dto.dialogue import DialogueAct, DialogueActKind, SetPredicate
 from ..dto.mission import MissionConstraints
 from ..dto.runner import IntentPatch
-from .frames import detect_ask_topic, detect_stance, parse_probe_needle, propose_act, referent_hint
+from .frames import (
+    detect_ask_topic as detect_ask_topic,
+)
+from .frames import (
+    detect_stance,
+    parse_probe_needle,
+    propose_act,
+    referent_hint,
+)
 from .model_context import turn_view
-from .parse_intent import CLARIFYING_QUESTION, parse_intent
+from .parse_intent import CLARIFYING_QUESTION, canonicalize_spec_gates, parse_intent
 from .plan import propose_plan
-from .world import World
 from .working_set import WorkingSet
+from .world import World
 
 
 def build_turn_context(
@@ -105,9 +113,21 @@ def ground_dialogue_act(
                 updates["predicate"] = SetPredicate(
                     attr="merchant", values=[needle.lower()], label=needle
                 )
+    fallback = parse_intent(text, current_query=current_query)
+    # A leading negative requirement (for example, "不要只有麦克风降噪") can
+    # make a stochastic classifier label a fully specified first request as
+    # REJECT.  Without an existing target or working set there is no item to
+    # reject; the deterministic target makes this a constraint refinement.
+    if (
+        act.kind == DialogueActKind.REJECT
+        and current_query is None
+        and fallback.query
+    ):
+        act = act.model_copy(
+            update={"kind": DialogueActKind.REFINE, "patch": act.patch or IntentPatch()}
+        )
     if act.kind not in _GROUNDABLE:
         return act.model_copy(update=updates) if updates else act
-    fallback = parse_intent(text, current_query=current_query)
     patch = act.patch or IntentPatch()
     patch_updates: dict = {}
     if not (patch.query or "").strip() and fallback.query:
@@ -120,8 +140,16 @@ def ground_dialogue_act(
         patch_updates["markets"] = fallback.markets
     if not patch.use_case and fallback.use_case:
         patch_updates["use_case"] = fallback.use_case
-    if not patch.spec_gates and fallback.spec_gates:
-        patch_updates["spec_gates"] = fallback.spec_gates
+    merged_excludes = list(
+        dict.fromkeys([*(patch.exclude_terms or []), *(fallback.exclude_terms or [])])
+    )
+    if merged_excludes != list(patch.exclude_terms or []):
+        patch_updates["exclude_terms"] = merged_excludes
+    merged_spec_gates = canonicalize_spec_gates(
+        [*(patch.spec_gates or []), *(fallback.spec_gates or [])]
+    )
+    if merged_spec_gates != list(patch.spec_gates or []):
+        patch_updates["spec_gates"] = merged_spec_gates
     if patch_updates:
         updates["patch"] = patch.model_copy(update=patch_updates)
         grounded_query = patch_updates.get("query") or patch.query
@@ -155,16 +183,16 @@ def resolve_referent_ids(
         return []
     if hint == "focus":
         compare_ids = [str(item.get("snapshot_id")) for item in (comparison_records or []) if item.get("snapshot_id")]
-        sid = focus_snapshot_id or (compare_ids[0] if compare_ids else None) or (
-            (mentioned_snapshot_ids or [None])[0]
-        )
+        mentioned_first = mentioned_snapshot_ids[0] if mentioned_snapshot_ids else None
+        sid = focus_snapshot_id or (compare_ids[0] if compare_ids else None) or mentioned_first
         return [sid] if sid else []
     if not pool:
         return []
     if hint == "cheapest":
         priced = []
         for item in pool:
-            estimated = item.get("estimated_cny") if isinstance(item.get("estimated_cny"), dict) else {}
+            raw_estimated = item.get("estimated_cny")
+            estimated: dict = raw_estimated if isinstance(raw_estimated, dict) else {}
             amount = estimated.get("amount") if estimated else item.get("estimated_cny")
             sid = item.get("snapshot_id")
             if sid is not None and amount is not None:

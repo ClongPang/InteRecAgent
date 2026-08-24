@@ -71,6 +71,12 @@ class DialogueAct(BaseModel):
         否则一次合法分类会因 null 落进 Schema 校验而整体降级为 ModelUnavailableError。"""
         return [] if value is None else value
 
+    @field_validator("stance", "topic", mode="before")
+    @classmethod
+    def _blank_optional_to_none(cls, value: object) -> object:
+        """模型常把缺失的可选标量序列化为空字符串。"""
+        return None if isinstance(value, str) and not value.strip() else value
+
 
 _TALK_KINDS = {
     DialogueActKind.ASK_ITEM,

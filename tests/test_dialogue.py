@@ -1,7 +1,7 @@
 """对话行为分类、检索失效与线程投影。"""
 from __future__ import annotations
 
-from backend.application.dto.belief import PreferenceBelief, SoftPref
+from backend.application.dto.belief import PreferenceBelief, SoftPref, SpecGate
 from backend.application.dto.dialogue import DialogueAct, DialogueActKind, TurnRoute
 from backend.application.dto.mission import MissionConstraints, ShoppingMission, TurnPhase
 from backend.application.dto.runner import IntentPatch
@@ -16,7 +16,7 @@ from backend.application.services.dialogue import (
     summarize_constraint_change,
 )
 from backend.application.services.nlu import ground_dialogue_act
-from backend.application.services.parse_intent import extract_query
+from backend.application.services.parse_intent import extract_query, parse_intent
 from backend.application.services.policy import sanitize_constraints
 from backend.domain.models import NormalizedProduct
 from backend.domain.policies import apply_exclusion_filter
@@ -311,6 +311,75 @@ def test_ground_recovers_wrapped_first_turn() -> None:
     assert "降噪耳机" in (grounded.patch.query or "")
     assert grounded.patch.budget_cny == 2500
     assert grounded.patch.requires_clarification is False
+
+
+def test_ground_canonicalizes_model_gates_and_preserves_deterministic_form_factor() -> None:
+    act = DialogueAct(
+        kind=DialogueActKind.REFINE,
+        patch=IntentPatch(
+            query="commuting headphones",
+            spec_gates=[
+                SpecGate(attr="anc", cues=[]),
+                SpecGate(attr="noise_reduction_type", cues=["ANC"]),
+            ],
+        ),
+    )
+
+    grounded = ground_dialogue_act(
+        act,
+        "over-ear commuting headphones with ANC",
+    )
+
+    assert grounded.patch is not None
+    assert [gate.attr for gate in grounded.patch.spec_gates or []] == [
+        "noise_cancelling",
+        "overear",
+    ]
+
+
+def test_ground_treats_first_turn_negative_requirement_as_refinement() -> None:
+    act = DialogueAct(
+        kind=DialogueActKind.REJECT,
+        patch=IntentPatch(
+            spec_gates=[SpecGate(attr="anc", cues=[])],
+        ),
+        exclude_terms=["microphone noise reduction only"],
+        source="model",
+    )
+
+    grounded = ground_dialogue_act(
+        act,
+        "over-ear commuting headphones with ANC under CNY 2500; "
+        "not microphone noise reduction only",
+    )
+
+    assert grounded.kind == DialogueActKind.REFINE
+    assert grounded.patch is not None
+    assert grounded.patch.query
+    assert grounded.patch.budget_cny == 2500
+    assert grounded.patch.exclude_terms == ["microphone noise reduction only"]
+    assert [gate.attr for gate in grounded.patch.spec_gates or []] == [
+        "noise_cancelling",
+        "overear",
+    ]
+
+
+def test_parse_intent_keeps_negative_requirement_with_market_comparison() -> None:
+    patch = parse_intent(
+        "帮我找一副通勤用头戴式主动降噪耳机，预算 2500 元以内，"
+        "必须支持 ANC，不要只有麦克风降噪；在美国和新加坡市场比较"
+    )
+
+    assert patch.query
+    assert patch.exclude_terms == ["只有麦克风降噪"]
+
+
+def test_parse_intent_splits_compound_negative_requirements() -> None:
+    patch = parse_intent(
+        "Apple iPhone 15 Pro 手机，不要手机壳、充电器或保护膜"
+    )
+
+    assert patch.exclude_terms == ["手机壳", "充电器", "保护膜"]
 
 
 def test_ground_does_not_rewrite_compare() -> None:

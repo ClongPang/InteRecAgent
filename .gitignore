@@ -48,4 +48,6 @@ data/games/
 
 # Local acceptance artifacts
 artifacts/
+.artifacts/
+pytest-cache-files-*/
 .tmp/

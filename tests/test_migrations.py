@@ -64,6 +64,7 @@ def _collect_schema(sync_conn) -> dict:
     inspector = sa_inspect(sync_conn)
     return {
         "tables": set(inspector.get_table_names()),
+        "mission_columns": {column["name"] for column in inspector.get_columns("shopping_missions")},
         "idempotency_uq": [c["name"] for c in inspector.get_unique_constraints("idempotency_records")],
         "mission_idx": {i["name"] for i in inspector.get_indexes("shopping_missions")},
         "event_uq": [c["name"] for c in inspector.get_unique_constraints("mission_events")],
@@ -81,5 +82,6 @@ async def test_seven_tables_and_constraints_exist() -> None:
         assert "uq_idempotency_owner_key" in schema["idempotency_uq"]
         assert "ix_shopping_missions_owner_updated_id" in schema["mission_idx"]
         assert "uq_mission_events_mission_sequence" in schema["event_uq"]
+        assert {"goal_json", "goal_version", "schema_version"} <= schema["mission_columns"]
     finally:
         await engine.dispose()

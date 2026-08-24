@@ -1,12 +1,27 @@
 """持久工作集：绑定宇宙是 pool，展示集是 display。K 是上限。"""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass
 
 from .world import World
 from .world_ops import infer_form
 
 PRICE_SPAN_MIN = 400.0
+_VARIANT_WORDS = frozenset(
+    {
+        "black", "white", "blue", "red", "green", "purple", "pink", "gray",
+        "grey", "silver", "gold", "mauve", "cloud", "navy", "beige", "黑色",
+        "白色", "蓝色", "红色", "绿色", "紫色", "粉色", "灰色", "银色", "金色",
+    }
+)
+
+
+def entity_family_key(title: str) -> str:
+    """Conservative product-family key: collapse color-only listing variants."""
+    tokens = re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]+", title.casefold())
+    core = [token for token in tokens if token not in _VARIANT_WORDS]
+    return " ".join(core) or title.casefold().strip()
 
 
 @dataclass(frozen=True)
@@ -114,13 +129,20 @@ def select_decision_set(records: list[dict], *, limit: int) -> list[dict]:
     covered_form: set[str] = set()
     covered_merchant: set[str] = set()
     covered_market: set[str] = set()
+    covered_entity: set[str] = set()
 
-    def take(item: dict) -> None:
+    def take(item: dict, *, allow_cross_market_entity: bool = False) -> None:
         sid = str(item.get("snapshot_id") or id(item))
-        if sid in seen or len(picked) >= limit:
+        entity = entity_family_key(str(item.get("title") or ""))
+        if (
+            sid in seen
+            or (entity in covered_entity and not allow_cross_market_entity)
+            or len(picked) >= limit
+        ):
             return
         seen.add(sid)
         picked.append(item)
+        covered_entity.add(entity)
         form = infer_form(str(item.get("title") or ""))
         if form:
             covered_form.add(form)
@@ -131,15 +153,20 @@ def select_decision_set(records: list[dict], *, limit: int) -> list[dict]:
         if market:
             covered_market.add(market)
 
+    # Market coverage is a hard presentation invariant when the feasible pool
+    # contains more than one requested market. Merchant diversity must not use
+    # every slot before a later market is considered.
+    for item in records:
+        market = str(item.get("market") or item.get("country_code") or "").strip().upper()
+        if market and market not in covered_market:
+            take(item, allow_cross_market_entity=True)
     for item in records:
         form = infer_form(str(item.get("title") or ""))
+        if form and form not in covered_form:
+            take(item)
+    for item in records:
         merchant = str(item.get("merchant") or "").strip().lower()
-        market = str(item.get("market") or item.get("country_code") or "").strip().upper()
-        if (
-            (form and form not in covered_form)
-            or (merchant and merchant not in covered_merchant)
-            or (market and market not in covered_market)
-        ):
+        if merchant and merchant not in covered_merchant:
             take(item)
     for item in records:
         take(item)
