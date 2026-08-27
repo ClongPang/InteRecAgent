@@ -1,0 +1,21 @@
+{
+  "title": "InteRecAgent Conversation Runtime",
+  "uid": "interec-conversation-runtime",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    { "id": 1, "title": "Turn terminal rate by status", "type": "timeseries", "targets": [{ "expr": "sum by (status) (rate(rec_agent_turn_terminal_total[$__rate_interval]))", "legendFormat": "{{status}}" }], "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 } },
+    { "id": 2, "title": "Turn P95 by route", "type": "timeseries", "targets": [{ "expr": "histogram_quantile(0.95, sum by (le, route) (rate(rec_agent_turn_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "{{route}}" }], "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 } },
+    { "id": 3, "title": "API enqueue / projection P95", "type": "timeseries", "targets": [{ "expr": "histogram_quantile(0.95, sum by (le) (rate(rec_agent_api_enqueue_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "enqueue" }, { "expr": "histogram_quantile(0.95, sum by (le) (rate(rec_agent_api_projection_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "projection" }], "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 } },
+    { "id": 4, "title": "Queue wait / SSE lag P95", "type": "timeseries", "targets": [{ "expr": "histogram_quantile(0.95, sum by (le) (rate(rec_agent_queue_wait_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "queue" }, { "expr": "histogram_quantile(0.95, sum by (le) (rate(rec_agent_sse_lag_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "sse" }], "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 } },
+    { "id": 5, "title": "Provider latency P95", "type": "timeseries", "targets": [{ "expr": "histogram_quantile(0.95, sum by (le, provider) (rate(rec_agent_provider_request_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "{{provider}}" }], "gridPos": { "x": 0, "y": 16, "w": 8, "h": 8 } },
+    { "id": 6, "title": "Provider errors", "type": "timeseries", "targets": [{ "expr": "sum by (provider) (rate(rec_agent_provider_errors_total[$__rate_interval]))", "legendFormat": "{{provider}}" }], "gridPos": { "x": 8, "y": 16, "w": 8, "h": 8 } },
+    { "id": 7, "title": "Safety and claim blocks", "type": "timeseries", "targets": [{ "expr": "sum(rate(rec_agent_safety_blocks_total[$__rate_interval]))", "legendFormat": "safety" }, { "expr": "sum(rate(rec_agent_claim_validation_failures_total[$__rate_interval]))", "legendFormat": "claims" }, { "expr": "sum(rate(rec_agent_evidence_blocks_total[$__rate_interval]))", "legendFormat": "evidence" }], "gridPos": { "x": 16, "y": 16, "w": 8, "h": 8 } },
+    { "id": 8, "title": "Outbox outcomes", "type": "timeseries", "targets": [{ "expr": "sum(rate(rec_agent_outbox_published_total[$__rate_interval]))", "legendFormat": "published" }, { "expr": "sum(rate(rec_agent_outbox_failures_total[$__rate_interval]))", "legendFormat": "retry" }, { "expr": "sum(rate(rec_agent_outbox_dead_letters_total[$__rate_interval]))", "legendFormat": "dead letter" }], "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 } },
+    { "id": 9, "title": "Fence rejected writes", "type": "timeseries", "targets": [{ "expr": "sum by (operation) (rate(rec_agent_fence_rejected_writes_total[$__rate_interval]))", "legendFormat": "{{operation}}" }], "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 } },
+    { "id": 10, "title": "Pi-agent inference and tool calls per Turn", "type": "timeseries", "targets": [{ "expr": "sum(rate(gen_ai_invoke_agent_inference_calls_sum[$__rate_interval])) / clamp_min(sum(rate(gen_ai_invoke_agent_inference_calls_count[$__rate_interval])), 0.000001)", "legendFormat": "inferences" }, { "expr": "sum(rate(gen_ai_invoke_agent_tool_calls_sum[$__rate_interval])) / clamp_min(sum(rate(gen_ai_invoke_agent_tool_calls_count[$__rate_interval])), 0.000001)", "legendFormat": "tools" }], "gridPos": { "x": 0, "y": 32, "w": 12, "h": 8 } },
+    { "id": 11, "title": "Queue and Outbox backlog", "type": "timeseries", "targets": [{ "expr": "sum by (status) (rec_agent_queue_depth)", "legendFormat": "Turn {{status}}" }, { "expr": "sum by (state) (rec_agent_outbox_backlog)", "legendFormat": "Outbox {{state}}" }], "gridPos": { "x": 12, "y": 32, "w": 12, "h": 8 } }
+  ]
+}

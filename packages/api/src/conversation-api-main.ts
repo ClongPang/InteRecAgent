@@ -1,0 +1,54 @@
+import {
+  PostgresConversationRepository,
+  startTelemetry,
+  verifyConversationSchema,
+} from "@interec/runtime";
+
+import { createConversationApp } from "./app.js";
+import { HmacJwtIdentityVerifier } from "./auth.js";
+
+function required(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name}_REQUIRED`);
+  return value;
+}
+
+function portFromEnvironment(): number {
+  const value = Number(process.env["INTEREC_API_PORT"] ?? "8081");
+  if (!Number.isSafeInteger(value) || value < 1 || value > 65_535) throw new Error("INTEREC_API_PORT_INVALID");
+  return value;
+}
+
+const repository = new PostgresConversationRepository(required("INTEREC_DATABASE_URL"));
+const identityVerifier = new HmacJwtIdentityVerifier({
+  secret: required("INTEREC_AUTH_HMAC_SECRET"),
+  issuer: required("INTEREC_AUTH_ISSUER"),
+  audience: required("INTEREC_AUTH_AUDIENCE"),
+});
+const telemetry = await startTelemetry("interec-conversation-api");
+const app = createConversationApp({
+  repository,
+  identityVerifier,
+  closeRepository: true,
+  readiness: async () => {
+    const client = await repository.pool.connect();
+    try {
+      await client.query("SELECT 1");
+      await verifyConversationSchema(client);
+    } finally {
+      client.release();
+    }
+  },
+});
+
+await app.listen({
+  host: process.env["INTEREC_API_HOST"]?.trim() || "127.0.0.1",
+  port: portFromEnvironment(),
+});
+
+const shutdown = async () => {
+  await app.close();
+  await telemetry.shutdown();
+};
+process.once("SIGINT", () => void shutdown());
+process.once("SIGTERM", () => void shutdown());

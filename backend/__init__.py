@@ -1,1 +1,0 @@
-"""InteRecAgent backend package."""

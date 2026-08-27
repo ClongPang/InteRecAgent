@@ -1,0 +1,211 @@
+import { randomUUID } from "node:crypto";
+
+import {
+  executeConversationTurn,
+  type AssistantEnvelopeProposal,
+  type TurnPlanProposal,
+} from "@interec/agent";
+import type { ConversationState, ResearchNeed } from "@interec/domain";
+
+import { ConversationResearchWorld } from "./conversation-research-world.js";
+import { PostgresConversationResearchRepository } from "./conversation-research-repository.js";
+import type { ClaimedConversationTurn, ConversationMessageRecord, ConversationRepository, ConversationTurnInput } from "./conversation-repository-types.js";
+import type { PiModelRuntime } from "./model-factory.js";
+import { PostgresProviderGovernor } from "./provider-governor.js";
+import type { FxPort, ProductSearchPort } from "./providers.js";
+import { createRepositoryTurnSession } from "./repository-turn-session.js";
+import { observeConversationTurn, recordSafetyBoundary, runtimeMetrics, telemetryErrorCode, type TurnObservationOutcome } from "./telemetry.js";
+
+export interface ConversationWorkerOptions {
+  workerId?: string;
+  leaseSeconds?: number;
+  heartbeatSeconds?: number;
+}
+
+function inputText(input: ConversationTurnInput): string {
+  if (input.type === "MESSAGE") return input.content;
+  if (input.type === "PATCH_GOAL") return JSON.stringify({ action: "PATCH_GOAL", operations: input.operations });
+  if (input.type === "UNDO") return JSON.stringify({ action: "UNDO", revision: input.revision });
+  return JSON.stringify({ action: "SET_COMPARISON", offerRefs: input.offerRefs });
+}
+
+function directPlan(inputs: Array<Exclude<ConversationTurnInput, { type: "MESSAGE" }>>): TurnPlanProposal {
+  const ops: TurnPlanProposal["ops"] = [];
+  inputs.forEach((input, sourceMessageOrdinal) => {
+    if (input.type === "PATCH_GOAL") {
+      for (const operation of input.operations) ops.push({ ...operation, sourceMessageOrdinal } as TurnPlanProposal["ops"][number]);
+    } else if (input.type === "UNDO") {
+      ops.push({ opId: `typed-undo-${sourceMessageOrdinal}`, kind: "UNDO_REVISION", revision: input.revision });
+    } else {
+      ops.push({
+        opId: `typed-comparison-${sourceMessageOrdinal}`,
+        kind: "SET_COMPARISON",
+        referents: input.offerRefs.map((offerRef) => ({ kind: "OFFER_REF", offerRef })),
+      });
+    }
+  });
+  return { userIntentSummary: "apply the complete ordered typed input batch", ops, leftover: [] };
+}
+
+function directEnvelope(): AssistantEnvelopeProposal {
+  return {
+    outcome: "CHAT",
+    blocks: [{ type: "TRANSITION", transitionCode: "STATE_UPDATED" }],
+    nextMoves: [],
+  };
+}
+
+export function researchNeedForState(state: ConversationState): ResearchNeed {
+  if (!state.workingSet || state.workingSet.pool.length === 0) return "INSUFFICIENT_COVERAGE";
+  if (state.goalRevision && state.workingSet.boundGoalVersion !== state.goalRevision.version) return "STALE";
+  return "NOT_NEEDED";
+}
+
+function researchNeedFor(claimed: ClaimedConversationTurn): ResearchNeed {
+  return researchNeedForState(claimed.snapshot);
+}
+
+function isDegradedAssistantMessage(message: Awaited<ReturnType<ConversationRepository["listMessages"]>>[number]): boolean {
+  if (message.role !== "ASSISTANT") return false;
+  const envelope = message.payload["envelope"];
+  return Boolean(envelope && typeof envelope === "object" && (envelope as Record<string, unknown>)["outcome"] === "DEGRADED");
+}
+
+export function recentSuccessfulAdjacentPair(
+  timeline: ConversationMessageRecord[],
+  currentMessageIds: ReadonlySet<string>,
+): Array<{ role: "USER" | "ASSISTANT"; content: string }> {
+  const history = timeline.filter((message) => !currentMessageIds.has(message.id));
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const assistant = history[index];
+    if (!assistant || assistant.role !== "ASSISTANT" || isDegradedAssistantMessage(assistant)) continue;
+    const user = history[index - 1];
+    if (!user || user.role !== "USER") continue;
+    return [user, assistant].map((message) => ({
+      role: message.role,
+      content: String(message.payload["content"] ?? message.payload["text"] ?? ""),
+    }));
+  }
+  return [];
+}
+
+export class ConversationWorker {
+  private readonly workerId: string;
+  private readonly leaseSeconds: number;
+  private readonly heartbeatSeconds: number;
+
+  public constructor(
+    private readonly repository: ConversationRepository,
+    private readonly researchRepository: PostgresConversationResearchRepository,
+    private readonly governor: PostgresProviderGovernor,
+    private readonly productSource: ProductSearchPort,
+    private readonly fxSource: FxPort,
+    private readonly pi: PiModelRuntime,
+    options: ConversationWorkerOptions = {},
+  ) {
+    this.workerId = options.workerId ?? `conversation-worker-${randomUUID()}`;
+    this.leaseSeconds = options.leaseSeconds ?? 20;
+    this.heartbeatSeconds = options.heartbeatSeconds ?? 5;
+  }
+
+  public async runOnce(turnId?: string): Promise<boolean> {
+    const claimed = await this.repository.claimTurn(this.workerId, this.leaseSeconds, turnId);
+    if (!claimed) return false;
+    const processingStartedAt = performance.now();
+    const createdAt = Date.parse(claimed.createdAt);
+    if (Number.isFinite(createdAt)) {
+      runtimeMetrics.queueWait.record(Math.max(0, Date.now() - createdAt) / 1000, { attempt: claimed.attempt });
+    }
+    if (!await this.repository.markTurnRunning(claimed.id, claimed.attempt, claimed.fenceToken)) {
+      runtimeMetrics.fenceRejectedWrites.add(1, { operation: "mark_turn_running" });
+      return true;
+    }
+    const controller = new AbortController();
+    const deadlineMs = Math.max(0, Date.parse(claimed.deadlineAt) - Date.now());
+    const deadline = setTimeout(() => controller.abort(new Error("TURN_DEADLINE_EXCEEDED")), deadlineMs);
+    const heartbeat = setInterval(() => {
+      void this.repository.heartbeatTurn(claimed.id, claimed.attempt, claimed.fenceToken, this.leaseSeconds)
+        .then((valid) => { if (!valid) controller.abort(new Error("TURN_FENCE_REJECTED")); })
+        .catch(() => controller.abort(new Error("TURN_HEARTBEAT_FAILED")));
+    }, this.heartbeatSeconds * 1000);
+    heartbeat.unref();
+    let outcome: TurnObservationOutcome = { status: "FAILED", committed: false, errorCode: "TURN_OBSERVATION_FAILED" };
+    let route = "unknown";
+    try {
+      outcome = await observeConversationTurn({
+        turnId: claimed.id,
+        conversationId: claimed.conversationId,
+        tenantId: claimed.owner.tenantId,
+        ownerId: claimed.owner.ownerId,
+        attempt: claimed.attempt,
+        currentUserMessages: claimed.inputMessages.map((message) => inputText(message.payload as ConversationTurnInput)),
+      }, async () => {
+        try {
+          const researchNeed = researchNeedFor(claimed);
+          const turnInputs = claimed.inputMessages.map((message) => message.payload as ConversationTurnInput);
+          const uiFocusOfferRef = turnInputs.flatMap((input) => input.type === "MESSAGE" && input.focusOfferRef ? [input.focusOfferRef] : []).at(-1);
+          const world = new ConversationResearchWorld(
+            claimed,
+            this.repository,
+            this.researchRepository,
+            this.governor,
+            this.productSource,
+            this.fxSource,
+          );
+          const session = createRepositoryTurnSession(this.repository, claimed, { researchNeed, world, ...(uiFocusOfferRef ? { requiredFocusOfferRef: uiFocusOfferRef } : {}) });
+          const allTyped = turnInputs.length > 0 && turnInputs.every((input) => input.type !== "MESSAGE");
+          if (allTyped) {
+            const proposal = directPlan(turnInputs as Array<Exclude<ConversationTurnInput, { type: "MESSAGE" }>>);
+            const committed = await session.host.commitPlan(proposal);
+            route = committed.route;
+            for (const operation of committed.plan.ops) await session.host.executeOperation(operation, controller.signal);
+            await session.host.publishReply(directEnvelope());
+          } else {
+            const timeline = await this.repository.listMessages(claimed.conversationId, claimed.owner, 0);
+            const currentIds = new Set(claimed.inputMessages.map((message) => message.id));
+            const adjacent = recentSuccessfulAdjacentPair(timeline, currentIds);
+            const agentStartedAt = performance.now();
+            const agentResult = await executeConversationTurn({
+              model: this.pi.model,
+              streamFn: this.pi.streamFn,
+              apiKey: this.pi.apiKey,
+              host: session.host,
+              context: {
+                state: claimed.snapshot,
+                currentUserMessages: claimed.inputMessages.map((message) => inputText(message.payload as ConversationTurnInput)),
+                ...(uiFocusOfferRef ? { uiFocusOfferRef } : {}),
+                recentAdjacentPair: adjacent,
+                capabilities: ["conversation", "clarification", "goal", "working_set", "comparison", "research", "undo"],
+                now: new Date().toISOString(),
+                modelId: String(this.pi.model.id),
+                providerCallBudget: 1,
+              },
+              sessionId: `${claimed.id}:${claimed.attempt}`,
+              signal: controller.signal,
+            });
+            route = agentResult.route ?? "unknown";
+            runtimeMetrics.invokeAgentDuration.record((performance.now() - agentStartedAt) / 1000, { route });
+            runtimeMetrics.inferenceCalls.record(agentResult.modelInferences, { route });
+            runtimeMetrics.toolCalls.record(agentResult.toolCalls, { route, fallback: agentResult.usedFallback });
+            if (agentResult.fallbackReasonCode) {
+              recordSafetyBoundary(telemetryErrorCode(new Error(agentResult.fallbackReasonCode), "PI_AGENT_INCOMPLETE"));
+            }
+          }
+          if (!session.getCommitResult()) throw new Error("TURN_DID_NOT_PUBLISH");
+          return { status: "COMPLETED", committed: true };
+        } catch (error) {
+          const code = telemetryErrorCode(error, "TURN_EXECUTION_FAILED");
+          recordSafetyBoundary(code);
+          const failed = await this.repository.failTurn(claimed.id, claimed.attempt, claimed.fenceToken, code);
+          if (!failed) runtimeMetrics.fenceRejectedWrites.add(1, { operation: "fail_turn" });
+          return { status: "FAILED", committed: false, errorCode: code };
+        }
+      });
+    } finally {
+      clearTimeout(deadline);
+      clearInterval(heartbeat);
+      runtimeMetrics.turnDuration.record((performance.now() - processingStartedAt) / 1000, { status: outcome.status, route });
+    }
+    return true;
+  }
+}

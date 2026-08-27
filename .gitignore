@@ -31,6 +31,8 @@ frontend/node_modules/
 frontend/dist/
 frontend/coverage/
 frontend/tsconfig.tsbuildinfo
+packages/*/dist/
+*.tsbuildinfo
 
 # Test and tool caches
 .playwright-cli/
@@ -49,5 +51,6 @@ data/games/
 # Local acceptance artifacts
 artifacts/
 .artifacts/
+.local/
 pytest-cache-files-*/
 .tmp/
