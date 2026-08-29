@@ -35,7 +35,7 @@ try {
       { asType: "agent" },
     ),
   );
-  await telemetry.forceFlush();
+  await telemetry.forceFlush({ strict: true });
   console.log(JSON.stringify({ sent: true, traceId, externalProviderCalls: 0 }, null, 2));
 } finally {
   await telemetry.shutdown();

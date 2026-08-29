@@ -69,6 +69,7 @@ async function execute(
       inspected.push(refs);
       return { claims: [], disclosureCodes: [], publicResult: { offerRefs: refs } };
     },
+    inspectResearchCoverage: async () => ({ claims: [], disclosureCodes: [], publicResult: { found: false } }),
     research: async (_operation, state) => {
       providerCalls += 1;
       const model = state.goalRevision?.goal.target?.canonicalModel ?? "UNKNOWN";
@@ -97,7 +98,7 @@ async function execute(
 }
 
 describe("approved offline conversational trajectories", () => {
-  it("clarifies one high-impact gap and keeps the Conversation open", async () => {
+  it("canonicalizes clarification to the missing research contract field and keeps the Conversation open", async () => {
     const base: ConversationState = { revision: 0, status: "OPEN", goalRevision: null, dialogue: emptyDialogueState(), workingSet: null };
     const result = await execute(base, {
       userIntentSummary: "set category and ask budget",
@@ -107,7 +108,7 @@ describe("approved offline conversational trajectories", () => {
       ],
       leftover: [],
     });
-    expect(result.state).toMatchObject({ status: "OPEN", dialogue: { pendingClarification: { slotId: "budget" } } });
+    expect(result.state).toMatchObject({ status: "OPEN", dialogue: { pendingClarification: { slotId: "retrieval_markets" } } });
     expect(result.providerCalls).toBe(0);
   });
 

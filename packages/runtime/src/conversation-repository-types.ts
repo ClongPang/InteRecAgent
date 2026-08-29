@@ -82,6 +82,8 @@ export interface ClaimedConversationTurn extends ConversationTurnRecord {
   owner: OwnerClaims;
   inputMessages: ConversationMessageRecord[];
   snapshot: ConversationState;
+  telemetryTraceId: string;
+  telemetryRootObservationId?: string;
 }
 
 export interface AcceptConversationTurnInput {
@@ -91,6 +93,8 @@ export interface AcceptConversationTurnInput {
   expectedRevision?: number;
   input: ConversationTurnInput;
   deadlineSeconds?: number;
+  telemetryTraceId?: string;
+  telemetryRootObservationId?: string;
 }
 
 export interface RetryConversationTurnInput {
@@ -100,6 +104,8 @@ export interface RetryConversationTurnInput {
   clientTurnId: string;
   expectedRevision?: number;
   deadlineSeconds?: number;
+  telemetryTraceId?: string;
+  telemetryRootObservationId?: string;
 }
 
 export interface AttemptDraft {
@@ -183,6 +189,7 @@ export interface ConversationRepository {
   acceptTurn(input: AcceptConversationTurnInput): Promise<AcceptedConversationTurn>;
   retryTurn(input: RetryConversationTurnInput): Promise<AcceptedConversationTurn>;
   claimTurn(workerId: string, leaseSeconds: number, turnId?: string): Promise<ClaimedConversationTurn | null>;
+  recordAttemptTelemetryLink(turnId: string, attempt: number, fenceToken: string, traceId: string, rootObservationId: string): Promise<boolean>;
   markTurnRunning(turnId: string, attempt: number, fenceToken: string): Promise<boolean>;
   heartbeatTurn(turnId: string, attempt: number, fenceToken: string, leaseSeconds: number): Promise<boolean>;
   stageAttemptDraft(turnId: string, attempt: number, fenceToken: string, draft: AttemptDraft): Promise<boolean>;

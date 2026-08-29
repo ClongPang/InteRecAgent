@@ -105,6 +105,25 @@ suite("PostgreSQL conversation repository", () => {
     await expect(first.acceptTurn({ ...input, input: { type: "MESSAGE", content: "不同消息" } })).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_REUSED" });
   });
 
+  it("persists the asynchronous trace root for the worker attempt", async () => {
+    const conversation = await first.createConversation(owner);
+    const telemetryTraceId = "a".repeat(32);
+    const telemetryRootObservationId = "b".repeat(16);
+    const accepted = await first.acceptTurn({
+      conversationId: conversation.id,
+      owner,
+      clientTurnId: randomUUID(),
+      input: { type: "MESSAGE", content: "trace root persistence" },
+      telemetryTraceId,
+      telemetryRootObservationId,
+    });
+
+    const claimed = await first.claimTurn(`worker-${randomUUID()}`, 30, accepted.id);
+    expect(claimed).toMatchObject({ telemetryTraceId, telemetryRootObservationId });
+    expect(await first.markTurnRunning(claimed!.id, claimed!.attempt, claimed!.fenceToken)).toBe(true);
+    expect(await first.failTurn(claimed!.id, claimed!.attempt, claimed!.fenceToken, "TEST_COMPLETED")).toBe(true);
+  });
+
   it("retries a failed Turn from the same unconsumed USER batch without adding a duplicate message", async () => {
     const conversation = await first.createConversation(owner);
     const failed = await start(first, conversation.id, owner);
@@ -612,12 +631,12 @@ suite("PostgreSQL conversation repository", () => {
     faux.setResponses([
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
         userIntentSummary: "ask one high-impact clarification",
-        ops: [{ opId: "ask-budget", kind: "REQUEST_CLARIFICATION", slotId: "budget", reasonCode: "HIGH_IMPACT_GAP" }],
+        ops: [{ opId: "ask-product", kind: "REQUEST_CLARIFICATION", slotId: "target_product", reasonCode: "HIGH_IMPACT_GAP" }],
         leftover: [],
       })),
       fauxAssistantMessage(fauxToolCall("publish_reply", {
         outcome: "CLARIFICATION",
-        blocks: [{ type: "QUESTION", slotId: "budget" }],
+        blocks: [{ type: "QUESTION", slotId: "target_product" }],
         nextMoves: [],
       })),
     ]);
@@ -638,7 +657,7 @@ suite("PostgreSQL conversation repository", () => {
     expect(agentResult).toMatchObject({ modelInferences: 2, toolCalls: 2, usedFallback: false, envelope: { outcome: "CLARIFICATION" } });
     expect(session.getCommitResult()).toMatchObject({ committed: true, conversationRevision: 1 });
     const snapshot = await first.getSnapshot(conversation.id, owner);
-    expect(snapshot).toMatchObject({ revision: 1, status: "OPEN", dialogue: { pendingClarification: { slotId: "budget" } } });
+    expect(snapshot).toMatchObject({ revision: 1, status: "OPEN", dialogue: { pendingClarification: { slotId: "target_product" } } });
     expect((await first.listMessages(conversation.id, owner, 0)).map((message) => message.role)).toEqual(["USER", "ASSISTANT"]);
   });
 
@@ -677,6 +696,14 @@ suite("PostgreSQL conversation repository", () => {
   });
 
   it("promotes only a proof-qualified research campaign with partial-provider evidence", async () => {
+    // This test exercises proof persistence, not a circuit that may have been
+    // opened by a previous local run. Freeze the shared provider precondition
+    // so the result does not depend on historical database state.
+    await first.pool.query(
+      `UPDATE interec_agent.provider_circuits
+       SET consecutive_failures = 0, open_until = NULL, updated_at = clock_timestamp()
+       WHERE provider IN ('buywhere', 'fxratesapi')`,
+    );
     const conversation = await first.createConversation(owner);
     const claimed = await start(first, conversation.id, owner, randomUUID(), "想买全新 Sony WH-1000XM5 耳机，比较美国和新加坡");
     const productSource = {
@@ -775,6 +802,20 @@ suite("PostgreSQL conversation repository", () => {
     );
     expect(proof.rows[0]).toMatchObject({ status: "PROMOTED", promoted_revision: "1", failed_markets: 1 });
     expect(proof.rows[0]!.published_evidence).toBeGreaterThan(0);
+    await expect(researchRepository.loadLatestPromotedResearchCoverage(owner, conversation.id)).resolves.toMatchObject({
+      waveNo: 1,
+      status: "PARTIAL",
+      promotedRevision: 1,
+      coverage: { completedMarkets: ["US"], failedMarkets: ["SG"] },
+      marketOutcomes: expect.arrayContaining([
+        { market: "SG", status: "FAILED", resultCount: 0 },
+        { market: "US", status: "COMPLETED", resultCount: 3 },
+      ]),
+    });
+    await expect(researchRepository.loadLatestPromotedResearchCoverage(
+      { tenantId: owner.tenantId, ownerId: randomUUID() },
+      conversation.id,
+    )).resolves.toBeNull();
     await expect(first.pool.query(
       `UPDATE interec_agent.source_facts SET canonical_value = '"tampered"'::jsonb WHERE turn_id = $1`,
       [claimed.id],

@@ -132,7 +132,7 @@ npm run acceptance
 - 产品契约：12 项不变量、13 条多轮轨迹、12 个零 Provider turn。
 - 离线测试：24 个测试文件、156 项测试通过；2 个 PostgreSQL 文件默认跳过。
 - PostgreSQL 集成：2 个测试文件、23 项测试通过。
-- 可观测性：23 个指标、11 个 Grafana panel、12 条 Prometheus alert。
+- 可观测性：24 个指标、11 个 Grafana panel、12 条 Prometheus alert。
 
 PostgreSQL 集成测试必须使用隔离测试数据库：
 
@@ -193,6 +193,10 @@ ops/                  Grafana、Prometheus 与运维配置
 docs/                 ADR、阶段评审、验收记录和研究文档
 scripts/              漂移检查、smoke 与显式授权的 live 工具
 ```
+
+## 架构与面试说明
+
+面向项目答辩和技术面试的完整架构说明见[项目架构定位与面试说明](docs/project-architecture-interview-guide.md)。该文档覆盖 Worker、pi-agent、Intent Compiler、Host、模型工具暴露、证据链、PostgreSQL 一致性边界及常见追问。
 
 ## 下一步资源边界
 

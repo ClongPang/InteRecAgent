@@ -32,6 +32,38 @@ export function evaluateConversationPolicy(input: ConversationPolicyInput): Conv
   );
   let hasResearch = plan.ops.some((operation) => operation.kind === "RESEARCH_OFFERS");
   let hasClarification = plan.ops.some((operation) => operation.kind === "REQUEST_CLARIFICATION");
+  const requiredBasicSlot = projectedGoal.target === null
+    ? "target_product"
+    : projectedGoal.retrievalMarkets.length === 0
+      ? "retrieval_markets"
+      : null;
+  let canonicalizedClarification = false;
+  // A provider request cannot repair an incomplete research contract. Convert
+  // both an explicit clarification and a premature research request into the
+  // same state-derived clarification, while preserving independent Goal edits.
+  if ((hasClarification || hasResearch) && requiredBasicSlot) {
+    let opId = `host-required-${requiredBasicSlot}`;
+    for (let suffix = 2; plan.ops.some((operation) => operation.opId === opId); suffix += 1) opId = `host-required-${requiredBasicSlot}-${suffix}`;
+    plan = validateTurnPlan({
+      ...plan,
+      ops: [
+        ...plan.ops.filter((operation) => operation.kind !== "REQUEST_CLARIFICATION"
+          && operation.kind !== "RESEARCH_OFFERS"
+          && !(operation.kind === "GOAL_ADD_GAP" && operation.gap.slotId !== requiredBasicSlot)),
+        { opId, kind: "REQUEST_CLARIFICATION", slotId: requiredBasicSlot, reasonCode: "MISSING_REQUIRED_GOAL_FIELD" },
+      ],
+    });
+    projectedGoal = applyGoalOperations(
+      input.state.goalRevision?.goal ?? emptyShoppingGoal(),
+      plan.ops.filter(isGoalOperation),
+    );
+    hasResearch = false;
+    hasClarification = true;
+    canonicalizedClarification = true;
+  }
+  const baseGoal = input.state.goalRevision?.goal ?? emptyShoppingGoal();
+  const changesTarget = plan.ops.some((operation) => operation.kind === "GOAL_SET_TARGET")
+    && JSON.stringify(baseGoal.target) !== JSON.stringify(projectedGoal.target);
   const completesInitialResearchGoal = input.state.workingSet === null
     && input.researchNeed === "INSUFFICIENT_COVERAGE"
     && plan.ops.some((operation) => isGoalOperation(operation) && [
@@ -43,14 +75,19 @@ export function evaluateConversationPolicy(input: ConversationPolicyInput): Conv
     && projectedGoal.target !== null
     && projectedGoal.retrievalMarkets.length > 0
     && projectedGoal.unresolved.length === 0;
-  if (!hasResearch && completesInitialResearchGoal) {
+  const completesChangedTargetGoal = changesTarget
+    && projectedGoal.target !== null
+    && projectedGoal.target.canonicalModel !== null
+    && projectedGoal.retrievalMarkets.length > 0
+    && projectedGoal.unresolved.length === 0;
+  if (!hasResearch && (completesInitialResearchGoal || completesChangedTargetGoal)) {
     let opId = "host-required-research";
     for (let suffix = 2; plan.ops.some((operation) => operation.opId === opId); suffix += 1) opId = `host-required-research-${suffix}`;
     plan = validateTurnPlan({
       ...plan,
       ops: [
         ...plan.ops.filter((operation) => operation.kind !== "REQUEST_CLARIFICATION"),
-        { opId, kind: "RESEARCH_OFFERS", reasonCode: "GOAL_BECAME_RESEARCH_READY" },
+        { opId, kind: "RESEARCH_OFFERS", reasonCode: completesInitialResearchGoal ? "GOAL_BECAME_RESEARCH_READY" : "TARGET_CHANGED" },
       ],
     });
     projectedGoal = applyGoalOperations(
@@ -62,7 +99,6 @@ export function evaluateConversationPolicy(input: ConversationPolicyInput): Conv
   }
   let researchOperation = plan.ops.find((operation) => operation.kind === "RESEARCH_OFFERS");
 
-  const baseGoal = input.state.goalRevision?.goal ?? emptyShoppingGoal();
   const goalChanged = plan.ops.some(isGoalOperation);
   const sameResearchContract = JSON.stringify(baseGoal.target) === JSON.stringify(projectedGoal.target)
     && JSON.stringify(baseGoal.hardConstraints) === JSON.stringify(projectedGoal.hardConstraints);
@@ -82,6 +118,9 @@ export function evaluateConversationPolicy(input: ConversationPolicyInput): Conv
   }
   if (hasResearch && projectedGoal.target === null) {
     throw new DomainError("RESEARCH_TARGET_REQUIRED", "Provider research requires a resolved shopping target");
+  }
+  if (hasResearch && projectedGoal.retrievalMarkets.length === 0) {
+    throw new DomainError("RESEARCH_MARKETS_REQUIRED", "Provider research requires at least one supported retrieval market");
   }
   if (hasResearch && projectedGoal.unresolved.length > 0) {
     throw new DomainError("RESEARCH_BLOCKED_BY_GOAL_GAPS", `Provider research is blocked by unresolved goal slots: ${projectedGoal.unresolved.map((gap) => gap.slotId).join(",")}`);
@@ -103,7 +142,8 @@ export function evaluateConversationPolicy(input: ConversationPolicyInput): Conv
     projectedGoal,
     reasonCodes: [
       hasResearch ? `RESEARCH_${explicitRefresh ? "USER_REQUESTED_REFRESH" : invalidatesEvidence ? "INSUFFICIENT_COVERAGE" : input.researchNeed}` : "ZERO_PROVIDER_ROUTE",
-      ...(completesInitialResearchGoal && researchOperation?.reasonCode === "GOAL_BECAME_RESEARCH_READY" ? ["HOST_COMPLETED_RESEARCH_PLAN"] : []),
+      ...((completesInitialResearchGoal || completesChangedTargetGoal) && researchOperation ? ["HOST_COMPLETED_RESEARCH_PLAN"] : []),
+      ...(canonicalizedClarification ? ["HOST_CANONICALIZED_REQUIRED_CLARIFICATION"] : []),
       ...(hasClarification ? ["BLOCKING_CLARIFICATION"] : []),
     ],
   };

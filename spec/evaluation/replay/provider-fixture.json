@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "interec-replay-provider-v1",
+  "fixtureVersion": "dev-provider-fixture-v1",
+  "productSearch": [
+    {
+      "caseId": "general-us-success",
+      "query": "lightweight laptop",
+      "market": "US",
+      "requestedLimit": 8,
+      "callBudget": { "min": 1, "max": 1 },
+      "response": {
+        "kind": "SUCCESS",
+        "artifactRef": "sha256:dev-general-us",
+        "observedAt": "2026-08-28T00:00:00.000Z",
+        "products": [
+          {
+            "id": "laptop-1",
+            "title": "Lightweight Laptop 14",
+            "price": { "amount": "799", "currency": "USD" },
+            "merchant": "Replay Merchant",
+            "url": "https://merchant.us/laptop-1",
+            "country_code": "US",
+            "category_path": ["Computers", "Laptops"]
+          }
+        ],
+        "rawPayload": { "data": [{ "id": "laptop-1" }] }
+      }
+    }
+  ],
+  "fx": [
+    {
+      "caseId": "usd-cny-success",
+      "base": "USD",
+      "callBudget": { "min": 1, "max": 1 },
+      "response": {
+        "kind": "SUCCESS",
+        "snapshot": {
+          "id": "fx-usd-cny-dev",
+          "base": "USD",
+          "quote": "CNY",
+          "rate": "7.1",
+          "provider": "replay",
+          "observedAt": "2026-08-28T00:00:00.000Z",
+          "expiresAt": "2026-08-29T00:00:00.000Z"
+        }
+      }
+    }
+  ]
+}

@@ -108,6 +108,19 @@ function verifyCandidateFact(claim: VerifiedClaim, workingSet: WorkingSet): void
     return;
   }
 
+  if (claim.kind === "RANKING_REASON") {
+    if (!Array.isArray(claim.canonicalValue)
+      || claim.canonicalValue.length === 0
+      || claim.canonicalValue.some((value) => typeof value !== "string" || value.trim() === "")) {
+      throw new DomainError("INVALID_CLAIM_VALUE", `Ranking-reason claim value must be a non-empty string array: ${claim.claimId}`);
+    }
+    const expected = claim.canonicalValue.map((value) => value.trim());
+    if (candidates.some((candidate) => JSON.stringify(candidate.rankingReasonCodes ?? []) !== JSON.stringify(expected))) {
+      throw new DomainError("CLAIM_VALUE_MISMATCH", `Ranking-reason claim does not match its working-set offer: ${claim.claimId}`);
+    }
+    return;
+  }
+
   const expected = exactString(claim.canonicalValue, claim.claimId);
   const values = candidates.map((candidate) => {
     switch (claim.kind) {

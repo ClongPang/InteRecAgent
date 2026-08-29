@@ -170,6 +170,42 @@ export class ConversationResearchWorld implements TurnWorldPort {
     };
   }
 
+  public async inspectResearchCoverage(
+    _operation: Extract<WorldOperation, { kind: "INSPECT_RESEARCH_COVERAGE" }>,
+    _state: ConversationState,
+  ): Promise<WorldOperationResult> {
+    const historical = await this.researchRepository.loadLatestPromotedResearchCoverage(
+      this.claimed.owner,
+      this.claimed.conversationId,
+    );
+    if (!historical) {
+      return {
+        claims: [],
+        disclosureCodes: ["RESEARCH_COVERAGE_UNKNOWN"],
+        publicResult: { found: false },
+      };
+    }
+    const failedMarkets = [...new Set(historical.coverage.failedMarkets)].sort();
+    return {
+      claims: [],
+      disclosureCodes: failedMarkets.length > 0
+        ? [`RESEARCH_COVERAGE_INCOMPLETE:${failedMarkets.join(",")}`]
+        : [],
+      publicResult: {
+        found: true,
+        waveNo: historical.waveNo,
+        status: historical.status,
+        completedAt: historical.completedAt,
+        promotedRevision: historical.promotedRevision,
+        coverage: historical.coverage,
+        marketOutcomes: historical.marketOutcomes,
+        interpretation: failedMarkets.length > 0
+          ? "INCOMPLETE_COVERAGE_DOES_NOT_PROVE_MARKET_ABSENCE"
+          : "COVERAGE_COMPLETED",
+      },
+    };
+  }
+
   public async research(
     operation: Extract<WorldOperation, { kind: "RESEARCH_OFFERS" }>,
     state: ConversationState,

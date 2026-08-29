@@ -59,12 +59,12 @@ suite("PostgreSQL Conversation API vertical slice", () => {
     faux.setResponses([
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
         userIntentSummary: "ask the highest-impact target clarification",
-        ops: [{ opId: "ask-model", kind: "REQUEST_CLARIFICATION", slotId: "target_model", reasonCode: "HIGH_IMPACT_GAP" }],
+        ops: [{ opId: "ask-product", kind: "REQUEST_CLARIFICATION", slotId: "target_product", reasonCode: "HIGH_IMPACT_GAP" }],
         leftover: [],
       })),
       fauxAssistantMessage(fauxToolCall("publish_reply", {
         outcome: "CLARIFICATION",
-        blocks: [{ type: "QUESTION", slotId: "target_model" }],
+        blocks: [{ type: "QUESTION", slotId: "target_product" }],
         nextMoves: [],
       })),
     ]);
@@ -84,7 +84,7 @@ suite("PostgreSQL Conversation API vertical slice", () => {
     expect(projection.json().projection).toMatchObject({
       conversation: { id: conversationId, currentRevision: 1 },
       activeTurn: null,
-      state: { revision: 1, dialogue: { pendingClarification: { slotId: "target_model" } } },
+      state: { revision: 1, dialogue: { pendingClarification: { slotId: "target_product" } } },
       latestAssistantMessage: { role: "ASSISTANT", payload: { outcome: "CLARIFICATION", envelope: { outcome: "CLARIFICATION" } } },
     });
     const hidden = await app.inject({ method: "GET", url: `/api/conversations/${conversationId}`, headers: { authorization: "Bearer other" } });

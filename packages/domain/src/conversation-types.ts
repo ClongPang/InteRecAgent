@@ -152,6 +152,7 @@ export type WorldOperation =
   | (TurnOperationBase & { kind: "SET_COMPARISON"; referents: CandidateReferent[] })
   | (TurnOperationBase & { kind: "SET_FOCUS"; referent: CandidateReferent | null })
   | (TurnOperationBase & { kind: "INSPECT_WORKING_SET"; referents: CandidateReferent[]; fields: InspectableField[] })
+  | (TurnOperationBase & { kind: "INSPECT_RESEARCH_COVERAGE" })
   | (TurnOperationBase & { kind: "REFILTER_WORKING_SET" })
   | (TurnOperationBase & { kind: "RERANK_WORKING_SET"; preferenceKey: string })
   | (TurnOperationBase & { kind: "RESEARCH_OFFERS"; reasonCode: string; queryVariant?: string })

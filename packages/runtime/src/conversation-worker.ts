@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  CONVERSATION_PROMPT_NAME,
+  CONVERSATION_PROMPT_SHA256,
+  CONVERSATION_PROMPT_VERSION,
   executeConversationTurn,
   type AssistantEnvelopeProposal,
   type TurnPlanProposal,
@@ -14,12 +17,26 @@ import type { PiModelRuntime } from "./model-factory.js";
 import { PostgresProviderGovernor } from "./provider-governor.js";
 import type { FxPort, ProductSearchPort } from "./providers.js";
 import { createRepositoryTurnSession } from "./repository-turn-session.js";
-import { observeConversationTurn, recordSafetyBoundary, runtimeMetrics, telemetryErrorCode, type TurnObservationOutcome } from "./telemetry.js";
+import { createAgentEventObserver, observeConversationTurn, recordSafetyBoundary, runtimeMetrics, telemetryErrorCode, type TurnObservationOutcome } from "./telemetry.js";
+import type { LangfusePromptLink } from "./langfuse-prompt.js";
 
 export interface ConversationWorkerOptions {
   workerId?: string;
   leaseSeconds?: number;
   heartbeatSeconds?: number;
+  promptLink?: LangfusePromptLink;
+  traceCorrelation?: AgentTraceCorrelation | ((turn: ClaimedConversationTurn) => AgentTraceCorrelation);
+}
+
+export interface AgentTraceCorrelation {
+  datasetRunId?: string;
+  datasetRunName?: string;
+  datasetItemId?: string;
+  experimentWrapperTraceId?: string;
+  trialId?: string;
+  taskId?: string;
+  runIndex?: number;
+  turnIndex?: number;
 }
 
 function inputText(input: ConversationTurnInput): string {
@@ -93,6 +110,8 @@ export class ConversationWorker {
   private readonly workerId: string;
   private readonly leaseSeconds: number;
   private readonly heartbeatSeconds: number;
+  private readonly promptLink: LangfusePromptLink | undefined;
+  private readonly traceCorrelation: ConversationWorkerOptions["traceCorrelation"];
 
   public constructor(
     private readonly repository: ConversationRepository,
@@ -106,11 +125,16 @@ export class ConversationWorker {
     this.workerId = options.workerId ?? `conversation-worker-${randomUUID()}`;
     this.leaseSeconds = options.leaseSeconds ?? 20;
     this.heartbeatSeconds = options.heartbeatSeconds ?? 5;
+    this.promptLink = options.promptLink;
+    this.traceCorrelation = options.traceCorrelation;
   }
 
   public async runOnce(turnId?: string): Promise<boolean> {
     const claimed = await this.repository.claimTurn(this.workerId, this.leaseSeconds, turnId);
     if (!claimed) return false;
+    const traceCorrelation = typeof this.traceCorrelation === "function"
+      ? this.traceCorrelation(claimed)
+      : this.traceCorrelation;
     const processingStartedAt = performance.now();
     const createdAt = Date.parse(claimed.createdAt);
     if (Number.isFinite(createdAt)) {
@@ -139,7 +163,24 @@ export class ConversationWorker {
         ownerId: claimed.owner.ownerId,
         attempt: claimed.attempt,
         currentUserMessages: claimed.inputMessages.map((message) => inputText(message.payload as ConversationTurnInput)),
-      }, async () => {
+        traceId: claimed.telemetryTraceId,
+        ...(claimed.telemetryRootObservationId ? { traceRootObservationId: claimed.telemetryRootObservationId } : {}),
+        ...(traceCorrelation ? { correlation: traceCorrelation } : {}),
+      }, async (activeObservation) => {
+        if (activeObservation.traceId && activeObservation.rootObservationId) {
+          try {
+            const linked = await this.repository.recordAttemptTelemetryLink(
+              claimed.id,
+              claimed.attempt,
+              claimed.fenceToken,
+              activeObservation.traceId,
+              activeObservation.rootObservationId,
+            );
+            if (!linked) runtimeMetrics.telemetryLinkFailures.add(1, { operation: "record_attempt_link" });
+          } catch {
+            runtimeMetrics.telemetryLinkFailures.add(1, { operation: "record_attempt_link" });
+          }
+        }
         try {
           const researchNeed = researchNeedFor(claimed);
           const turnInputs = claimed.inputMessages.map((message) => message.payload as ConversationTurnInput);
@@ -165,24 +206,39 @@ export class ConversationWorker {
             const currentIds = new Set(claimed.inputMessages.map((message) => message.id));
             const adjacent = recentSuccessfulAdjacentPair(timeline, currentIds);
             const agentStartedAt = performance.now();
-            const agentResult = await executeConversationTurn({
-              model: this.pi.model,
-              streamFn: this.pi.streamFn,
-              apiKey: this.pi.apiKey,
-              host: session.host,
-              context: {
-                state: claimed.snapshot,
-                currentUserMessages: claimed.inputMessages.map((message) => inputText(message.payload as ConversationTurnInput)),
-                ...(uiFocusOfferRef ? { uiFocusOfferRef } : {}),
-                recentAdjacentPair: adjacent,
-                capabilities: ["conversation", "clarification", "goal", "working_set", "comparison", "research", "undo"],
-                now: new Date().toISOString(),
-                modelId: String(this.pi.model.id),
-                providerCallBudget: 1,
-              },
-              sessionId: `${claimed.id}:${claimed.attempt}`,
-              signal: controller.signal,
+            const currentUserMessages = claimed.inputMessages.map((message) => inputText(message.payload as ConversationTurnInput));
+            const agentEventObserver = createAgentEventObserver({
+              promptName: CONVERSATION_PROMPT_NAME,
+              promptVersion: CONVERSATION_PROMPT_VERSION,
+              promptSha256: CONVERSATION_PROMPT_SHA256,
+              ...(this.promptLink ? { promptLink: this.promptLink } : {}),
             });
+            let agentResult;
+            try {
+              agentResult = await executeConversationTurn({
+                model: this.pi.model,
+                streamFn: this.pi.streamFn,
+                apiKey: this.pi.apiKey,
+                host: session.host,
+                context: {
+                  state: claimed.snapshot,
+                  currentUserMessages,
+                  ...(uiFocusOfferRef ? { uiFocusOfferRef } : {}),
+                  recentAdjacentPair: adjacent,
+                  capabilities: ["conversation", "clarification", "goal", "working_set", "comparison", "research", "undo"],
+                  now: new Date().toISOString(),
+                  modelId: String(this.pi.model.id),
+                  providerCallBudget: 1,
+                },
+                sessionId: `${claimed.id}:${claimed.attempt}`,
+                signal: controller.signal,
+                onEvent: agentEventObserver.onEvent,
+                onModelCall: agentEventObserver.onModelCall,
+                observeToolCall: agentEventObserver.observeToolCall,
+              });
+            } finally {
+              agentEventObserver.finish();
+            }
             route = agentResult.route ?? "unknown";
             runtimeMetrics.invokeAgentDuration.record((performance.now() - agentStartedAt) / 1000, { route });
             runtimeMetrics.inferenceCalls.record(agentResult.modelInferences, { route });

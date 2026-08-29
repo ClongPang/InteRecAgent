@@ -3,13 +3,28 @@ import { createHash, randomUUID } from "node:crypto";
 import type pg from "pg";
 import { tokenizeDiscoveryText, type ClaimEvidenceRef, type ResearchCoverage, type VerifiedClaim } from "@interec/domain";
 
-import type { ClaimedConversationTurn } from "./conversation-repository-types.js";
+import type { ClaimedConversationTurn, OwnerClaims } from "./conversation-repository-types.js";
 import { candidateRefsHash, type ResearchProofBundle } from "./research-proof.js";
 import type { ResearchCampaignResult } from "./search-service.js";
 
 export interface SavedResearchProof {
   comparisonSetId: string;
   version: number;
+}
+
+export interface HistoricalResearchCoverage {
+  turnId: string;
+  attempt: number;
+  waveNo: number;
+  status: "COMPLETED" | "PARTIAL" | "FAILED";
+  completedAt: string;
+  promotedRevision: number;
+  coverage: ResearchCoverage;
+  marketOutcomes: Array<{
+    market: string;
+    status: "COMPLETED" | "FAILED";
+    resultCount: number;
+  }>;
 }
 
 function payloadHash(payload: unknown): string {
@@ -330,6 +345,64 @@ export class PostgresConversationResearchRepository {
       });
     }
     return [...byClaim.values()];
+  }
+
+  public async loadLatestPromotedResearchCoverage(
+    owner: OwnerClaims,
+    conversationId: string,
+  ): Promise<HistoricalResearchCoverage | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN READ ONLY");
+      await client.query(
+        "SELECT set_config('interec.tenant_id', $1, true), set_config('interec.owner_id', $2, true)",
+        [owner.tenantId, owner.ownerId],
+      );
+      const result = await client.query<Record<string, unknown>>(
+        `SELECT rw.turn_id, rw.attempt, rw.wave_no, rw.status, rw.completed_at,
+                cs.promoted_revision, rw.coverage_json,
+                COALESCE(
+                  jsonb_agg(jsonb_build_object(
+                    'market', ms.market,
+                    'status', ms.status,
+                    'resultCount', ms.result_count
+                  ) ORDER BY ms.market) FILTER (WHERE ms.id IS NOT NULL),
+                  '[]'::jsonb
+                ) AS market_outcomes
+         FROM interec_agent.comparison_sets cs
+         JOIN interec_agent.conversations c ON c.id = cs.conversation_id
+         JOIN interec_agent.turns t ON t.id = cs.turn_id
+         JOIN interec_agent.research_waves rw
+           ON rw.turn_id = cs.turn_id AND rw.attempt = cs.attempt
+         LEFT JOIN interec_agent.market_searches ms ON ms.research_wave_id = rw.id
+         WHERE cs.conversation_id = $3
+           AND c.tenant_id = $1 AND c.owner_id = $2
+           AND cs.status = 'PROMOTED' AND cs.promoted_revision IS NOT NULL
+           AND t.status = 'COMPLETED' AND rw.completed_at IS NOT NULL
+         GROUP BY rw.id, cs.promoted_revision
+         ORDER BY cs.promoted_revision DESC, rw.wave_no DESC
+         LIMIT 1`,
+        [owner.tenantId, owner.ownerId, conversationId],
+      );
+      await client.query("COMMIT");
+      const row = result.rows[0];
+      if (!row) return null;
+      return {
+        turnId: String(row["turn_id"]),
+        attempt: Number(row["attempt"]),
+        waveNo: Number(row["wave_no"]),
+        status: String(row["status"]) as HistoricalResearchCoverage["status"],
+        completedAt: timestampIso(row["completed_at"]),
+        promotedRevision: Number(row["promoted_revision"]),
+        coverage: structuredClone(row["coverage_json"]) as ResearchCoverage,
+        marketOutcomes: structuredClone(row["market_outcomes"] ?? []) as HistoricalResearchCoverage["marketOutcomes"],
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   public async cleanExpiredArtifacts(batchSize = 100): Promise<{ purged: number; deletedAttempts: number }> {

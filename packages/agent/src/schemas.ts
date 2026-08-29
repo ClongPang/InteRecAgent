@@ -71,8 +71,8 @@ export const turnOperationSchema = Type.Union([
       Type.Literal("WARRANTY"),
     ]), { minItems: 1, maxItems: 8 }),
   }, { additionalProperties: false }),
+  Type.Object({ ...worldBase, kind: Type.Literal("INSPECT_RESEARCH_COVERAGE") }, { additionalProperties: false }),
   Type.Object({ ...worldBase, kind: Type.Literal("REFILTER_WORKING_SET") }, { additionalProperties: false }),
-  Type.Object({ ...worldBase, kind: Type.Literal("RERANK_WORKING_SET"), preferenceKey: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
   Type.Object({
     ...worldBase,
     kind: Type.Literal("RESEARCH_OFFERS"),
@@ -92,7 +92,7 @@ export const turnOperationSchema = Type.Union([
 export const turnPlanSchema = Type.Object({
   userIntentSummary: Type.String({ minLength: 1, maxLength: 400 }),
   ops: Type.Array(turnOperationSchema, { minItems: 1, maxItems: MAX_TURN_OPERATIONS }),
-  leftover: Type.Array(Type.Object({ operation: turnOperationSchema, conditionCode: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }), { maxItems: 4 }),
+  leftover: Type.Optional(Type.Array(Type.Object({ operation: turnOperationSchema, conditionCode: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }), { maxItems: 4 })),
 }, { additionalProperties: false });
 
 const assistantBlockSchema = Type.Union([
@@ -105,6 +105,9 @@ const assistantBlockSchema = Type.Union([
       Type.Literal("RESEARCH_COMPLETED"),
       Type.Literal("CHECKED_PREMISE"),
     ]),
+    // Provider compatibility: harmless receipt IDs attached to a transition
+    // are accepted here and discarded before the Host sees the proposal.
+    claimIds: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { maxItems: 12 })),
   }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("CLAIM"), claimId: Type.String({ minLength: 1, maxLength: 128 }) }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("COMPARISON"), claimIds: Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { minItems: 2, maxItems: 12 }) }, { additionalProperties: false }),
@@ -115,5 +118,7 @@ const assistantBlockSchema = Type.Union([
 export const assistantEnvelopeSchema = Type.Object({
   outcome: Type.Union([Type.Literal("CHAT"), Type.Literal("CLARIFICATION"), Type.Literal("DISCOVERY"), Type.Literal("RECOMMENDATION"), Type.Literal("NO_MATCH"), Type.Literal("DEGRADED")]),
   blocks: Type.Array(assistantBlockSchema, { minItems: 1, maxItems: 20 }),
-  nextMoves: Type.Array(Type.Object({ id: Type.String({ minLength: 1, maxLength: 80 }), label: Type.String({ minLength: 1, maxLength: 120 }), operation: turnOperationSchema }, { additionalProperties: false }), { maxItems: 6 }),
+  // Keep this as a regular array schema for OpenAI-compatible providers. Empty
+  // tuples are rejected by some providers even though they are valid JSON Schema.
+  nextMoves: Type.Array(Type.String(), { maxItems: 0 }),
 }, { additionalProperties: false });

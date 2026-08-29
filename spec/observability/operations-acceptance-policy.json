@@ -11,8 +11,8 @@
     "InteRecResearchTurnP99High",
     "InteRecTurnFailureRateHigh",
     "InteRecTurnTimeoutRateHigh",
-    "InteRecClaimValidationFailure",
-    "InteRecSafetyBlock",
+    "InteRecClaimValidationFailureRateHigh",
+    "InteRecSafetyBlockRateHigh",
     "InteRecOutboxDeadLetter"
   ],
   "requiredIntegrityChecks": ["schemaChecksum", "conversationRevision", "messageLedger", "evidenceChain", "ownerIsolation"],

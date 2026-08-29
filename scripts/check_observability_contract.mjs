@@ -7,7 +7,15 @@ import { parseDocument } from "yaml";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const contract = JSON.parse(await readFile(resolve(root, "spec/observability/metrics-contract.json"), "utf8"));
 const operationsPolicy = JSON.parse(await readFile(resolve(root, "spec/observability/operations-acceptance-policy.json"), "utf8"));
+const agentTraceContract = JSON.parse(await readFile(resolve(root, "spec/observability/agent-trace-contract.json"), "utf8"));
 const telemetry = await readFile(resolve(root, "packages/runtime/src/telemetry.ts"), "utf8");
+const agentProtocol = await readFile(resolve(root, "packages/agent/src/protocol.ts"), "utf8");
+const agentRuntime = await readFile(resolve(root, "packages/agent/src/turn-agent.ts"), "utf8");
+const repositoryTurnSession = await readFile(resolve(root, "packages/runtime/src/repository-turn-session.ts"), "utf8");
+const runtimePackage = JSON.parse(await readFile(resolve(root, "packages/runtime/package.json"), "utf8"));
+const promptIntegration = await readFile(resolve(root, "packages/runtime/src/langfuse-prompt.ts"), "utf8");
+const experimentPublisher = await readFile(resolve(root, "scripts/publish_langfuse_qualification_experiment.ts"), "utf8");
+const ingestionChecker = await readFile(resolve(root, "scripts/check_langfuse_ingestion.ts"), "utf8");
 const alertsText = await readFile(resolve(root, "ops/prometheus/conversation-alerts.yml"), "utf8");
 const alertsDocument = parseDocument(alertsText);
 if (alertsDocument.errors.length) throw new Error(`OBSERVABILITY_ALERTS_YAML_INVALID:${alertsDocument.errors[0].message}`);
@@ -23,6 +31,42 @@ async function readTypeScriptTree(directory) {
 }
 
 const activeSource = await readTypeScriptTree(resolve(root, "packages"));
+
+if (runtimePackage.dependencies?.["@langfuse/client"] !== "5.10.1") throw new Error("OBSERVABILITY_LANGFUSE_CLIENT_NOT_EXACTLY_PINNED");
+if (!telemetry.includes("prompt: options.promptLink")) throw new Error("OBSERVABILITY_NATIVE_PROMPT_LINK_MISSING");
+if (!promptIntegration.includes("LANGFUSE_PROMPT_CONTENT_DRIFT") || !promptIntegration.includes("sourceSha256")) {
+  throw new Error("OBSERVABILITY_PROMPT_DRIFT_GUARD_MISSING");
+}
+if (!experimentPublisher.includes("executor.execute(testCase, runIndex,") || experimentPublisher.includes("projection: true")) {
+  throw new Error("OBSERVABILITY_REAL_EXPERIMENT_EXECUTOR_MISSING");
+}
+if (!ingestionChecker.includes("scoresV3.getManyV3") || ingestionChecker.includes("api.scores.getMany")) {
+  throw new Error("OBSERVABILITY_SCORES_V3_CONTRACT_MISSING");
+}
+if (!ingestionChecker.includes("core,basic,io,metadata")
+  || !ingestionChecker.includes("serializedRecord(observation[\"output\"])")
+  || !ingestionChecker.includes("modelToolsWithCausality")) {
+  throw new Error("OBSERVABILITY_TOOL_IO_SERVER_VERIFICATION_MISSING");
+}
+if (agentTraceContract.schemaVersion !== "interec-agent-trace-v2"
+  || agentTraceContract.modelBoundary?.sourceOfTruth !== "STREAM_FN_PROVIDER_BOUNDARY") {
+  throw new Error("OBSERVABILITY_AGENT_TRACE_CONTRACT_INVALID");
+}
+for (const token of ["tool_execution_start", "tool_execution_end", "contextSha256", "toolSchemaSha256", "modelVisibleResult", "agent.tool."]) {
+  if (!telemetry.includes(token)) throw new Error(`OBSERVABILITY_AGENT_TRACE_IMPLEMENTATION_MISSING:${token}`);
+}
+for (const generationName of Object.values(agentTraceContract.generationNames ?? {})) {
+  if (!telemetry.includes(generationName)) throw new Error(`OBSERVABILITY_AGENT_GENERATION_PHASE_MISSING:${generationName}`);
+}
+if (agentProtocol.includes("execute: async (_toolCallId") || !agentProtocol.includes("observeToolCall")) {
+  throw new Error("OBSERVABILITY_TOOL_CALL_ID_PROPAGATION_MISSING");
+}
+if (!agentRuntime.includes("onModelCall?.({ model, context") || !repositoryTurnSession.includes("observeHostStep")) {
+  throw new Error("OBSERVABILITY_PROVIDER_CONTEXT_OR_HOST_HIERARCHY_MISSING");
+}
+for (const token of ["datasetItemId", "experimentWrapperTraceId", "getActiveTraceId"]) {
+  if (!experimentPublisher.includes(token)) throw new Error(`OBSERVABILITY_EXPERIMENT_TRACE_LINK_MISSING:${token}`);
+}
 
 const metrics = contract.metrics ?? [];
 if (!Array.isArray(metrics) || metrics.length < 10) throw new Error("OBSERVABILITY_METRICS_CONTRACT_INCOMPLETE");
@@ -60,4 +104,4 @@ for (const required of operationsPolicy.requiredDashboardPanelIds ?? []) {
   if (!panelIds.has(required)) throw new Error(`OBSERVABILITY_DASHBOARD_PANEL_MISSING:${required}`);
 }
 
-process.stdout.write(`observability contract: ${metrics.length} metrics, ${dashboard.panels.length} panels, ${alerts.length} alerts, executable target-evidence policy\n`);
+process.stdout.write(`observability contract: ${metrics.length} metrics, ${dashboard.panels.length} panels, ${alerts.length} alerts, agent trace ${agentTraceContract.schemaVersion}, executable target-evidence policy\n`);

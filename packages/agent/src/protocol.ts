@@ -5,6 +5,24 @@ import { assistantEnvelopeSchema, turnPlanSchema } from "./schemas.js";
 
 export type TurnAgentPhase = "CONTEXT_READY" | "EXECUTING_PLAN" | "ANSWER_REQUIRED" | "COMPLETED" | "FALLBACK";
 
+export type AgentInferencePhase = "PLAN" | "FINALIZE" | "REPAIR_PLAN" | "REPAIR_FINALIZE";
+
+export interface AgentInferenceContext {
+  inferenceIndex: number;
+  phase: AgentInferencePhase;
+}
+
+export interface AgentToolCallObservation extends AgentInferenceContext {
+  toolCallId: string;
+  toolName: string;
+  arguments: unknown;
+}
+
+export type ObserveAgentToolCall = <T>(
+  call: AgentToolCallObservation,
+  operation: () => Promise<T>,
+) => Promise<T>;
+
 export interface OperationReceipt {
   opId: string;
   toolName: string;
@@ -61,6 +79,7 @@ export function toolNameForOperation(operation: TurnOperation): string {
     case "SET_COMPARISON": return "set_comparison";
     case "SET_FOCUS": return "set_focus";
     case "INSPECT_WORKING_SET": return "inspect_working_set";
+    case "INSPECT_RESEARCH_COVERAGE": return "inspect_research_coverage";
     case "REFILTER_WORKING_SET": return "refilter_working_set";
     case "RERANK_WORKING_SET": return "rerank_working_set";
     case "RESEARCH_OFFERS": return "research_offers";
@@ -73,6 +92,11 @@ function textResult(details: Record<string, unknown>, terminate = false) {
   return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details, ...(terminate ? { terminate: true } : {}) };
 }
 
+export interface ConversationToolProtocolOptions {
+  observeToolCall?: ObserveAgentToolCall;
+  currentInference?: () => AgentInferenceContext;
+}
+
 export class ConversationToolProtocol {
   public phase: TurnAgentPhase = "CONTEXT_READY";
   public toolCalls = 0;
@@ -83,7 +107,17 @@ export class ConversationToolProtocol {
   public envelope: AssistantEnvelope | null = null;
   public lastErrorCode: string | null = null;
 
-  public constructor(private readonly host: TurnHostOperations) {}
+  public constructor(
+    private readonly host: TurnHostOperations,
+    private readonly options: ConversationToolProtocolOptions = {},
+  ) {}
+
+  private observe<T>(toolCallId: string, toolName: string, args: unknown, operation: () => Promise<T>): Promise<T> {
+    const observer = this.options.observeToolCall;
+    if (!observer) return operation();
+    const inference = this.options.currentInference?.() ?? { inferenceIndex: 0, phase: "PLAN" as const };
+    return observer({ toolCallId, toolName, arguments: args, ...inference }, operation);
+  }
 
   public toolsForPhase(): AgentTool[] {
     if (this.phase === "CONTEXT_READY") return [this.commitPlanTool()];
@@ -115,10 +149,11 @@ export class ConversationToolProtocol {
       description: "Submit one ordered TurnPlan. The deterministic host validates it and executes each authorized operation in order.",
       parameters: turnPlanSchema,
       executionMode: "sequential",
-      execute: async (_toolCallId, params, signal) => {
+      execute: async (toolCallId, params, signal) => this.observe(toolCallId, "commit_turn_plan", params, async () => {
         this.phase = "EXECUTING_PLAN";
         try {
-          const committed = await this.host.commitPlan(params as TurnPlanProposal, signal);
+          const proposal = params as Omit<TurnPlanProposal, "leftover"> & { leftover?: TurnPlanProposal["leftover"] };
+          const committed = await this.host.commitPlan({ ...proposal, leftover: proposal.leftover ?? [] }, signal);
           this.lastErrorCode = null;
           this.plan = committed.plan;
           this.route = committed.route;
@@ -138,11 +173,16 @@ export class ConversationToolProtocol {
             instruction: "Call publish_reply using only allowed claim/question/disclosure IDs from these receipts.",
           });
         } catch (error) {
-          this.phase = "CONTEXT_READY";
+          if (this.plan) {
+            this.phase = "FALLBACK";
+          } else {
+            this.phase = "CONTEXT_READY";
+            this.allowProtocolRepair();
+          }
           this.lastErrorCode = error instanceof Error ? error.message.slice(0, 160) : "TURN_PLAN_FAILED";
           throw error;
         }
-      },
+      }),
     };
   }
 
@@ -153,9 +193,30 @@ export class ConversationToolProtocol {
       description: "Submit the conversational reply body. Facts must be referenced only through claim blocks returned by the host; operation provenance is attached by the host.",
       parameters: assistantEnvelopeSchema,
       executionMode: "sequential",
-      execute: async (_toolCallId, params, signal) => {
+      execute: async (toolCallId, params, signal) => this.observe(toolCallId, "publish_reply", params, async () => {
         try {
-          const envelope = await this.host.publishReply(params as AssistantEnvelopeProposal, signal);
+          const explicitlyRenderedClaimIds = new Set(params.blocks.flatMap((block) => block.type === "CLAIM"
+            ? [block.claimId]
+            : block.type === "COMPARISON"
+              ? block.claimIds
+              : []));
+          const normalizedBlocks: AssistantEnvelopeProposal["blocks"] = [];
+          for (const block of params.blocks) {
+            if (block.type !== "TRANSITION") {
+              normalizedBlocks.push(block);
+              continue;
+            }
+            normalizedBlocks.push({ type: block.type, transitionCode: block.transitionCode });
+            for (const claimId of block.claimIds ?? []) {
+              if (!explicitlyRenderedClaimIds.has(claimId)) normalizedBlocks.push({ type: "CLAIM", claimId });
+            }
+          }
+          const proposal: AssistantEnvelopeProposal = {
+            outcome: params.outcome,
+            blocks: normalizedBlocks,
+            nextMoves: [],
+          };
+          const envelope = await this.host.publishReply(proposal, signal);
           this.lastErrorCode = null;
           this.envelope = envelope;
           this.phase = "COMPLETED";
@@ -163,9 +224,10 @@ export class ConversationToolProtocol {
         } catch (error) {
           this.lastErrorCode = error instanceof Error ? error.message.slice(0, 160) : "ASSISTANT_ENVELOPE_FAILED";
           this.phase = "ANSWER_REQUIRED";
+          this.allowProtocolRepair();
           throw error;
         }
-      },
+      }),
     };
   }
 }

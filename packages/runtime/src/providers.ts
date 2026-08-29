@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { BuyWhereRawProduct, FxSnapshot, Market } from "@interec/domain";
 
-import { inSpan, runtimeMetrics } from "./telemetry.js";
+import { observeTool, runtimeMetrics } from "./telemetry.js";
 
 export interface MarketSearchResult {
   market: Market;
@@ -58,11 +58,10 @@ export class BuyWhereClient implements ProductSearchPort {
   public async search(query: string, market: Market, limit: number, signal?: AbortSignal): Promise<MarketSearchResult> {
     const startedAt = performance.now();
     try {
-      return await inSpan("buywhere.search", {
-        "server.address": new URL(this.baseUrl).hostname,
-        "rec_agent.market": market,
-        "langfuse.observation.metadata.provider": "buywhere",
-        "langfuse.observation.metadata.market": market,
+      return await observeTool("search-provider", {
+        provider: "buywhere",
+        market,
+        limit: Math.min(Math.max(limit, 1), 8),
       }, async () => {
     const url = new URL("/v1/products/search", this.baseUrl);
     url.searchParams.set("q", query);
@@ -97,7 +96,12 @@ export class BuyWhereClient implements ProductSearchPort {
       rawPayload: payload,
       observedAt,
     };
-      });
+      }, (result) => ({
+        provider: "buywhere",
+        market: result.market,
+        resultCount: result.products.length,
+        artifactRef: result.artifactRef,
+      }), { provider: "buywhere", market, serverAddress: new URL(this.baseUrl).hostname });
     } catch (error) {
       runtimeMetrics.providerErrors.add(1, { provider: "buywhere", market });
       throw error;
@@ -118,12 +122,10 @@ export class FxRatesClient implements FxPort {
   public async getRate(base: string, signal?: AbortSignal): Promise<FxSnapshot> {
     const startedAt = performance.now();
     try {
-      return await inSpan("fx.resolve", {
-        "rec_agent.fx.base": base.toUpperCase(),
-        "rec_agent.fx.quote": "CNY",
-        "langfuse.observation.metadata.provider": "fxratesapi",
-        "langfuse.observation.metadata.base": base.toUpperCase(),
-        "langfuse.observation.metadata.quote": "CNY",
+      return await observeTool("resolve-exchange-rate", {
+        provider: "fxratesapi",
+        base: base.toUpperCase(),
+        quote: "CNY",
       }, async () => {
     const normalizedBase = base.toUpperCase();
     const now = new Date();
@@ -170,7 +172,12 @@ export class FxRatesClient implements FxPort {
       observedAt: observedAt.toISOString(),
       expiresAt: new Date(observedAt.getTime() + this.ttlMs).toISOString(),
     };
-      });
+      }, (result) => ({
+        provider: result.provider,
+        base: result.base,
+        quote: result.quote,
+        observedAt: result.observedAt,
+      }), { provider: "fxratesapi", base: base.toUpperCase(), quote: "CNY" });
     } catch (error) {
       runtimeMetrics.providerErrors.add(1, { provider: "fxratesapi" });
       throw error;

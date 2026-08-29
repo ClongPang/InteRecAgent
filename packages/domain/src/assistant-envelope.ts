@@ -29,7 +29,16 @@ function claimMap(ledger: ClaimLedger): Map<string, VerifiedClaim> {
 }
 
 export function renderDisclosureCode(code: string): string {
-  return code === "WARRANTY_UNKNOWN" ? "保修信息：暂无可验证证据" : code;
+  if (code === "WARRANTY_UNKNOWN") return "保修信息：暂无可验证证据";
+  if (code === "PARTIAL_PROVIDER_COVERAGE") return "部分市场检索未完成；覆盖不完整不代表当地没有销售。";
+  if (code === "PROVIDER_UNAVAILABLE") return "本次市场检索均未完成；未取回数据不代表市场中没有销售。";
+  if (code === "RESEARCH_COVERAGE_UNKNOWN") return "暂无可验证的历史市场检索覆盖记录。";
+  const incomplete = /^RESEARCH_COVERAGE_INCOMPLETE:([A-Z0-9_-]+(?:,[A-Z0-9_-]+)*)$/.exec(code);
+  if (incomplete) {
+    const markets = incomplete[1]!.split(",").join("、");
+    return `历史检索中 ${markets} 市场的数据未成功返回；这表示覆盖不完整，不代表当地没有销售。`;
+  }
+  return code;
 }
 
 export function validateAssistantEnvelope(envelope: AssistantEnvelope, context: AssistantEnvelopeContext): AssistantEnvelope {

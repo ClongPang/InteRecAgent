@@ -136,10 +136,11 @@ describe("conversation domain properties", () => {
 describe("conversation policy", () => {
   it("allows exactly one provider call only for an evidenced research need", () => {
     const plan: TurnPlan = { userIntentSummary: "refresh current offers", ops: [{ opId: "research", kind: "RESEARCH_OFFERS", reasonCode: "USER_REQUESTED_REFRESH" }], leftover: [] };
-    expect(evaluateConversationPolicy({ plan, state: stateWithGoal(), researchNeed: "USER_REQUESTED_REFRESH" })).toMatchObject({ route: "research", providerCallsAllowed: 1 });
-    expect(evaluateConversationPolicy({ plan, state: stateWithGoal(), researchNeed: "NOT_NEEDED" })).toMatchObject({ route: "research", providerCallsAllowed: 1 });
+    const state = stateWithGoal([{ opId: "markets", kind: "GOAL_SET_RETRIEVAL_MARKETS", source, markets: ["US"] }]);
+    expect(evaluateConversationPolicy({ plan, state, researchNeed: "USER_REQUESTED_REFRESH" })).toMatchObject({ route: "research", providerCallsAllowed: 1 });
+    expect(evaluateConversationPolicy({ plan, state, researchNeed: "NOT_NEEDED" })).toMatchObject({ route: "research", providerCallsAllowed: 1 });
     const unnecessary: TurnPlan = { ...plan, ops: [{ opId: "research", kind: "RESEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE" }] };
-    expect(() => evaluateConversationPolicy({ plan: unnecessary, state: stateWithGoal(), researchNeed: "NOT_NEEDED" })).toThrowError(/not allowed/i);
+    expect(() => evaluateConversationPolicy({ plan: unnecessary, state, researchNeed: "NOT_NEEDED" })).toThrowError(/not allowed/i);
   });
 
   it("keeps talk and world-only turns on the zero-provider path", () => {
@@ -180,6 +181,71 @@ describe("conversation policy", () => {
     expect(decision).toMatchObject({ route: "research", providerCallsAllowed: 1 });
   });
 
+  it("canonicalizes clarification to the missing basic Goal field without parsing user wording", () => {
+    const plan: TurnPlan = {
+      userIntentSummary: "ask an unnecessary product detail",
+      ops: [
+        { opId: "gap", kind: "GOAL_ADD_GAP", source, gap: { slotId: "form_factor", reasonCodes: ["MODEL_SELECTED"] } },
+        { opId: "ask", kind: "REQUEST_CLARIFICATION", slotId: "form_factor", reasonCode: "MODEL_SELECTED" },
+      ],
+      leftover: [],
+    };
+    const decision = evaluateConversationPolicy({ plan, state: stateWithGoal(), researchNeed: "INSUFFICIENT_COVERAGE" });
+    expect(decision.plan.ops).toEqual([
+      { opId: "host-required-retrieval_markets", kind: "REQUEST_CLARIFICATION", slotId: "retrieval_markets", reasonCode: "MISSING_REQUIRED_GOAL_FIELD" },
+    ]);
+    expect(decision).toMatchObject({
+      route: "clarify",
+      providerCallsAllowed: 0,
+      reasonCodes: expect.arrayContaining(["HOST_CANONICALIZED_REQUIRED_CLARIFICATION"]),
+    });
+  });
+
+  it("turns premature research into a state-derived clarification and preserves independent Goal edits", () => {
+    const plan: TurnPlan = {
+      userIntentSummary: "record a preference and continue",
+      ops: [
+        { opId: "preference", kind: "GOAL_UPSERT_PREFERENCE", source, preference: { key: "use_case", value: "commute", weight: 0.7 } },
+        { opId: "research", kind: "RESEARCH_OFFERS", reasonCode: "GOAL_BECAME_RESEARCH_READY" },
+      ],
+      leftover: [],
+    };
+    const decision = evaluateConversationPolicy({ plan, state: stateWithGoal(), researchNeed: "INSUFFICIENT_COVERAGE" });
+    expect(decision.plan.ops).toEqual([
+      expect.objectContaining({ opId: "preference", kind: "GOAL_UPSERT_PREFERENCE" }),
+      { opId: "host-required-retrieval_markets", kind: "REQUEST_CLARIFICATION", slotId: "retrieval_markets", reasonCode: "MISSING_REQUIRED_GOAL_FIELD" },
+    ]);
+    expect(decision).toMatchObject({ route: "clarify", providerCallsAllowed: 0 });
+  });
+
+  it("replaces a clarification with research when an evidenced target correction invalidates the working set", () => {
+    const state = stateWithGoal([{ opId: "markets", kind: "GOAL_SET_RETRIEVAL_MARKETS", source, markets: ["US"] }]);
+    state.workingSet = createWorkingSet({
+      version: 1,
+      boundGoalVersion: state.goalRevision!.version,
+      pool: [offer("o1", "US", "2100", "p1")],
+    });
+    const plan: TurnPlan = {
+      userIntentSummary: "correct the model",
+      ops: [
+        {
+          opId: "target",
+          kind: "GOAL_SET_TARGET",
+          source,
+          target: { categoryId: "headphones", canonicalModel: "WH-1000XM4", itemRole: "PRIMARY_PRODUCT", condition: "NEW" },
+        },
+        { opId: "ask", kind: "REQUEST_CLARIFICATION", slotId: "turn_rephrase", reasonCode: "MODEL_UNCERTAIN" },
+      ],
+      leftover: [],
+    };
+    const decision = evaluateConversationPolicy({ plan, state, researchNeed: "NOT_NEEDED" });
+    expect(decision.plan.ops).toEqual([
+      expect.objectContaining({ kind: "GOAL_SET_TARGET" }),
+      expect.objectContaining({ kind: "RESEARCH_OFFERS", reasonCode: "TARGET_CHANGED" }),
+    ]);
+    expect(decision).toMatchObject({ route: "research", providerCallsAllowed: 1 });
+  });
+
   it("drops redundant provider research when a goal narrowing can be projected from the proof-qualified pool", () => {
     const state = stateWithGoal([
       { opId: "budget", kind: "GOAL_SET_BUDGET", source, budget: { amount: "2500", currency: "CNY" } },
@@ -203,12 +269,33 @@ describe("conversation policy", () => {
     expect(decision).toMatchObject({ route: "talk", providerCallsAllowed: 0 });
   });
 
-  it("blocks research until target and goal gaps are resolved", () => {
+  it("clarifies missing basic fields and blocks research until other goal gaps are resolved", () => {
     const plan: TurnPlan = { userIntentSummary: "search", ops: [{ opId: "research", kind: "RESEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE" }], leftover: [] };
     const empty: ConversationState = { ...stateWithGoal(), goalRevision: null };
-    expect(() => evaluateConversationPolicy({ plan, state: empty, researchNeed: "INSUFFICIENT_COVERAGE" })).toThrowError(/target/i);
-    const unresolved = stateWithGoal([{ opId: "gap", kind: "GOAL_ADD_GAP", source, gap: { slotId: "budget", reasonCodes: ["HIGH_IMPACT"] } }]);
+    expect(evaluateConversationPolicy({ plan, state: empty, researchNeed: "INSUFFICIENT_COVERAGE" })).toMatchObject({
+      route: "clarify",
+      providerCallsAllowed: 0,
+      plan: { ops: [{ kind: "REQUEST_CLARIFICATION", slotId: "target_product" }] },
+    });
+    const unresolved = stateWithGoal([
+      { opId: "markets", kind: "GOAL_SET_RETRIEVAL_MARKETS", source, markets: ["US"] },
+      { opId: "gap", kind: "GOAL_ADD_GAP", source, gap: { slotId: "budget", reasonCodes: ["HIGH_IMPACT"] } },
+    ]);
     expect(() => evaluateConversationPolicy({ plan, state: unresolved, researchNeed: "INSUFFICIENT_COVERAGE" })).toThrowError(/budget/);
+  });
+
+  it("replaces provider research with a retrieval-market clarification before execution", () => {
+    const state = stateWithGoal();
+    const plan: TurnPlan = {
+      userIntentSummary: "research before the market is known",
+      ops: [{ opId: "research", kind: "RESEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE" }],
+      leftover: [],
+    };
+    expect(evaluateConversationPolicy({ plan, state, researchNeed: "INSUFFICIENT_COVERAGE" })).toMatchObject({
+      route: "clarify",
+      providerCallsAllowed: 0,
+      plan: { ops: [{ kind: "REQUEST_CLARIFICATION", slotId: "retrieval_markets" }] },
+    });
   });
 });
 
@@ -256,12 +343,52 @@ describe("claim verifier", () => {
     expect(verifyClaimLedger(ledger, { workingSet, envelope, renderedDraft })).toEqual(ledger);
   });
 
+  it("renders historical research gaps as coverage limits rather than market absence", () => {
+    const rendered = renderAssistantEnvelope({
+      outcome: "CHAT",
+      addressedOpIds: ["coverage"],
+      blocks: [{ type: "DISCLOSURE", disclosureCode: "RESEARCH_COVERAGE_INCOMPLETE:SG" }],
+      nextMoves: [],
+    }, { claims: [] });
+    expect(rendered).toBe("历史检索中 SG 市场的数据未成功返回；这表示覆盖不完整，不代表当地没有销售。");
+  });
+
   it("rejects price mismatches, rejected offers, and unbound claims", () => {
     const wrongPrice: ClaimLedger = { claims: [{ ...ledger.claims[0]!, canonicalValue: { amount: "1", currency: "CNY" } }] };
     expect(() => verifyClaimLedger(wrongPrice, { workingSet })).toThrowError(/does not match/i);
     expect(() => verifyClaimLedger(ledger, { workingSet: rejectWorkingSetOffers(workingSet, ["o1"]) })).toThrowError(/rejected offer/i);
     const unbound = createWorkingSet({ version: 1, boundGoalVersion: 1, pool: [offer("o1", "US", "2100", "another-claim")] });
     expect(() => verifyClaimLedger(ledger, { workingSet: unbound })).toThrowError(/not bound/i);
+  });
+
+  it("validates ranking-reason arrays against the deterministic working-set projection", () => {
+    const reasons = ["VERIFIED", "PROVIDER_ATTESTED", "LEXICOGRAPHIC_RANK_VECTOR_V1"];
+    const rankingEvidence = {
+      ...evidence,
+      jsonPath: "$.availability",
+      sourceFactRef: "fact-ranking-1",
+      canonicalValue: "local",
+    };
+    const rankingLedger: ClaimLedger = { claims: [{
+      claimId: "ranking-1",
+      kind: "RANKING_REASON",
+      canonicalValue: reasons,
+      renderedText: `当前排序依据：${reasons.join("、")}`,
+      evidenceRefs: [rankingEvidence],
+      offerRefs: ["o1"],
+    }] };
+    const ranked = createWorkingSet({
+      version: 1,
+      boundGoalVersion: 1,
+      pool: [{ ...offer("o1", "US", "2100", "ranking-1"), rankingReasonCodes: reasons }],
+    });
+    expect(verifyClaimLedger(rankingLedger, { workingSet: ranked })).toEqual(rankingLedger);
+    const mismatched = createWorkingSet({
+      version: 1,
+      boundGoalVersion: 1,
+      pool: [{ ...ranked.pool[0]!, rankingReasonCodes: ["VERIFIED"] }],
+    });
+    expect(() => verifyClaimLedger(rankingLedger, { workingSet: mismatched })).toThrowError(/does not match/i);
   });
 
   it("compares different models within one proof-qualified product scope", () => {

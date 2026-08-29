@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Check } from "typebox/value";
 
-import { turnPlanSchema } from "../src/schemas.js";
+import { assistantEnvelopeSchema, turnPlanSchema } from "../src/schemas.js";
 
 describe("model-facing turn plan schema", () => {
   it("accepts a bounded empty budget placeholder for deterministic Host removal", () => {
@@ -27,6 +27,18 @@ describe("model-facing turn plan schema", () => {
         },
       ],
       leftover: [],
+    })).toBe(true);
+  });
+
+  it("accepts harmless transition receipt IDs and a missing empty leftover", () => {
+    expect(Check(turnPlanSchema, {
+      userIntentSummary: "ask for the missing product",
+      ops: [{ opId: "ask", kind: "REQUEST_CLARIFICATION", slotId: "target_product", reasonCode: "MISSING_TARGET" }],
+    })).toBe(true);
+    expect(Check(assistantEnvelopeSchema, {
+      outcome: "RECOMMENDATION",
+      blocks: [{ type: "TRANSITION", transitionCode: "RESEARCH_COMPLETED", claimIds: ["claim:one"] }],
+      nextMoves: [],
     })).toBe(true);
   });
 });

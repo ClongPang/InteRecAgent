@@ -37,7 +37,7 @@ import type {
   ToolReservation,
 } from "./conversation-repository-types.js";
 import { ConversationRepositoryError } from "./conversation-repository-types.js";
-import { runtimeMetrics } from "./telemetry.js";
+import { runtimeMetrics, telemetryTraceIdForTurn } from "./telemetry.js";
 
 const { Pool } = pg;
 type Queryable = Pick<pg.PoolClient, "query">;
@@ -91,10 +91,18 @@ async function verifyClaimProofChain(
   const resolved: ResolvedPublishedClaimProof[] = [];
   for (const claim of input.ledger.claims) {
     const candidates = await client.query<Record<string, unknown>>(
-      `SELECT id, turn_id, attempt, kind, canonical_value, rendered_text, offer_ref
-       FROM interec_agent.attempt_claims
-       WHERE conversation_id = $1 AND claim_ref = $2`,
-      [input.conversationId, claim.claimId],
+      `SELECT ac.id, ac.turn_id, ac.attempt, ac.kind, ac.canonical_value, ac.rendered_text, ac.offer_ref
+       FROM interec_agent.attempt_claims ac
+       WHERE ac.conversation_id = $1 AND ac.claim_ref = $2
+       ORDER BY (ac.turn_id = $3 AND ac.attempt = $4) DESC,
+                COALESCE((
+                  SELECT bool_and(sf.promoted_revision IS NOT NULL AND sf.promoted_revision <= $5)
+                  FROM interec_agent.attempt_claim_evidence ace
+                  JOIN interec_agent.source_facts sf ON sf.id = ace.source_fact_id
+                  WHERE ace.attempt_claim_id = ac.id
+                ), false) DESC,
+                ac.id`,
+      [input.conversationId, claim.claimId, input.turnId, input.attempt, input.currentRevision],
     );
     const claimRow = candidates.rows.find((row) =>
       String(row["kind"]) === claim.kind
@@ -462,6 +470,14 @@ export class PostgresConversationRepository implements ConversationRepository {
       }
     }
     const requestHash = canonicalPayloadHash({ expectedRevision: input.expectedRevision ?? null, input: input.input });
+    const traceId = input.telemetryTraceId ?? telemetryTraceIdForTurn(input.conversationId, clientTurnId);
+    if (!/^[0-9a-f]{32}$/.test(traceId) || traceId === "0".repeat(32)) {
+      throw new ConversationRepositoryError("INVALID_TELEMETRY_TRACE_ID", "Telemetry trace ID must be a non-zero 32-character lowercase hexadecimal value");
+    }
+    if (input.telemetryRootObservationId !== undefined
+      && (!/^[0-9a-f]{16}$/.test(input.telemetryRootObservationId) || input.telemetryRootObservationId === "0".repeat(16))) {
+      throw new ConversationRepositoryError("INVALID_TELEMETRY_ROOT_OBSERVATION_ID", "Telemetry root observation ID must be a non-zero 16-character lowercase hexadecimal value");
+    }
     const deadlineSeconds = input.deadlineSeconds ?? 60;
     if (!Number.isSafeInteger(deadlineSeconds) || deadlineSeconds < 1 || deadlineSeconds > 600) {
       throw new ConversationRepositoryError("INVALID_TURN_DEADLINE", "Turn deadline must contain 1-600 seconds");
@@ -543,9 +559,9 @@ export class PostgresConversationRepository implements ConversationRepository {
       }
       await client.query(
         `INSERT INTO interec_agent.turns
-           (id, conversation_id, client_turn_id, request_hash, latest_input_message_id, base_revision, status, deadline_at)
-         VALUES ($1, $2, $3, $4, $5, $6, 'ACCEPTED', clock_timestamp() + make_interval(secs => $7))`,
-        [turnId, input.conversationId, clientTurnId, requestHash, messageId, currentRevision, deadlineSeconds],
+           (id, conversation_id, client_turn_id, request_hash, latest_input_message_id, base_revision, status, deadline_at, trace_id, trace_root_observation_id)
+         VALUES ($1, $2, $3, $4, $5, $6, 'ACCEPTED', clock_timestamp() + make_interval(secs => $7), $8, $9)`,
+        [turnId, input.conversationId, clientTurnId, requestHash, messageId, currentRevision, deadlineSeconds, traceId, input.telemetryRootObservationId ?? null],
       );
       for (const [ordinal, message] of unconsumed.rows.entries()) {
         await client.query(
@@ -577,6 +593,14 @@ export class PostgresConversationRepository implements ConversationRepository {
       throw new ConversationRepositoryError("INVALID_TURN_DEADLINE", "Turn deadline must contain 1-600 seconds");
     }
     const requestHash = canonicalPayloadHash({ type: "RETRY", retryOfTurnId: input.turnId });
+    const traceId = input.telemetryTraceId ?? telemetryTraceIdForTurn(input.conversationId, clientTurnId);
+    if (!/^[0-9a-f]{32}$/.test(traceId) || traceId === "0".repeat(32)) {
+      throw new ConversationRepositoryError("INVALID_TELEMETRY_TRACE_ID", "Telemetry trace ID must be a non-zero 32-character lowercase hexadecimal value");
+    }
+    if (input.telemetryRootObservationId !== undefined
+      && (!/^[0-9a-f]{16}$/.test(input.telemetryRootObservationId) || input.telemetryRootObservationId === "0".repeat(16))) {
+      throw new ConversationRepositoryError("INVALID_TELEMETRY_ROOT_OBSERVATION_ID", "Telemetry root observation ID must be a non-zero 16-character lowercase hexadecimal value");
+    }
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -624,9 +648,9 @@ export class PostgresConversationRepository implements ConversationRepository {
       const latestInputMessageId = unconsumed.rows.at(-1)!.id;
       await client.query(
         `INSERT INTO interec_agent.turns
-           (id, conversation_id, client_turn_id, request_hash, latest_input_message_id, base_revision, status, deadline_at)
-         VALUES ($1, $2, $3, $4, $5, $6, 'ACCEPTED', clock_timestamp() + make_interval(secs => $7))`,
-        [turnId, input.conversationId, clientTurnId, requestHash, latestInputMessageId, conversation["current_revision"], deadlineSeconds],
+           (id, conversation_id, client_turn_id, request_hash, latest_input_message_id, base_revision, status, deadline_at, trace_id, trace_root_observation_id)
+         VALUES ($1, $2, $3, $4, $5, $6, 'ACCEPTED', clock_timestamp() + make_interval(secs => $7), $8, $9)`,
+        [turnId, input.conversationId, clientTurnId, requestHash, latestInputMessageId, conversation["current_revision"], deadlineSeconds, traceId, input.telemetryRootObservationId ?? null],
       );
       for (const [ordinal, message] of unconsumed.rows.entries()) {
         await client.query(
@@ -710,9 +734,9 @@ export class PostgresConversationRepository implements ConversationRepository {
         );
       }
       await client.query(
-        `INSERT INTO interec_agent.turn_attempts (turn_id, attempt, fence_token, base_revision, status)
-         VALUES ($1, $2, $3::bigint, $4, 'CLAIMED')`,
-        [turn["id"], turn["attempt"], turn["fence_token"], turn["base_revision"]],
+        `INSERT INTO interec_agent.turn_attempts (turn_id, attempt, fence_token, base_revision, status, trace_id)
+         VALUES ($1, $2, $3::bigint, $4, 'CLAIMED', $5)`,
+        [turn["id"], turn["attempt"], turn["fence_token"], turn["base_revision"], turn["trace_id"]],
       );
       await appendConversationEvent(client, String(turn["conversation_id"]), String(turn["id"]), "turn.claimed", { attempt: Number(turn["attempt"]) });
       const messages = await client.query<Record<string, unknown>>(
@@ -733,6 +757,8 @@ export class PostgresConversationRepository implements ConversationRepository {
         owner: { tenantId: owner.rows[0]!.tenant_id, ownerId: owner.rows[0]!.owner_id },
         inputMessages: messages.rows.map(mapMessage),
         snapshot,
+        telemetryTraceId: String(turn["trace_id"]),
+        ...(turn["trace_root_observation_id"] ? { telemetryRootObservationId: String(turn["trace_root_observation_id"]) } : {}),
       };
     } catch (error) {
       await client.query("ROLLBACK");
@@ -740,6 +766,25 @@ export class PostgresConversationRepository implements ConversationRepository {
     } finally {
       client.release();
     }
+  }
+
+  public async recordAttemptTelemetryLink(
+    turnId: string,
+    attempt: number,
+    fenceToken: string,
+    traceId: string,
+    rootObservationId: string,
+  ): Promise<boolean> {
+    if (!/^[0-9a-f]{32}$/.test(traceId) || traceId === "0".repeat(32)) return false;
+    if (!/^[0-9a-f]{16}$/.test(rootObservationId) || rootObservationId === "0".repeat(16)) return false;
+    const result = await this.pool.query(
+      `UPDATE interec_agent.turn_attempts
+       SET root_observation_id = $5, updated_at = clock_timestamp()
+       WHERE turn_id = $1 AND attempt = $2 AND fence_token = $3::bigint
+         AND trace_id = $4 AND status IN ('CLAIMED', 'RUNNING')`,
+      [turnId, attempt, fenceToken, traceId, rootObservationId],
+    );
+    return result.rowCount === 1;
   }
 
   public async markTurnRunning(turnId: string, attempt: number, fenceToken: string): Promise<boolean> {

@@ -68,7 +68,11 @@ if (packageJson.scripts?.["dev:api"] && !String(packageJson.scripts["dev:api"]).
 if (!String(packageJson.scripts?.["db:migrate"] ?? "").includes("packages/runtime/src/migrate.ts")) {
   violations.push("package.json: Conversation migration entrypoint is missing");
 }
-if (!String(packageJson.scripts?.["test:integration"] ?? "").includes("postgres-conversation-repository.integration.test.ts")) {
+const integrationScript = String(packageJson.scripts?.["test:integration"] ?? "");
+const integrationRunner = integrationScript.includes("run_postgres_integration.mjs")
+  ? await readFile(resolve(root, "scripts/run_postgres_integration.mjs"), "utf8")
+  : integrationScript;
+if (!integrationRunner.includes("postgres-conversation-repository.integration.test.ts")) {
   violations.push("package.json: Conversation PostgreSQL gate is missing");
 }
 if (runtimePackageJson.dependencies?.["@interec/agent"] !== "0.2.0") {
@@ -136,8 +140,35 @@ for (const required of ['categoryId: "headphones"', 'categoryId: "smartphone"', 
   if (!contracts.includes(required)) violations.push(`catalog-contracts.ts: missing first-release contract ${required}`);
 }
 
+const draftHost = await readFile(resolve(root, "packages/agent/src/draft-host.ts"), "utf8");
+const modelSchemas = await readFile(resolve(root, "packages/agent/src/schemas.ts"), "utf8");
+const qualificationRunner = await readFile(resolve(root, "scripts/run_internal_qualification.ts"), "utf8");
+const qualificationScorer = await readFile(resolve(root, "scripts/score_internal_qualification.ts"), "utf8");
+if (!draftHost.includes("compileTurnIntent(sanitizeGoalProposal")) {
+  violations.push("draft-host.ts: model semantic effects do not pass through the intent compiler");
+}
+if (!draftHost.includes("const allowLexicalIntentRecovery = false")) {
+  violations.push("draft-host.ts: lexical missing-intent recovery is not explicitly disabled");
+}
+if (modelSchemas.includes('Type.Literal("RERANK_WORKING_SET")')) {
+  violations.push("schemas.ts: model protocol exposes Host-owned mechanical reranking");
+}
+if (/focusRanks\s*=\s*new Map|focusRanks\.get\(testCase\.taskId\)/u.test(qualificationRunner)) {
+  violations.push("run_internal_qualification.ts: evaluator UI context is hard-coded by task ID");
+}
+const businessGate = qualificationScorer.slice(
+  qualificationScorer.indexOf("const businessPassed"),
+  qualificationScorer.indexOf("return {", qualificationScorer.indexOf("const businessPassed")),
+);
+if (/semanticFailures|operationTraceDiagnostic/u.test(businessGate)) {
+  violations.push("score_internal_qualification.ts: wording-derived operation diagnostics affect business success");
+}
+if (!qualificationScorer.includes("invalidProviderTrials")) {
+  violations.push("score_internal_qualification.ts: provider failures are not excluded from the valid trial denominator");
+}
+
 if (violations.length > 0) {
   throw new Error(`ACTIVE_ARCHITECTURE_VIOLATION\n${violations.map((item) => `- ${item}`).join("\n")}`);
 }
 
-process.stdout.write("single implementation: Conversation UI/API/repository/fresh pi-agent/catalog contracts/proof world/SSE/durable worker\n");
+process.stdout.write("single implementation: Conversation UI/API/repository/fresh pi-agent/semantic compiler/catalog contracts/proof world/SSE/durable worker\n");

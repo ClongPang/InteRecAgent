@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "interec-agent-trace-v2",
+  "traceBoundary": "TURN",
+  "rootObservation": "conversation-turn",
+  "agentObservation": "execute-turn-attempt",
+  "generationPhases": ["PLAN", "FINALIZE", "REPAIR_PLAN", "REPAIR_FINALIZE"],
+  "generationNames": {
+    "PLAN": "planner.plan",
+    "FINALIZE": "planner.finalize",
+    "REPAIR_PLAN": "planner.repair-plan",
+    "REPAIR_FINALIZE": "planner.repair-finalize"
+  },
+  "toolCausality": {
+    "requiredFields": ["toolCallId", "toolName", "inferenceIndex", "phase"],
+    "requiredResultViews": ["modelVisibleResult", "internalExecutionSummary"],
+    "requireStartEndPair": true,
+    "requireNextGenerationResultReference": true
+  },
+  "modelBoundary": {
+    "sourceOfTruth": "STREAM_FN_PROVIDER_BOUNDARY",
+    "inputFormat": "LANGFUSE_CHAT_MESSAGES",
+    "requiredManifestFields": [
+      "contextSha256",
+      "toolSchemaSha256",
+      "promptName",
+      "promptVersion",
+      "promptSha256",
+      "modelId",
+      "inferenceIndex",
+      "phase"
+    ]
+  },
+  "hierarchy": {
+    "modelToolType": "TOOL",
+    "hostExecutionType": "SPAN",
+    "providerExecutionType": "TOOL",
+    "guardrailType": "GUARDRAIL"
+  },
+  "experimentCorrelationFields": [
+    "datasetRunName",
+    "datasetItemId",
+    "experimentWrapperTraceId",
+    "trialId",
+    "taskId",
+    "runIndex",
+    "turnIndex"
+  ],
+  "postRunCorrelationFields": ["datasetRunId"],
+  "privacy": {
+    "contentDefault": "DISABLED",
+    "contentConsent": "authorized-redacted-content",
+    "alwaysRedactSecrets": true,
+    "captureHiddenReasoning": false,
+    "maxCapturedContentChars": 20000
+  },
+  "behaviorDriftInvariants": [
+    "agent-tool-protocol-unchanged",
+    "host-authorization-unchanged",
+    "state-publication-unchanged",
+    "provider-governance-unchanged",
+    "gold-blueprint-semantic-hash-unchanged",
+    "qualification-cases-hash-unchanged"
+  ]
+}

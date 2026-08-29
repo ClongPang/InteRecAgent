@@ -23,7 +23,8 @@
     { "name": "rec_agent.outbox.backlog", "kind": "observable_gauge", "unit": "{message}", "labels": ["state"] },
     { "name": "gen_ai.invoke_agent.duration", "kind": "histogram", "unit": "s", "labels": ["route"] },
     { "name": "gen_ai.invoke_agent.inference_calls", "kind": "histogram", "unit": "{call}", "labels": ["route"] },
-    { "name": "gen_ai.invoke_agent.tool_calls", "kind": "histogram", "unit": "{call}", "labels": ["route", "fallback"] }
+    { "name": "gen_ai.invoke_agent.tool_calls", "kind": "histogram", "unit": "{call}", "labels": ["route", "fallback"] },
+    { "name": "rec_agent.telemetry.link_failures", "kind": "counter", "unit": "{failure}", "labels": ["operation"] }
   ],
   "forbiddenLabels": ["turn_id", "conversation_id", "tenant_id", "owner_id", "query", "content", "prompt", "offer_ref"]
 }

@@ -3,7 +3,9 @@ import { Type } from "typebox";
 
 import {
   ConversationRepositoryError,
+  observeTurnEnqueue,
   runtimeMetrics,
+  telemetryTraceIdForTurn,
   type ConversationRepository,
   type ConversationTurnInput,
   type OwnerClaims,
@@ -121,7 +123,21 @@ export function createConversationApp(options: ConversationAppOptions) {
         const owner = await ownerFor(request, options.identityVerifier);
         const { conversationId } = request.params as { conversationId: string };
         const body = request.body as { clientTurnId: string; expectedRevision?: number; input: ConversationTurnInput };
-        const turn = await options.repository.acceptTurn({ conversationId, owner, ...body });
+        const telemetryTraceId = telemetryTraceIdForTurn(conversationId, body.clientTurnId);
+        const turn = await observeTurnEnqueue({
+          traceId: telemetryTraceId,
+          conversationId,
+          tenantId: owner.tenantId,
+          ownerId: owner.ownerId,
+          operation: "accept_turn",
+          inputType: body.input.type,
+        }, (active) => options.repository.acceptTurn({
+          conversationId,
+          owner,
+          ...body,
+          telemetryTraceId,
+          ...(active.rootObservationId ? { telemetryRootObservationId: active.rootObservationId } : {}),
+        }));
         outcome = turn.idempotentReplay ? "idempotent_replay" : "accepted";
         return reply.status(202).send({ turn });
       } finally {
@@ -186,7 +202,22 @@ export function createConversationApp(options: ConversationAppOptions) {
         const owner = await ownerFor(request, options.identityVerifier);
         const { conversationId, turnId } = request.params as { conversationId: string; turnId: string };
         const body = request.body as { clientTurnId: string; expectedRevision?: number };
-        const turn = await options.repository.retryTurn({ conversationId, turnId, owner, ...body });
+        const telemetryTraceId = telemetryTraceIdForTurn(conversationId, body.clientTurnId);
+        const turn = await observeTurnEnqueue({
+          traceId: telemetryTraceId,
+          conversationId,
+          tenantId: owner.tenantId,
+          ownerId: owner.ownerId,
+          operation: "retry_turn",
+          inputType: "RETRY",
+        }, (active) => options.repository.retryTurn({
+          conversationId,
+          turnId,
+          owner,
+          ...body,
+          telemetryTraceId,
+          ...(active.rootObservationId ? { telemetryRootObservationId: active.rootObservationId } : {}),
+        }));
         outcome = turn.idempotentReplay ? "idempotent_replay" : "accepted";
         return reply.status(202).send({ turn });
       } finally {
