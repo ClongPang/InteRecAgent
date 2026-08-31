@@ -29,7 +29,7 @@ for (const entry of registry.cases) {
       const path = resolve(root, gate.file ?? "");
       await access(path);
       const source = await readFile(path, "utf8");
-      if (typeof gate.testName !== "string" || !source.includes(`it(\"${gate.testName}\"`)) {
+      if (typeof gate.testName !== "string" || !source.includes(`it("${gate.testName}"`)) {
         throw new Error(`SHOPPING_BOUNDARY_VITEST_GATE_INVALID:${entry.id}:${gate.file}:${gate.testName}`);
       }
       continue;

@@ -28,7 +28,7 @@ export interface RepositoryTurnSession {
 
 function observedController(executor: ConversationTurnExecutor): TurnExecutionController {
   return {
-    commitPlan: (plan, signal) => observeTurnExecutorStep(
+    commitPlan: (plan, _signal) => observeTurnExecutorStep(
       "commit-turn-plan",
       { operationKinds: plan.ops.map((operation) => operation.kind), leftoverCount: plan.leftover.length },
       () => executor.commitPlan(plan),
@@ -50,7 +50,7 @@ function observedController(executor: ConversationTurnExecutor): TurnExecutionCo
         { operationKind: operation.kind, hostToolName: toolName },
       );
     },
-    publishReply: (envelope, signal) => observeTurnExecutorStep(
+    publishReply: (envelope, _signal) => observeTurnExecutorStep(
       "publish-reply",
       { outcome: envelope.outcome, blockTypes: envelope.blocks.map((block) => block.type) },
       () => executor.publishReply(envelope),

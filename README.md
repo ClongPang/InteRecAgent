@@ -121,18 +121,31 @@ npm run dev --workspace frontend
 
 ## 验证与质量门禁
 
-完整离线门禁会依次检查产品契约、唯一实现、工作流、可观测性、类型、测试和所有 workspace 构建：
+完整离线门禁会依次检查文档漂移、lint、职责边界、产品契约、唯一实现、工作流、可观测性、类型、覆盖率、浏览器 E2E 和所有 workspace 构建：
 
 ```powershell
 npm run acceptance
 ```
 
+也可以单独运行新增的质量门禁：
+
+```powershell
+npm run lint
+npm run architecture:maintainability:check
+npm run test:coverage
+npm run test:e2e
+```
+
 当前基线：
 
-- 产品契约：12 项不变量、13 条多轮轨迹、12 个零 Provider turn。
-- 离线测试：24 个测试文件、156 项测试通过；2 个 PostgreSQL 文件默认跳过。
-- PostgreSQL 集成：2 个测试文件、23 项测试通过。
-- 可观测性：24 个指标、11 个 Grafana panel、12 条 Prometheus alert。
+- 产品契约：13 项不变量、13 条多轮轨迹、12 个零 Provider turn。
+- 离线测试：45 个测试文件、322 项测试通过；2 个 PostgreSQL 文件、26 项测试默认跳过。
+- 全局覆盖率下限：语句 60%、分支 57%、函数 71%、行 64%。
+- 浏览器 E2E：Chromium 中完成搜索、选择两个候选并比较的完整购物流程。
+- PostgreSQL 集成：隔离的 `interec_test` 数据库中 2 个测试文件、26 项测试通过。
+- 可观测性：32 个指标、15 个 Grafana panel、16 条 Prometheus alert。
+
+热点拆分与质量门禁的取舍记录见 [ADR-0006](docs/adr/0006-maintainability-refactor-and-quality-gates.md)。
 
 PostgreSQL 集成测试必须使用隔离测试数据库：
 
@@ -142,6 +155,17 @@ $env:INTEREC_DATABASE_URL='postgresql://interec:interec@127.0.0.1:5432/interec_t
 npm run db:migrate
 npm run test:integration
 ```
+
+真实 API、Worker、SSE 与 PostgreSQL 的浏览器全栈验收使用同一个隔离数据库：
+
+```powershell
+$env:RUN_CONVERSATION_PG_INTEGRATION='1'
+$env:INTEREC_DATABASE_URL='postgresql://interec:interec@127.0.0.1:5432/interec_test'
+npm run db:migrate
+npm run test:e2e:fullstack
+```
+
+该门禁覆盖真实 HMAC JWT、异步 Worker、持久化投影、购买市场澄清与后续检索、失败重试，以及带单调 cursor 的 SSE 断线恢复。模型、商品源和汇率源使用确定性测试替身，不产生外部调用或费用。
 
 ## 受控真实验收
 

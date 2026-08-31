@@ -20,6 +20,7 @@ __pycache__/
 .mypy_cache/
 .coverage
 coverage.xml
+coverage/
 htmlcov/
 .claude/
 .impeccable/
@@ -37,6 +38,7 @@ packages/*/dist/
 # Test and tool caches
 .playwright-cli/
 playwright-report/
+test-results/
 frontend/playwright-report/
 frontend/test-results/
 frontend/.vite/

@@ -8,7 +8,12 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const contract = JSON.parse(await readFile(resolve(root, "spec/observability/metrics-contract.json"), "utf8"));
 const operationsPolicy = JSON.parse(await readFile(resolve(root, "spec/observability/operations-acceptance-policy.json"), "utf8"));
 const agentTraceContract = JSON.parse(await readFile(resolve(root, "spec/observability/agent-trace-contract.json"), "utf8"));
-const telemetry = await readFile(resolve(root, "packages/runtime/src/telemetry.ts"), "utf8");
+const telemetry = (await Promise.all([
+  "telemetry.ts",
+  "runtime-metrics.ts",
+  "telemetry-safety.ts",
+  "agent-telemetry.ts",
+].map((file) => readFile(resolve(root, "packages/runtime/src", file), "utf8")))).join("\n");
 const agentProtocol = await readFile(resolve(root, "packages/agent/src/protocol.ts"), "utf8");
 const agentRuntime = await readFile(resolve(root, "packages/agent/src/turn-agent.ts"), "utf8");
 const repositoryTurnSession = await readFile(resolve(root, "packages/runtime/src/repository-turn-session.ts"), "utf8");

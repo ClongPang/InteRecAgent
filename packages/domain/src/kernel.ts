@@ -4,7 +4,7 @@ import { resolveCategoryValidationCapability } from "./category-validation.js";
 import { buildCandidateRankingMetadata, compareCandidateRankVectors } from "./candidate-ranking.js";
 import { assessQueryProductRelevance, decideCandidateAdmission } from "./query-product-relevance.js";
 import type { SemanticRelevanceSignal } from "./query-product-relevance-types.js";
-import type { ComparableOffer, RankedOfferSet, RetrievedListing, EvidenceRef, FxSnapshot, SearchGoalSnapshot, Market, MarketEvidence, ProductCondition, ListingEligibilityResult, RankedComparableOffer, ValidatedDecision } from "./types.js";
+import type { ComparableOffer, RankedOfferSet, RetrievedListing, EvidenceRef, FxSnapshot, SearchGoalSnapshot, MarketEvidence, ProductCondition, ListingEligibilityResult, RankedComparableOffer, ValidatedDecision } from "./types.js";
 
 const COUNTRY_TLD = /\.([a-z]{2})$/i;
 
@@ -228,8 +228,9 @@ export function buildRankedOfferSet(
       ? ["NEW", "UNKNOWN", "REFURBISHED", "USED"]
       : [goal.target.conditionPreference];
   const selectedKey = conditionPriority
-    .flatMap((condition) => comparableKeys.filter((key) => key.endsWith(`:${condition}`)).sort())
-    [0] ?? comparableKeys.sort()[0] ?? null;
+    .flatMap((condition) => comparableKeys.filter((key) => key.endsWith(`:${condition}`)).sort())[0]
+    ?? comparableKeys.sort()[0]
+    ?? null;
   const homogeneousEligibilityResults = goal.target.canonicalModel === null
     ? eligibilityResults
     : eligibilityResults.map((result): ListingEligibilityResult => {

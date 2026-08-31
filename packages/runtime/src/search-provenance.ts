@@ -72,7 +72,7 @@ export function candidateRefsHash(offerRefs: readonly string[]): string {
 
 function readArtifactPath(payload: unknown, path: string): unknown {
   if (!path.startsWith("$.")) throw new Error(`UNSUPPORTED_EVIDENCE_PATH:${path}`);
-  const tokens = path.slice(2).match(/[^.\[\]]+|\[(\d+)\]/g) ?? [];
+  const tokens = path.slice(2).match(/[^.[\]]+|\[(\d+)]/g) ?? [];
   let value = payload;
   for (const token of tokens) {
     if (token.startsWith("[")) {

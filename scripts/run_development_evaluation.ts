@@ -121,7 +121,6 @@ function persist(): void {
   writeFileSync(outputPath, `${JSON.stringify(output, null, 2)}\n`, "utf8");
 }
 
-let abortedForModelProvider = false;
 try {
   evaluationRun:
   for (const testCase of selected) {
@@ -140,10 +139,9 @@ try {
         return Boolean(draft && typeof draft === "object" && !Array.isArray(draft)
           && developmentEvaluationModelFailureCode((draft as Record<string, unknown>)["fallbackReasonCode"]));
       });
-      abortedForModelProvider = modelFailure || Boolean(trial.failure?.startsWith("DEVELOPMENT_EVAL_MODEL_PROVIDER_"));
       persist();
       process.stdout.write(`${JSON.stringify({ trialId, status: trial.status, failure: trial.failure })}\n`);
-      if (abortedForModelProvider) break evaluationRun;
+      if (modelFailure || trial.failure?.startsWith("DEVELOPMENT_EVAL_MODEL_PROVIDER_")) break evaluationRun;
     }
   }
 } finally {

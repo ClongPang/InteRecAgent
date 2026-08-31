@@ -12,8 +12,13 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "docs:check": "node scripts/check_docs_drift.mjs",
+    "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc -b packages/domain packages/agent packages/runtime packages/api",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:fullstack": "node scripts/run_fullstack_e2e.mjs",
     "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
     "test:integration": "node scripts/run_postgres_integration.mjs",
     "observability:smoke": "tsx --env-file-if-exists=.env packages/runtime/src/langfuse-smoke.ts",
@@ -62,15 +67,22 @@
     "architecture:p4:check": "node scripts/check_policy_constrained_agent_p4.mjs",
     "architecture:p5:check": "node scripts/check_policy_constrained_agent_p5.mjs",
     "architecture:check": "node scripts/check_active_architecture.mjs",
+    "architecture:maintainability:check": "node scripts/check_maintainability_boundaries.mjs",
     "workflow:check": "node scripts/check_workflow.mjs",
     "observability:check": "node scripts/check_observability_contract.mjs",
-    "acceptance": "npm run product:check && npm run clarification:goal:check && npm run acceptance:boundary:check && npm run architecture:policy-route:check && npm run architecture:p1:check && npm run architecture:p2:check && npm run architecture:p3:check && npm run architecture:p4:check && npm run architecture:p5:check && npm run architecture:check && npm run workflow:check && npm run observability:check && npm run observability:publication:check && npm run typecheck && npm run test && npm run build"
+    "acceptance": "npm run docs:check && npm run lint && npm run architecture:maintainability:check && npm run product:check && npm run clarification:goal:check && npm run acceptance:boundary:check && npm run architecture:policy-route:check && npm run architecture:p1:check && npm run architecture:p2:check && npm run architecture:p3:check && npm run architecture:p4:check && npm run architecture:p5:check && npm run architecture:check && npm run workflow:check && npm run observability:check && npm run observability:publication:check && npm run typecheck && npm run test:coverage && npm run test:e2e && npm run build"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.62.1",
     "@types/node": "22.19.19",
     "@types/pg": "8.15.5",
+    "@vitest/coverage-v8": "4.1.9",
+    "eslint": "10.9.1",
+    "globals": "17.11.0",
     "tsx": "4.20.6",
     "typescript": "5.9.3",
+    "typescript-eslint": "8.68.0",
     "vitest": "4.1.9",
     "yaml": "2.9.0"
   }

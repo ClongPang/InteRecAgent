@@ -5,6 +5,7 @@ const files = {
   review: await readFile(new URL("../packages/domain/src/plan-policy-review.ts", import.meta.url), "utf8"),
   turnPlan: await readFile(new URL("../packages/domain/src/turn-plan.ts", import.meta.url), "utf8"),
   repository: await readFile(new URL("../packages/runtime/src/postgres-conversation-repository.ts", import.meta.url), "utf8"),
+  turnCommit: await readFile(new URL("../packages/runtime/src/postgres-turn-commit.ts", import.meta.url), "utf8"),
   executor: await readFile(new URL("../packages/agent/src/conversation-turn-executor.ts", import.meta.url), "utf8"),
   schema: await readFile(new URL("../packages/agent/src/schemas.ts", import.meta.url), "utf8"),
   prompt: await readFile(new URL("../packages/agent/src/turn-agent.ts", import.meta.url), "utf8"),
@@ -76,7 +77,7 @@ for (const token of ["INVALID_SEARCH_MARKET_SCOPE", "INVALID_SEARCH_ASSUMPTION_D
   if (!files.turnPlan.includes(token)) throw new Error(`P4_DRIFT: plan boundary misses ${token}`);
 }
 for (const token of ["validateNoPlanDegradedPublication", "EMPTY_PLAN_REQUIRES_SYSTEM_DEGRADATION"]) {
-  if (!`${files.turnPlan}\n${files.repository}`.includes(token)) throw new Error(`P4_DRIFT: persisted no-plan degradation misses ${token}`);
+  if (!`${files.turnPlan}\n${files.repository}\n${files.turnCommit}`.includes(token)) throw new Error(`P4_DRIFT: persisted no-plan degradation misses ${token}`);
 }
 for (const forbidden of ["questionSlotId", "When dialogue.pendingClarification.clarification.kind is TURN_REPHRASE"]) {
   if (files.prompt.includes(forbidden)) throw new Error(`P4_DRIFT: active model prompt references legacy protocol ${forbidden}`);

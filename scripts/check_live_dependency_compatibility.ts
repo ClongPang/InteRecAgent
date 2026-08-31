@@ -24,7 +24,7 @@ function boundedInteger(name: string, fallback: number, min: number, max: number
 
 function safeErrorCode(error: unknown): string {
   const raw = error instanceof Error ? error.message : typeof error === "string" ? error : "UNKNOWN_ERROR";
-  return raw.replace(/[^A-Za-z0-9_:\-]/g, "_").slice(0, 120) || "UNKNOWN_ERROR";
+  return raw.replace(/[^A-Za-z0-9_:-]/g, "_").slice(0, 120) || "UNKNOWN_ERROR";
 }
 
 function fingerprint(value: unknown): string {

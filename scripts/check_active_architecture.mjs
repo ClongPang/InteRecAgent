@@ -141,18 +141,21 @@ for (const required of ['categoryId: "headphones"', 'categoryId: "smartphone"', 
 }
 
 const turnExecutor = await readFile(resolve(root, "packages/agent/src/conversation-turn-executor.ts"), "utf8");
+const proposalGrounding = await readFile(resolve(root, "packages/agent/src/proposal-grounding.ts"), "utf8");
+const referentPlanning = await readFile(resolve(root, "packages/agent/src/referent-planning.ts"), "utf8");
+const turnExecutionSubsystem = `${turnExecutor}\n${proposalGrounding}\n${referentPlanning}`;
 const turnAgent = await readFile(resolve(root, "packages/agent/src/turn-agent.ts"), "utf8");
 const modelSchemas = await readFile(resolve(root, "packages/agent/src/schemas.ts"), "utf8");
 const evaluationRunner = await readFile(resolve(root, "scripts/run_development_evaluation.ts"), "utf8");
 const evaluationScorer = await readFile(resolve(root, "scripts/score_development_evaluation.ts"), "utf8");
-if (!/const\s+sanitizedHostProposal\s*=\s*sanitizeGoalProposal\(/u.test(turnExecutor)
-  || !/const\s+supportedProposal\s*=\s*normalizeTurnPlanProposal\(\s*sanitizedHostProposal\s*,/u.test(turnExecutor)) {
+if (!/const\s+supportedProposal\s*=\s*sanitizeGoalProposal\(/u.test(proposalGrounding)
+  || !/const\s+normalizedSupportedProposal\s*=\s*normalizeTurnPlanProposal\(\s*supportedProposal\s*,/u.test(turnExecutor)) {
   violations.push("conversation-turn-executor.ts: model-proposed operations do not pass through the plan normalizer");
 }
-if (/allowLexicalIntentRecovery|executor-recovered-|recoverExplicitWorkingSetProposal/u.test(turnExecutor)) {
+if (/allowLexicalIntentRecovery|executor-recovered-|recoverExplicitWorkingSetProposal/u.test(turnExecutionSubsystem)) {
   violations.push("conversation-turn-executor.ts: executor-owned lexical planning recovery remains in active code");
 }
-if (/registeredCategory\?\.categoryId\s*===/u.test(turnExecutor)) {
+if (/registeredCategory\?\.categoryId\s*===/u.test(turnExecutionSubsystem)) {
   violations.push("conversation-turn-executor.ts: category grounding branches by a specific registered category instead of consulting the policy registry");
 }
 if (turnAgent.includes("想买前置式洗衣机")) {

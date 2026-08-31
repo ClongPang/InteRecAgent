@@ -4,7 +4,7 @@
 
 ## 结论
 
-缺失的历史检索覆盖读取能力已实现。用户追问“某市场没有结果是否代表当地无售”时，Agent 可规划 `INSPECT_RESEARCH_COVERAGE`，话轮执行器读取最近一次已提交、已发布且所属 Turn 已完成的检索轮次记录（内部实体 `ResearchWave`）。该路径不重新调用 Provider，也不把检索失败解释为市场不存在。
+缺失的历史检索覆盖读取能力已实现。用户追问“某市场没有结果是否代表当地无售”时，Agent 可规划 `INSPECT_SEARCH_COVERAGE`，话轮执行器读取最近一次已提交、已发布且所属 Turn 已完成的检索尝试记录。该路径不重新调用 Provider，也不把检索失败解释为市场不存在。数据库表 `research_waves` 是迁移兼容保留的持久化名称，不是当前领域操作名。
 
 ## 否定式设计审批
 
@@ -13,14 +13,14 @@
 - 将历史覆盖摘要长期塞入提示词：可能陈旧，且缺少本轮可审计回执。
 - 复用 `INSPECT_WORKING_SET`：候选事实与检索执行状态不是同一领域对象。
 - 让模型直接查数据库：越过话轮执行器的权限、租户隔离和发布边界。
-- 生成 `RESEARCH_STATUS` 商品 Claim：`ResearchWave` 是检索执行元数据，不应伪装成 Provider 原始商品字段，否则会污染来源追踪链路。
+- 生成 `SEARCH_STATUS` 商品 Claim：检索尝试是执行元数据，不应伪装成 Provider 原始商品字段，否则会污染来源追踪链路。
 
 最终采用只读检索状态操作、结构化回执和话轮执行器强制披露。覆盖结论不进入商品 GroundedClaimSet。
 
 ## 实现边界
 
-- 领域与协议新增 `INSPECT_RESEARCH_COVERAGE`，路由保持 `talk`。
-- PostgreSQL 查询只选择最新已发布候选批次对应 attempt 的最终 `ResearchWave`，并要求历史 Turn 为 `COMPLETED`。
+- 领域与协议新增 `INSPECT_SEARCH_COVERAGE`，路由保持 `talk`。
+- PostgreSQL 查询只选择最新已发布候选批次对应 attempt 的最终检索尝试，并要求历史 Turn 为 `COMPLETED`。
 - 查询事务设置 tenant/owner RLS 上下文，同时显式校验 conversation 归属。
 - 历史记录不存在时发布 `RESEARCH_COVERAGE_UNKNOWN`。
 - 存在失败市场时发布带市场集合的 `RESEARCH_COVERAGE_INCOMPLETE:*`；确定性渲染明确说明“覆盖不完整不代表当地没有销售”。

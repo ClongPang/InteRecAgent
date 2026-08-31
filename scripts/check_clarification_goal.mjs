@@ -46,7 +46,7 @@ if (!/kind:\s*"REQUEST_CLARIFICATION";\s*clarification:\s*ClarificationIntent;/u
 if (/kind: "REQUEST_CLARIFICATION"; slotId: string/.test(conversationTypes)) failures.push("free-string clarification remains in the internal TurnOperation type");
 if (!schemas.includes('clarification: Type.Object')) failures.push("model schema does not expose the typed clarification protocol");
 for (const mode of ["ASK_BLOCKING", "ASK_OPTIONAL", "ASSUME_AND_DISCLOSE", "SEARCH_THEN_REFINE", "SKIP"]) {
-  if (!decisionPolicy.includes(`\"${mode}\"`)) failures.push(`clarification decision mode is missing: ${mode}`);
+  if (!decisionPolicy.includes(`"${mode}"`)) failures.push(`clarification decision mode is missing: ${mode}`);
 }
 for (const token of [
   "marketScope",

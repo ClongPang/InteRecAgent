@@ -69,9 +69,8 @@ try {
   }
 
   let action: "CREATED" | "LABEL_UPDATED" | "UNCHANGED";
-  let prompt;
   if (!latest) {
-    prompt = await retryTransient(() => langfuse.prompt.create(conversationPromptCreateBody()));
+    await retryTransient(() => langfuse.prompt.create(conversationPromptCreateBody()));
     action = "CREATED";
   } else {
     try {
@@ -86,10 +85,9 @@ try {
       } else {
         action = "UNCHANGED";
       }
-      prompt = latest;
     } catch (error) {
       if (!(error instanceof Error) || !/^LANGFUSE_PROMPT_(?:CONTENT|VERSION|HASH)_DRIFT$/.test(error.message)) throw error;
-      prompt = await retryTransient(() => langfuse.prompt.create(conversationPromptCreateBody()));
+      await retryTransient(() => langfuse.prompt.create(conversationPromptCreateBody()));
       action = "CREATED";
     }
   }

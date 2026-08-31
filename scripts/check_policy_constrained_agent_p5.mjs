@@ -7,6 +7,7 @@ const files = {
   uncertainty: await readFile(new URL("../packages/domain/src/uncertainty.ts", import.meta.url), "utf8"),
   turnPlan: await readFile(new URL("../packages/domain/src/turn-plan.ts", import.meta.url), "utf8"),
   repository: await readFile(new URL("../packages/runtime/src/postgres-conversation-repository.ts", import.meta.url), "utf8"),
+  turnCommit: await readFile(new URL("../packages/runtime/src/postgres-turn-commit.ts", import.meta.url), "utf8"),
   worker: await readFile(new URL("../packages/runtime/src/conversation-worker.ts", import.meta.url), "utf8"),
   executor: await readFile(new URL("../packages/agent/src/conversation-turn-executor.ts", import.meta.url), "utf8"),
   liveClarification: await readFile(new URL("./run_live_clarification_case.ts", import.meta.url), "utf8"),
@@ -62,7 +63,7 @@ if (`${files.frontend}\n${files.frontendTypes}`.includes("claimLedger")) {
 }
 
 for (const token of ["validateNoPlanDegradedPublication", "EMPTY_PLAN_REQUIRES_SYSTEM_DEGRADATION"]) {
-  if (!`${files.turnPlan}\n${files.repository}`.includes(token)) {
+  if (!`${files.turnPlan}\n${files.repository}\n${files.turnCommit}`.includes(token)) {
     throw new Error(`P5_DRIFT: persisted system-owned no-plan degradation misses ${token}`);
   }
 }

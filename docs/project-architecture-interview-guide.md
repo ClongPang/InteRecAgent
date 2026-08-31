@@ -244,7 +244,7 @@ ANSWER_REQUIRED ─► publish_reply
   "ops": [
     { "opId": "target", "kind": "GOAL_SET_TARGET", "sourceMessageOrdinal": 0 },
     { "opId": "market", "kind": "GOAL_SET_RETRIEVAL_MARKETS", "sourceMessageOrdinal": 0 },
-    { "opId": "research", "kind": "RESEARCH_OFFERS", "reasonCode": "GOAL_BECAME_RESEARCH_READY" }
+    { "opId": "search", "kind": "SEARCH_OFFERS", "reasonCode": "GOAL_BECAME_SEARCH_READY" }
   ]
 }
 ```
@@ -265,7 +265,7 @@ ANSWER_REQUIRED ─► publish_reply
 
 ## 模型为什么知道有哪些领域操作
 
-`RESEARCH_OFFERS`、`INSPECT_WORKING_SET` 和 `INSPECT_RESEARCH_COVERAGE` 不是三个独立 pi-agent Tool，而是 `commit_turn_plan.ops[]` 中允许出现的领域操作。
+`SEARCH_OFFERS`、`INSPECT_WORKING_SET` 和 `INSPECT_SEARCH_COVERAGE` 不是三个独立 pi-agent Tool，而是 `commit_turn_plan.ops[]` 中允许出现的领域操作。
 
 模型从三个渠道获得信息：
 
@@ -284,8 +284,8 @@ Provider 最终收到的结构近似：
         "items": {
           "anyOf": [
             { "kind": { "const": "INSPECT_WORKING_SET" } },
-            { "kind": { "const": "INSPECT_RESEARCH_COVERAGE" } },
-            { "kind": { "const": "RESEARCH_OFFERS" } }
+            { "kind": { "const": "INSPECT_SEARCH_COVERAGE" } },
+            { "kind": { "const": "SEARCH_OFFERS" } }
           ]
         }
       }
@@ -303,10 +303,10 @@ Provider 最终收到的结构近似：
 → INSPECT_WORKING_SET
 
 询问市场是否搜索过、哪些市场失败、空结果是否证明当地无售
-→ INSPECT_RESEARCH_COVERAGE
+→ INSPECT_SEARCH_COVERAGE
 
 明确要求刷新或重新搜索
-→ RESEARCH_OFFERS
+→ SEARCH_OFFERS
 ```
 
 ### 3. Conversation Context：告诉模型“当前有什么”
@@ -608,7 +608,7 @@ ReplyPublicationVerifier
 
 没有。项目使用标准依赖，通过公开的模型、工具、Hook、事件和停止条件接口适配。新增的是项目自己的 Prompt、TypeBox Schema、plan–execute–respond 协议、计划规范化器和话轮执行器。
 
-### 模型为什么知道 `RESEARCH_OFFERS`？
+### 模型为什么知道 `SEARCH_OFFERS`？
 
 因为它出现在 `commit_turn_plan` 的参数 Schema 中，System Prompt 说明适用语义，Conversation Context 提供当前状态。模型只获得提案能力，话轮执行器才拥有执行授权。
 
@@ -660,7 +660,7 @@ ReplyPublicationVerifier
 | plan–execute–respond 协议 | `packages/agent/src/protocol.ts` |
 | 模型侧 TypeBox Schema | `packages/agent/src/schemas.ts` |
 | Conversation Context 投影 | `packages/agent/src/context.ts` |
-| 计划规范化器（内部文件名沿用 intent-compiler） | `packages/agent/src/intent-compiler.ts` |
+| 计划规范化器 | `packages/agent/src/plan-normalizer.ts` |
 | 话轮执行器（内部文件名沿用 conversation-turn-executor） | `packages/agent/src/conversation-turn-executor.ts` |
 | Conversation Policy | `packages/domain/src/conversation-policy.ts` |
 | Turn Worker | `packages/runtime/src/conversation-worker.ts` |

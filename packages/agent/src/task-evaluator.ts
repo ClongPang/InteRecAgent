@@ -596,8 +596,6 @@ function evaluateTrial(task: EvaluationTaskSpec, artifact: EvaluationTrialArtifa
   let matchedReferents = 0;
   let recommendedCandidates = 0;
   let qualifiedRecommendedCandidates = 0;
-  let visibleFacts = 0;
-  let evidenceConsistentFacts = 0;
   let unannotatedFacts = 0;
   const uniqueFactConsistency = new Map<string, boolean>();
   let expectedAnswerSlots = 0;
@@ -666,8 +664,8 @@ function evaluateTrial(task: EvaluationTaskSpec, artifact: EvaluationTrialArtifa
     const actualFactKeys = new Set(visible.map(factKey));
     for (const requiredFact of expected.requiredResponseFields) if (!actualFactKeys.has(factKey(requiredFact))) failures.push(`required_fact:${expected.turnIndex}:${requiredFact.offerRef}:${requiredFact.predicate}`);
   }
-  visibleFacts = uniqueFactConsistency.size + unannotatedFacts;
-  evidenceConsistentFacts = [...uniqueFactConsistency.values()].filter(Boolean).length;
+  const visibleFacts = uniqueFactConsistency.size + unannotatedFacts;
+  const evidenceConsistentFacts = [...uniqueFactConsistency.values()].filter(Boolean).length;
   const positiveOutputEligible = task.fixtureHasQualifiedOffer && task.requiresQualifiedOutput;
   const positiveOutputCorrect = !positiveOutputEligible || qualifiedRecommendedCandidates > 0;
   if (!positiveOutputCorrect) failures.push("positive_output_missing");
