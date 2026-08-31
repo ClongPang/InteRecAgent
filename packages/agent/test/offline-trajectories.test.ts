@@ -4,19 +4,19 @@ import {
   createGoalRevision,
   createWorkingSet,
   emptyDialogueState,
-  type CandidateProjection,
+  type CandidateView,
   type ConversationState,
 } from "@interec/domain";
 import {
-  ConversationTurnDraftHost,
-  type TurnDraftSnapshot,
+  ConversationTurnExecutor,
+  type TurnExecutionSnapshot,
   type TurnPlanProposal,
-  type TurnWorldPort,
+  type ShoppingDataPort,
 } from "../src/index.js";
 
 const source = { messageId: "seed-message" };
 
-function offer(offerRef: string, market: string, amount: string): CandidateProjection {
+function offer(offerRef: string, market: string, amount: string): CandidateView {
   return {
     offerRef,
     title: `Sony WH-1000XM5 ${market} ${offerRef}`,
@@ -61,16 +61,16 @@ async function execute(
   proposal: TurnPlanProposal,
   options: { requiredFocusOfferRef?: string; revisions?: Map<number, ConversationState> } = {},
 ): Promise<Result> {
-  let latest: TurnDraftSnapshot | null = null;
+  let latest: TurnExecutionSnapshot | null = null;
   let providerCalls = 0;
   const inspected: string[][] = [];
-  const world: TurnWorldPort = {
+  const shoppingData: ShoppingDataPort = {
     inspect: async (_operation, refs) => {
       inspected.push(refs);
       return { claims: [], disclosureCodes: [], publicResult: { offerRefs: refs } };
     },
-    inspectResearchCoverage: async () => ({ claims: [], disclosureCodes: [], publicResult: { found: false } }),
-    research: async (_operation, state) => {
+    inspectSearchCoverage: async () => ({ claims: [], disclosureCodes: [], publicResult: { found: false } }),
+    search: async (_operation, state) => {
       providerCalls += 1;
       const model = state.goalRevision?.goal.target?.canonicalModel ?? "UNKNOWN";
       const pool = [offer(`${model}-US`, "US", "2200"), offer(`${model}-SG`, "SG", "2050")]
@@ -81,47 +81,48 @@ async function execute(
       };
     },
   };
-  const host = new ConversationTurnDraftHost({
+  const executor = new ConversationTurnExecutor({
     turnId: `turn-${baseState.revision + 1}`,
     inputMessageIds: [`message-${baseState.revision + 1}`],
     baseState,
-    researchNeed: baseState.workingSet ? "NOT_NEEDED" : "INSUFFICIENT_COVERAGE",
-    world,
+    searchNeed: baseState.workingSet ? "NOT_NEEDED" : "INSUFFICIENT_COVERAGE",
+    shoppingData,
     loadRevision: async (revision) => options.revisions?.get(revision) ?? null,
     ...(options.requiredFocusOfferRef ? { requiredFocusOfferRef: options.requiredFocusOfferRef } : {}),
     onDraftChanged: async (snapshot) => { latest = snapshot; },
   });
-  const committed = await host.commitPlan(proposal);
-  for (const operation of committed.plan.ops) await host.executeOperation(operation);
+  const committed = await executor.commitPlan(proposal);
+  for (const operation of committed.plan.ops) await executor.executeOperation(operation);
   if (!latest) throw new Error("TRAJECTORY_DRAFT_MISSING");
-  return { state: (latest as TurnDraftSnapshot).state, providerCalls, inspected };
+  return { state: (latest as TurnExecutionSnapshot).state, providerCalls, inspected };
 }
 
 describe("approved offline conversational trajectories", () => {
-  it("canonicalizes clarification to the missing research contract field and keeps the Conversation open", async () => {
+  it("requires the agent plan to ask for the missing required search input and keeps the Conversation open", async () => {
     const base: ConversationState = { revision: 0, status: "OPEN", goalRevision: null, dialogue: emptyDialogueState(), workingSet: null };
     const result = await execute(base, {
-      userIntentSummary: "set category and ask budget",
+      userIntentSummary: "set category and ask purchase market",
       ops: [
         { opId: "target", kind: "GOAL_SET_TARGET", sourceMessageOrdinal: 0, target: { categoryId: "headphones", canonicalModel: null, itemRole: "PRIMARY_PRODUCT", condition: "NEW" } },
-        { opId: "clarify", kind: "REQUEST_CLARIFICATION", slotId: "budget", reasonCode: "CHANGES_SEARCH_SPACE" },
+        { opId: "clarify", kind: "REQUEST_CLARIFICATION", clarification: { kind: "PURCHASE_MARKET" }, uncertainty: { type: "MISSING_USER_INFORMATION", userResolvable: true }, reasonCode: "MISSING_REQUIRED_GOAL_FIELD" },
       ],
       leftover: [],
     });
-    expect(result.state).toMatchObject({ status: "OPEN", dialogue: { pendingClarification: { slotId: "retrieval_markets" } } });
+    expect(result.state).toMatchObject({ status: "OPEN", dialogue: { pendingClarification: { clarification: { kind: "PURCHASE_MARKET" } } } });
     expect(result.providerCalls).toBe(0);
   });
 
   it("resumes the same goal after clarification and researches once", async () => {
     const base = seededState();
     base.workingSet = null;
-    base.dialogue.pendingClarification = { slotId: "budget", askedByMessageId: "assistant-1" };
+    base.dialogue.pendingClarification = { clarificationId: "clarification-budget", clarification: { kind: "BUDGET" }, askedByMessageId: "assistant-1" };
     const result = await execute(base, {
-      userIntentSummary: "answer budget and research two markets",
+      userIntentSummary: "answer budget and search two markets",
       ops: [
+        { opId: "resolve-clarification", kind: "RESOLVE_CLARIFICATION", clarificationId: "clarification-budget", clarification: { kind: "BUDGET" }, outcome: "ANSWERED" },
         { opId: "budget", kind: "GOAL_SET_BUDGET", sourceMessageOrdinal: 0, budget: { amount: "2500", currency: "CNY" } },
         { opId: "resolve", kind: "GOAL_RESOLVE_GAP", sourceMessageOrdinal: 0, slotId: "budget" },
-        { opId: "research", kind: "RESEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE" },
+        { opId: "search", kind: "SEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE" },
       ],
       leftover: [],
     });
@@ -173,12 +174,12 @@ describe("approved offline conversational trajectories", () => {
     expect(result.providerCalls).toBe(0);
   });
 
-  it("corrects a target and replaces incompatible candidates through research", async () => {
+  it("corrects a target and replaces incompatible candidates through search", async () => {
     const result = await execute(seededState(), {
       userIntentSummary: "replace XM5 with XM4",
       ops: [
         { opId: "target", kind: "GOAL_SET_TARGET", sourceMessageOrdinal: 0, target: { categoryId: "headphones", canonicalModel: "WH-1000XM4", itemRole: "PRIMARY_PRODUCT", condition: "NEW" } },
-        { opId: "research", kind: "RESEARCH_OFFERS", reasonCode: "TARGET_CHANGED" },
+        { opId: "search", kind: "SEARCH_OFFERS", reasonCode: "TARGET_CHANGED" },
       ],
       leftover: [],
     });
@@ -187,7 +188,7 @@ describe("approved offline conversational trajectories", () => {
     expect(result.providerCalls).toBe(1);
   });
 
-  it("undo restores the exact earlier Goal and WorkingSet revision", async () => {
+  it("undo restores the exact earlier SearchGoalSnapshot and WorkingSet revision", async () => {
     const earlier = seededState(1);
     const changed = await execute(earlier, {
       userIntentSummary: "change budget",

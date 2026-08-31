@@ -1,6 +1,6 @@
 import { createModels } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { emptyDialogueState, validateTurnPlan, type TurnOperation, type TurnPlan } from "@interec/domain";
+import { CONVERSATION_PLAN_POLICY_VERSION, emptyDialogueState, validateTurnPlan, type TurnOperation, type TurnPlan } from "@interec/domain";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,8 +8,9 @@ import {
   type ConversationTurnAgentOptions,
   type AssistantEnvelopeProposal,
   type OperationReceipt,
+  PlanReviewError,
   type ProposedTurnOperation,
-  type TurnHostOperations,
+  type TurnExecutionController,
   type TurnPlanProposal,
 } from "../src/index.js";
 
@@ -43,15 +44,15 @@ function bindProposal(proposal: TurnPlanProposal): TurnPlan {
   });
 }
 
-function host(overrides: Partial<TurnHostOperations> = {}) {
+function controllerHarness(overrides: Partial<TurnExecutionController> = {}) {
   const executed: string[] = [];
   const published: AssistantEnvelopeProposal[] = [];
   const fallbacks: string[] = [];
   let currentPlan: TurnPlan | null = null;
-  const operations: TurnHostOperations = {
+  const operations: TurnExecutionController = {
     commitPlan: async (proposal) => {
       currentPlan = bindProposal(proposal);
-      return { plan: currentPlan, route: "talk", maxModelInferences: 2 };
+      return { plan: currentPlan, route: "talk", maxModelInferences: 2, review: { decision: "APPROVED", policyVersion: CONVERSATION_PLAN_POLICY_VERSION } };
     },
     executeOperation: async (operation) => {
       executed.push(operation.opId);
@@ -59,13 +60,13 @@ function host(overrides: Partial<TurnHostOperations> = {}) {
         GOAL_SET_BUDGET: "patch_goal",
         GOAL_UPSERT_PREFERENCE: "patch_goal",
         REJECT_OFFERS: "reject_offers",
-        RERANK_WORKING_SET: "rerank_working_set",
+        SORT_WORKING_SET_BY_PRICE: "rerank_working_set",
         INSPECT_WORKING_SET: "inspect_working_set",
-        INSPECT_RESEARCH_COVERAGE: "inspect_research_coverage",
+        INSPECT_SEARCH_COVERAGE: "inspect_search_coverage",
         REQUEST_CLARIFICATION: "request_clarification",
-        RESEARCH_OFFERS: "research_offers",
+        SEARCH_OFFERS: "search_offers",
       };
-      return { opId: operation.opId, toolName: toolName[operation.kind]!, status: "APPLIED", claimIds: [], questionSlotIds: [], disclosureCodes: [], publicResult: {} };
+      return { opId: operation.opId, toolName: toolName[operation.kind]!, status: "APPLIED", claimIds: [], questionClarifications: [], disclosureCodes: [], publicResult: {} };
     },
     publishReply: async (envelope) => {
       published.push(envelope);
@@ -87,7 +88,7 @@ function host(overrides: Partial<TurnHostOperations> = {}) {
 
 async function runFaux(
   responses: ReturnType<typeof fauxAssistantMessage>[],
-  operations: TurnHostOperations,
+  operations: TurnExecutionController,
   instrumentation: Pick<ConversationTurnAgentOptions, "onEvent" | "onModelCall" | "observeToolCall"> = {},
 ) {
   const faux = fauxProvider();
@@ -97,7 +98,7 @@ async function runFaux(
   const result = await executeConversationTurn({
     model: faux.getModel(),
     streamFn: models.streamSimple.bind(models),
-    host: operations,
+    controller: operations,
     context: context(),
     sessionId: `attempt-${Math.random()}`,
     ...instrumentation,
@@ -107,12 +108,12 @@ async function runFaux(
 
 describe("fresh pi-agent conversational turn", () => {
   it("exposes provider-boundary context and preserves tool-call causality across generations", async () => {
-    const harness = host();
-    const modelCalls: Array<{ phase: string; inferenceIndex: number; context: unknown }> = [];
+    const harness = controllerHarness();
+    const modelCalls: Array<{ phase: string; inferenceIndex: number; context: unknown; temperature: number | undefined }> = [];
     const toolCalls: Array<{ toolCallId: string; toolName: string; phase: string; inferenceIndex: number }> = [];
     const { result } = await runFaux([
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
-        userIntentSummary: "set the budget without research",
+        userIntentSummary: "set the budget without search",
         ops: [{ opId: "budget", kind: "GOAL_SET_BUDGET", sourceMessageOrdinal: 0, budget: { amount: "2500", currency: "CNY" } }],
       }, { id: "call-plan" })),
       fauxAssistantMessage(fauxToolCall("publish_reply", {
@@ -125,6 +126,7 @@ describe("fresh pi-agent conversational turn", () => {
         phase: call.phase,
         inferenceIndex: call.inferenceIndex,
         context: JSON.parse(JSON.stringify(call.context)) as unknown,
+        temperature: call.options?.temperature,
       }),
       observeToolCall: async (call, operation) => {
         toolCalls.push({
@@ -141,6 +143,7 @@ describe("fresh pi-agent conversational turn", () => {
       { phase: "PLAN", inferenceIndex: 1 },
       { phase: "FINALIZE", inferenceIndex: 2 },
     ]);
+    expect(modelCalls.map(({ temperature }) => temperature)).toEqual([0, 0]);
     expect(toolCalls).toEqual([
       { toolCallId: "call-plan", toolName: "commit_turn_plan", phase: "PLAN", inferenceIndex: 1 },
       { toolCallId: "call-finalize", toolName: "publish_reply", phase: "FINALIZE", inferenceIndex: 2 },
@@ -154,12 +157,12 @@ describe("fresh pi-agent conversational turn", () => {
     ]));
   });
 
-  it("accepts the dedicated zero-provider operation for historical research coverage", async () => {
-    const harness = host();
+  it("accepts the dedicated zero-provider operation for historical search coverage", async () => {
+    const harness = controllerHarness();
     const { result } = await runFaux([
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
         userIntentSummary: "check whether the prior market search failed",
-        ops: [{ opId: "coverage", kind: "INSPECT_RESEARCH_COVERAGE" }],
+        ops: [{ opId: "coverage", kind: "INSPECT_SEARCH_COVERAGE" }],
       })),
       fauxAssistantMessage(fauxToolCall("publish_reply", {
         outcome: "CHAT",
@@ -168,15 +171,15 @@ describe("fresh pi-agent conversational turn", () => {
       })),
     ], harness.operations);
     expect(result.usedFallback).toBe(false);
-    expect(result.receipts).toMatchObject([{ toolName: "inspect_research_coverage" }]);
+    expect(result.receipts).toMatchObject([{ toolName: "inspect_search_coverage" }]);
     expect(result.route).toBe("talk");
   });
 
-  it("binds public message ordinals, executes the ordered plan in the host, and publishes in two inferences", async () => {
-    const harness = host();
+  it("binds public message ordinals, executes the ordered plan in the turn executor, and publishes in two inferences", async () => {
+    const harness = controllerHarness();
     const { result, faux } = await runFaux([
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
-        userIntentSummary: "set the budget without research",
+        userIntentSummary: "set the budget without search",
         ops: [{ opId: "budget", kind: "GOAL_SET_BUDGET", sourceMessageOrdinal: 0, budget: { amount: "2500", currency: "CNY" } }],
       })),
       fauxAssistantMessage(fauxToolCall("publish_reply", {
@@ -186,6 +189,7 @@ describe("fresh pi-agent conversational turn", () => {
       })),
     ], harness.operations);
     expect(result).toMatchObject({ route: "talk", modelInferences: 2, toolCalls: 2, usedFallback: false });
+    expect(result.modelUsage).toMatchObject({ responses: 2, inputTokens: expect.any(Number), outputTokens: expect.any(Number) });
     expect(result.plan?.ops[0]).toMatchObject({ opId: "budget", source: { messageId: "real-message-id" } });
     expect(harness.executed).toEqual(["budget"]);
     expect(harness.published).toHaveLength(1);
@@ -193,7 +197,7 @@ describe("fresh pi-agent conversational turn", () => {
   });
 
   it("normalizes transition-attached claim IDs into standard claim blocks", async () => {
-    const harness = host();
+    const harness = controllerHarness();
     const { result } = await runFaux([
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
         userIntentSummary: "set the budget",
@@ -213,7 +217,7 @@ describe("fresh pi-agent conversational turn", () => {
   });
 
   it("preserves compound operation order without phrase-specific branches", async () => {
-    const harness = host();
+    const harness = controllerHarness();
     const { result } = await runFaux([
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
         userIntentSummary: "reject second, prefer cheaper, inspect third",
@@ -235,7 +239,7 @@ describe("fresh pi-agent conversational turn", () => {
   });
 
   it("uses deterministic fallback when the model does not follow the tool protocol", async () => {
-    const harness = host();
+    const harness = controllerHarness();
     const { result, faux } = await runFaux([
       fauxAssistantMessage("我直接回答，不调用工具。"),
       fauxAssistantMessage("仍然直接回答。"),
@@ -248,7 +252,7 @@ describe("fresh pi-agent conversational turn", () => {
   });
 
   it("repairs one pre-plan protocol miss inside the same fresh agent session", async () => {
-    const harness = host();
+    const harness = controllerHarness();
     const { result } = await runFaux([
       fauxAssistantMessage("I forgot to call the required tool."),
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
@@ -268,36 +272,46 @@ describe("fresh pi-agent conversational turn", () => {
 
   it("publishes after a rejected first plan and a successful repaired plan", async () => {
     let commits = 0;
-    const harness = host({
+    const harness = controllerHarness({
       commitPlan: async (proposal) => {
         commits += 1;
-        if (commits === 1) throw new Error("RESEARCH_MARKETS_REQUIRED");
-        return { plan: bindProposal(proposal), route: "clarify", maxModelInferences: 2 };
+        if (commits === 1) throw new PlanReviewError({
+          decision: "REPAIR_REQUIRED",
+          policyVersion: CONVERSATION_PLAN_POLICY_VERSION,
+          violations: [{
+            code: "SEARCH_MARKETS_REQUIRED",
+            operationId: "search",
+            path: "ops[0]",
+            observed: { operationKind: "SEARCH_OFFERS" },
+            admissibleAlternatives: ["Request PURCHASE_MARKET clarification."],
+          }],
+        });
+        return { plan: bindProposal(proposal), route: "clarify", maxModelInferences: 2, review: { decision: "APPROVED", policyVersion: CONVERSATION_PLAN_POLICY_VERSION } };
       },
     });
     const { result } = await runFaux([
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
-        userIntentSummary: "invalid research without market",
-        ops: [{ opId: "research", kind: "RESEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE" }],
+        userIntentSummary: "invalid search without market",
+        ops: [{ opId: "search", kind: "SEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE" }],
         leftover: [],
       })),
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
         userIntentSummary: "ask for the missing market",
-        ops: [{ opId: "ask-market", kind: "REQUEST_CLARIFICATION", slotId: "retrieval_market", reasonCode: "MISSING_MARKET" }],
+        ops: [{ opId: "ask-market", kind: "REQUEST_CLARIFICATION", clarification: { kind: "PURCHASE_MARKET" }, uncertainty: { type: "MISSING_USER_INFORMATION", userResolvable: true }, reasonCode: "MISSING_MARKET" }],
         leftover: [],
       })),
       fauxAssistantMessage(fauxToolCall("publish_reply", {
-        outcome: "CLARIFICATION", blocks: [{ type: "QUESTION", slotId: "retrieval_market" }], nextMoves: [],
+        outcome: "CLARIFICATION", blocks: [{ type: "QUESTION", clarification: { kind: "PURCHASE_MARKET" } }], nextMoves: [],
       })),
     ], harness.operations);
     expect(result).toMatchObject({ usedFallback: false, modelInferences: 3, toolCalls: 3, route: "clarify" });
     expect(harness.published).toHaveLength(1);
   });
 
-  it("allows one answer self-correction within the research inference budget", async () => {
+  it("allows one answer self-correction within the search inference budget", async () => {
     let publishAttempts = 0;
-    const harness = host({
-      commitPlan: async (proposal) => ({ plan: bindProposal(proposal), route: "research", maxModelInferences: 4 }),
+    const harness = controllerHarness({
+      commitPlan: async (proposal) => ({ plan: bindProposal(proposal), route: "search", maxModelInferences: 4, review: { decision: "APPROVED", policyVersion: CONVERSATION_PLAN_POLICY_VERSION } }),
       publishReply: async (candidate) => {
         publishAttempts += 1;
         if (publishAttempts === 1) throw new Error("CLAIM_NOT_FOUND");
@@ -306,8 +320,8 @@ describe("fresh pi-agent conversational turn", () => {
     });
     const { result } = await runFaux([
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
-        userIntentSummary: "research because coverage is insufficient",
-        ops: [{ opId: "research", kind: "RESEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE", queryVariant: "WH-1000XM5" }],
+        userIntentSummary: "search because coverage is insufficient",
+        ops: [{ opId: "search", kind: "SEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE", queryVariant: "WH-1000XM5" }],
         leftover: [],
       })),
       fauxAssistantMessage(fauxToolCall("publish_reply", {
@@ -317,13 +331,13 @@ describe("fresh pi-agent conversational turn", () => {
         outcome: "DEGRADED", blocks: [{ type: "TRANSITION", transitionCode: "EVIDENCE_SUMMARY" }], nextMoves: [],
       })),
     ], harness.operations);
-    expect(result).toMatchObject({ route: "research", usedFallback: false, modelInferences: 3, toolCalls: 3 });
+    expect(result).toMatchObject({ route: "search", usedFallback: false, modelInferences: 3, toolCalls: 3 });
     expect(publishAttempts).toBe(2);
   });
 
   it("opens a bounded repair window when a dialogue reply cites stale claims", async () => {
     let publishAttempts = 0;
-    const harness = host({
+    const harness = controllerHarness({
       publishReply: async (candidate) => {
         publishAttempts += 1;
         if (publishAttempts === 1) throw new Error("CLAIM_NOT_FOUND");
@@ -347,12 +361,12 @@ describe("fresh pi-agent conversational turn", () => {
     expect(publishAttempts).toBe(2);
   });
 
-  it("falls back when host policy rejects an unnecessary research plan", async () => {
-    const harness = host({ commitPlan: async () => { throw new Error("UNNECESSARY_PROVIDER_RESEARCH"); } });
+  it("falls back when executor policy rejects an unnecessary search plan", async () => {
+    const harness = controllerHarness({ commitPlan: async () => { throw new Error("UNNECESSARY_PROVIDER_SEARCH"); } });
     const { result } = await runFaux([
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
         userIntentSummary: "search despite sufficient evidence",
-        ops: [{ opId: "research", kind: "RESEARCH_OFFERS", reasonCode: "NOT_NEEDED" }],
+        ops: [{ opId: "search", kind: "SEARCH_OFFERS", reasonCode: "NOT_NEEDED" }],
         leftover: [],
       })),
       fauxAssistantMessage("无法继续。"),
@@ -362,25 +376,25 @@ describe("fresh pi-agent conversational turn", () => {
   });
 
   it("does not submit a second plan after an operation fails in a committed plan", async () => {
-    const harness = host({ executeOperation: async () => { throw new Error("RESEARCH_MARKETS_REQUIRED"); } });
+    const harness = controllerHarness({ executeOperation: async () => { throw new Error("SEARCH_MARKETS_REQUIRED"); } });
     const { result } = await runFaux([
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
-        userIntentSummary: "invalid research execution",
-        ops: [{ opId: "research", kind: "RESEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE" }],
+        userIntentSummary: "invalid search execution",
+        ops: [{ opId: "search", kind: "SEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE" }],
         leftover: [],
       })),
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
         userIntentSummary: "must never be submitted",
-        ops: [{ opId: "research-2", kind: "RESEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE" }],
+        ops: [{ opId: "search-2", kind: "SEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE" }],
         leftover: [],
       })),
     ], harness.operations);
-    expect(result).toMatchObject({ usedFallback: true, fallbackReasonCode: "RESEARCH_MARKETS_REQUIRED", modelInferences: 1 });
-    expect(harness.fallbacks).toEqual(["RESEARCH_MARKETS_REQUIRED"]);
+    expect(result).toMatchObject({ usedFallback: true, fallbackReasonCode: "SEARCH_MARKETS_REQUIRED", modelInferences: 1 });
+    expect(harness.fallbacks).toEqual(["SEARCH_MARKETS_REQUIRED"]);
   });
 
   it("fails closed on an operation source ordinal outside the current message batch", async () => {
-    const harness = host();
+    const harness = controllerHarness();
     const { result } = await runFaux([
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
         userIntentSummary: "use a nonexistent source message",
@@ -395,7 +409,7 @@ describe("fresh pi-agent conversational turn", () => {
   });
 
   it("blocks tools that are not exposed in the current protocol phase", async () => {
-    const harness = host();
+    const harness = controllerHarness();
     const { result } = await runFaux([
       fauxAssistantMessage(fauxToolCall("discover_offers", { queryVariant: "forbidden legacy tool" })),
     ], harness.operations);
@@ -406,8 +420,8 @@ describe("fresh pi-agent conversational turn", () => {
 
   it("stops at the hard inference/tool budget and uses deterministic fallback", async () => {
     let publishAttempts = 0;
-    const harness = host({
-      commitPlan: async (proposal) => ({ plan: bindProposal(proposal), route: "research", maxModelInferences: 4 }),
+    const harness = controllerHarness({
+      commitPlan: async (proposal) => ({ plan: bindProposal(proposal), route: "search", maxModelInferences: 4, review: { decision: "APPROVED", policyVersion: CONVERSATION_PLAN_POLICY_VERSION } }),
       publishReply: async () => {
         publishAttempts += 1;
         throw new Error("ENVELOPE_STILL_INVALID");
@@ -418,8 +432,8 @@ describe("fresh pi-agent conversational turn", () => {
     }));
     const { result } = await runFaux([
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
-        userIntentSummary: "research within a bounded attempt",
-        ops: [{ opId: "research", kind: "RESEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE" }],
+        userIntentSummary: "search within a bounded attempt",
+        ops: [{ opId: "search", kind: "SEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE" }],
         leftover: [],
       })),
       invalidReply,

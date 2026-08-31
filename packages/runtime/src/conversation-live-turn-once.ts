@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import { ConversationWorker } from "./conversation-worker.js";
-import { PostgresConversationResearchRepository } from "./conversation-research-repository.js";
+import { PostgresConversationSearchRepository } from "./conversation-search-repository.js";
 import { resolveLiveTurnConfig } from "./live-turn-config.js";
 import { createPiModelRuntime } from "./model-factory.js";
 import { PostgresConversationRepository } from "./postgres-conversation-repository.js";
-import { PostgresProviderGovernor } from "./provider-governor.js";
+import { PostgresProviderCallController } from "./provider-call-controller.js";
 import { BuyWhereClient, FxRatesClient } from "./providers.js";
 import { resolveBuyWhereRuntimeConfig } from "./runtime-config.js";
 import { startTelemetry } from "./telemetry.js";
@@ -24,8 +24,8 @@ const telemetry = await startTelemetry("interec-conversation-live-turn");
 try {
   const worker = new ConversationWorker(
     repository,
-    new PostgresConversationResearchRepository(repository.pool),
-    new PostgresProviderGovernor(repository.pool),
+    new PostgresConversationSearchRepository(repository.pool),
+    new PostgresProviderCallController(repository.pool),
     new BuyWhereClient(buyWhere.apiKey, { timeoutMs: buyWhere.timeoutMs }),
     new FxRatesClient(),
     createPiModelRuntime(),

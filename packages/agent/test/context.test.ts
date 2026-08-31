@@ -40,7 +40,7 @@ function state(): ConversationState {
     goalRevision,
     dialogue: {
       ...emptyDialogueState(),
-      pendingClarification: { slotId: "budget", askedByMessageId: secretMessageId },
+      pendingClarification: { clarificationId: "clarification-budget", clarification: { kind: "BUDGET" }, askedByMessageId: secretMessageId },
       pendingOps: [{ operation: { opId: "pending", kind: "GOAL_CLEAR_BUDGET", source }, conditionCode: "AFTER_CLARIFICATION" }],
       lastAssistantMessageId: "internal-assistant-id",
     },
@@ -48,14 +48,43 @@ function state(): ConversationState {
   };
 }
 
+function baseInput() {
+  return {
+    state: state(),
+    currentUserMessages: ["预算改成 2500，然后比较前两个"],
+    capabilities: ["sort", "compare"],
+    now: "2026-08-26T00:00:00.000Z",
+    modelId: "faux-model",
+    providerCallBudget: 0,
+  };
+}
+
 describe("bounded conversation context", () => {
-  it("projects only the controlled conversational world and strips database IDs", () => {
+  it("includes an uncropped full transcript only when the evaluation caller explicitly supplies it", () => {
+    const input = baseInput();
+    const projection = projectConversationContext({
+      ...input,
+      fullTranscript: [
+        { role: "USER", content: "  最早提出的预算是 3000 元。  " },
+        { role: "ASSISTANT", content: "已记录。" },
+      ],
+      maxInputTokens: 16_000,
+    });
+
+    expect(projection.fullTranscript).toEqual([
+      { role: "USER", content: "最早提出的预算是 3000 元。" },
+      { role: "ASSISTANT", content: "已记录。" },
+    ]);
+    expect(projectConversationContext(input)).not.toHaveProperty("fullTranscript");
+  });
+
+  it("projects only the controlled turn context and strips database IDs", () => {
     const projection = projectConversationContext({
       state: state(),
       currentUserMessages: ["预算改成 2500，然后比较前两个"],
       uiFocusOfferRef: "offer-2",
       recentAdjacentPair: [{ role: "USER", content: "之前的上下文" }, { role: "ASSISTANT", content: "之前的回复" }],
-      capabilities: ["rerank", "compare", "rerank"],
+      capabilities: ["sort", "compare", "sort"],
       now: "2026-08-26T00:00:00.000Z",
       modelId: "faux-model",
       providerCallBudget: 0,
@@ -65,10 +94,10 @@ describe("bounded conversation context", () => {
     expect(serialized).not.toContain("internal-turn-id");
     expect(serialized).not.toContain("internal-assistant-id");
     expect(projection.currentUserMessages).toEqual([{ ordinal: 0, content: "预算改成 2500,然后比较前两个", truncated: false }]);
-    expect(projection.dialogue.pendingClarification).toEqual({ slotId: "budget" });
+    expect(projection.dialogue.pendingClarification).toEqual({ clarificationId: "clarification-budget", clarification: { kind: "BUDGET" } });
     expect(projection.uiContext).toEqual({ focusOfferRef: "offer-2" });
     expect(projection.workingSet?.candidates).toHaveLength(20);
-    expect(projection.runtime).toMatchObject({ capabilities: ["compare", "rerank"], providerCallBudget: 0 });
+    expect(projection.runtime).toMatchObject({ capabilities: ["compare", "sort"], providerCallBudget: 0 });
     expect(projection.runtime.estimatedInputTokens).toBeLessThanOrEqual(8_000);
   });
 
@@ -88,11 +117,11 @@ describe("bounded conversation context", () => {
 
   it("does not project the generic protocol-recovery clarification as a product gap", () => {
     const current = state();
-    current.dialogue.pendingClarification = { slotId: "turn_rephrase", askedByMessageId: secretMessageId };
+    current.dialogue.pendingClarification = { clarification: { kind: "TURN_REPHRASE" }, askedByMessageId: secretMessageId };
     const projection = projectConversationContext({
       state: current,
       currentUserMessages: ["预算 2500 元，比较美国和新加坡"],
-      capabilities: ["research"],
+      capabilities: ["search"],
       now: "2026-08-26T00:00:00.000Z",
       modelId: "faux-model",
       providerCallBudget: 1,

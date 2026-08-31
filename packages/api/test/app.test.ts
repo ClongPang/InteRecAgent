@@ -6,7 +6,7 @@ import type {
   AcceptedConversationTurn,
   ConversationEventRecord,
   ConversationMessageRecord,
-  ConversationRecordV3,
+  ConversationRecord,
   ConversationRepository,
   ConversationTurnRecord,
   OwnerClaims,
@@ -19,13 +19,13 @@ const owner: OwnerClaims = { tenantId: "tenant-a", ownerId: "owner-a" };
 const other: OwnerClaims = { tenantId: "tenant-a", ownerId: "owner-b" };
 
 class ApiRepositoryStub {
-  public conversation: ConversationRecordV3 | null = null;
+  public conversation: ConversationRecord | null = null;
   public messages: ConversationMessageRecord[] = [];
   public events: ConversationEventRecord[] = [];
   public turn: ConversationTurnRecord | null = null;
   public readonly state: ConversationState = { revision: 0, status: "OPEN", goalRevision: null, dialogue: emptyDialogueState(), workingSet: null };
 
-  public async createConversation(claims: OwnerClaims): Promise<ConversationRecordV3> {
+  public async createConversation(claims: OwnerClaims): Promise<ConversationRecord> {
     const now = new Date().toISOString();
     this.conversation = { id: randomUUID(), owner: claims, status: "OPEN", currentRevision: 0, messageCursor: 0, eventCursor: 0, activeTurnId: null, createdAt: now, updatedAt: now };
     return this.conversation;

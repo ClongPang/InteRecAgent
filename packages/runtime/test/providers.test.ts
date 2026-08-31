@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveProductTarget, type Goal } from "@interec/domain";
+import { resolveProductTarget, type SearchGoalSnapshot } from "@interec/domain";
 
-import { buildResearchProofBundle, BuyWhereClient, FxRatesClient, researchOffers, runResearchCampaign, resolveBuyWhereRuntimeConfig, resolveBuyWhereTimeoutMs, type ProductSearchPort } from "../src/index.js";
+import { buildSearchProvenanceBundle, BuyWhereClient, FxRatesClient, searchOffers, runOfferSearchBatch, resolveBuyWhereRuntimeConfig, resolveBuyWhereTimeoutMs, type ProductSearchPort, type SemanticRelevancePort } from "../src/index.js";
 
 describe("provider adapters", () => {
   it("forces BuyWhere keyword mode and a bounded market query", async () => {
@@ -50,8 +50,8 @@ describe("provider adapters", () => {
   });
 });
 
-describe("evidence-gated cross-market research", () => {
-  const goal: Goal = {
+describe("evidence-gated cross-market offer search", () => {
+  const goal: SearchGoalSnapshot = {
     query: "Sony WH-1000XM5 headphones",
     target: resolveProductTarget("Sony WH-1000XM5 headphones"),
     markets: ["US", "SG"],
@@ -60,7 +60,7 @@ describe("evidence-gated cross-market research", () => {
     excludedOfferRefs: [],
   };
 
-  it("degrades one failed market and promotes only proof-carrying results", async () => {
+  it("degrades one failed market and promotes only source-grounded results", async () => {
     const productSource: ProductSearchPort = {
       search: async (_query, market) => {
         if (market === "SG") throw new Error("BUYWHERE_HTTP_503");
@@ -81,11 +81,11 @@ describe("evidence-gated cross-market research", () => {
         };
       },
     };
-    const result = await researchOffers(goal, goal.query, productSource, {
+    const result = await searchOffers(goal, goal.query, productSource, {
       getRate: async (base) => ({ id: "fx", base, quote: "CNY", rate: "7", provider: "test", observedAt: "2026-08-26T00:00:00.000Z", expiresAt: "2026-08-27T00:00:00.000Z" }),
     });
-    expect(result.comparisonSet.rankedOffers).toHaveLength(1);
-    expect(result.comparisonSet.rankedOffers[0]?.offer.cnyEstimate.amount).toBe("2093.00");
+    expect(result.rankedOfferSet.rankedOffers).toHaveLength(1);
+    expect(result.rankedOfferSet.rankedOffers[0]?.offer.cnyEstimate.amount).toBe("2093.00");
     expect(result.listings[0]?.originalMoney.evidence[0]?.jsonPath).toBe("$.data[0].price.amount");
     expect(result.markets).toEqual([
       expect.objectContaining({ market: "US", status: "COMPLETED" }),
@@ -93,8 +93,8 @@ describe("evidence-gated cross-market research", () => {
     ]);
   });
 
-  it("builds proof-backed Discovery candidates for an unregistered category", async () => {
-    const openGoal: Goal = {
+  it("builds source-grounded search-only candidates for an unregistered category", async () => {
+    const openGoal: SearchGoalSnapshot = {
       query: "lightweight laptop",
       target: { categoryId: "laptop", targetText: "lightweight laptop", canonicalModel: null, itemRole: "PRIMARY_PRODUCT", conditionPreference: "ANY" },
       markets: ["US"],
@@ -114,18 +114,124 @@ describe("evidence-gated cross-market research", () => {
       metadata: { product_type: "Notebook Computer" },
     };
     const payload = { data: [product] };
-    const campaign = await runResearchCampaign(openGoal, [openGoal.query], {
+    const batch = await runOfferSearchBatch(openGoal, [openGoal.query], {
       search: async (_query, market) => ({ market, products: [product], artifactRef: "sha256:open", rawPayload: payload, observedAt: "2026-08-26T00:00:00.000Z" }),
     }, {
       getRate: async (base) => ({ id: "fx-open", base, quote: "CNY", rate: "7", provider: "test", observedAt: "2026-08-26T00:00:00.000Z", expiresAt: "2026-08-27T00:00:00.000Z" }),
     });
-    const proof = buildResearchProofBundle({ comparisonSet: campaign.comparisonSet, artifacts: campaign.artifacts, coverage: campaign.coverage, workingSetVersion: 2, boundGoalVersion: 1 });
-    expect(campaign.comparisonSet.qualifications[0]).toMatchObject({ status: "DISCOVERABLE", offer: { supportLevel: "DISCOVERY" } });
-    expect(proof.workingSet.pool[0]).toMatchObject({
+    const provenance = buildSearchProvenanceBundle({ rankedOfferSet: batch.rankedOfferSet, artifacts: batch.artifacts, coverage: batch.coverage, workingSetVersion: 2, boundGoalVersion: 1 });
+    expect(batch.rankedOfferSet.eligibilityResults[0]).toMatchObject({ status: "DISCOVERABLE", offer: { validationMode: "SEARCH_ONLY" } });
+    expect(provenance.workingSet.pool[0]).toMatchObject({
       title: "Lightweight Laptop 14",
-      discovery: { supportLevel: "DISCOVERY", identityLevel: "OFFER_ONLY", identityKey: null },
+      ranking: { validationMode: "SEARCH_ONLY", identityResolution: "LISTING_LEVEL", identityKey: null },
     });
-    expect(proof.claims.some((claim) => claim.kind === "PRICE")).toBe(true);
+    expect(provenance.claims.some((claim) => claim.kind === "PRICE")).toBe(true);
+  });
+
+  it("uses governed semantic corroboration for broad provider taxonomy and keeps related products out of main ranking", async () => {
+    const categoryGoal: SearchGoalSnapshot = {
+      query: "headphones",
+      target: { categoryId: "headphones", targetText: "headphones", canonicalModel: null, itemRole: "PRIMARY_PRODUCT", conditionPreference: "ANY" },
+      markets: ["US"],
+      budgetCny: null,
+      stockPreference: "ANY",
+      excludedOfferRefs: [],
+    };
+    const semanticRelevance: SemanticRelevancePort = {
+      classify: async (_goal, listings) => new Map(listings.map((listing) => [listing.listingRef, {
+        label: listing.title.value?.includes("Amplifier") ? "COMPLEMENT" as const : "EXACT" as const,
+        confidence: 0.98,
+        modelId: "semantic-test",
+      }])),
+    };
+    const products = [{
+      id: "primary",
+      title: "Planar Magnetic Headphones",
+      price: { amount: "299", currency: "USD" },
+      merchant: "Example",
+      url: "https://merchant.us/primary",
+      country_code: "US",
+      category_path: ["electronics"],
+    }, {
+      id: "related",
+      title: "Desktop DAC Headphone Amplifier",
+      price: { amount: "199", currency: "USD" },
+      merchant: "Example",
+      url: "https://merchant.us/related",
+      country_code: "US",
+      category_path: ["electronics"],
+    }];
+    const result = await searchOffers(categoryGoal, categoryGoal.query, {
+      search: async (_query, market) => ({ market, products, artifactRef: "sha256:semantic", rawPayload: { data: products }, observedAt: "2026-08-26T00:00:00.000Z" }),
+    }, {
+      getRate: async (base) => ({ id: "fx-semantic", base, quote: "CNY", rate: "7", provider: "test", observedAt: "2026-08-26T00:00:00.000Z", expiresAt: "2026-08-27T00:00:00.000Z" }),
+    }, undefined, semanticRelevance);
+
+    expect(result.rankedOfferSet.rankedOffers.map((item) => item.offer.title)).toEqual(["Planar Magnetic Headphones"]);
+    expect(result.rankedOfferSet.eligibilityResults.map((item) => item.queryProductRelevance.label)).toEqual(["EXACT", "COMPLEMENT"]);
+    expect(result.rankedOfferSet.eligibilityResults[1]).toMatchObject({ status: "INELIGIBLE", candidateAdmission: { cohort: "RELATED_COHORT" } });
+  });
+
+  it("retries a transient semantic-evidence failure before failing closed", async () => {
+    const categoryGoal: SearchGoalSnapshot = {
+      query: "washing machine",
+      target: { categoryId: "washing_machine", targetText: "前置式洗衣机", canonicalModel: null, itemRole: "PRIMARY_PRODUCT", conditionPreference: "ANY" },
+      markets: ["SG"],
+      budgetCny: null,
+      stockPreference: "ANY",
+      excludedOfferRefs: [],
+    };
+    const product = {
+      id: "washer",
+      title: "Front Load Washing Machine 10kg",
+      price: { amount: "799", currency: "SGD" },
+      merchant: "Example",
+      url: "https://merchant.sg/washer",
+      country_code: "SG",
+      category_path: ["Home Appliances", "Washing Machines"],
+      metadata: { product_type: "Front Load Washer" },
+    };
+    let semanticCalls = 0;
+    const result = await searchOffers(categoryGoal, categoryGoal.query, {
+      search: async (_query, market) => ({ market, products: [product], artifactRef: "sha256:washer", rawPayload: { data: [product] }, observedAt: "2026-08-26T00:00:00.000Z" }),
+    }, {
+      getRate: async (base) => ({ id: "fx-washer", base, quote: "CNY", rate: "5.4", provider: "test", observedAt: "2026-08-26T00:00:00.000Z", expiresAt: "2026-08-27T00:00:00.000Z" }),
+    }, undefined, {
+      classify: async (_goal, listings) => {
+        semanticCalls += 1;
+        if (semanticCalls === 1) throw new Error("MODEL_PROVIDER_TEMPORARY");
+        return new Map(listings.map((listing) => [listing.listingRef, { label: "EXACT" as const, confidence: 0.99, modelId: "semantic-test" }]));
+      },
+    });
+
+    expect(result.semanticEvaluation).toEqual({ outcome: "SUCCEEDED", attempts: 2, failureCode: null });
+    expect(result.rankedOfferSet.eligibilityResults[0]?.queryProductRelevance.label).toBe("EXACT");
+  });
+
+  it("exposes semantic-evidence unavailability after the bounded retry budget", async () => {
+    const result = await searchOffers({ ...goal, markets: ["US"] }, goal.query, {
+      search: async (_query, market) => ({
+        market,
+        products: [{
+          id: "semantic-unavailable",
+          title: "Sony WH-1000XM5 Headphones",
+          price: { amount: "299", currency: "USD" },
+          merchant: "Example",
+          url: "https://merchant.us/semantic-unavailable",
+          country_code: "US",
+          category_path: ["Portable Audio", "Headphones"],
+        }],
+        artifactRef: "sha256:semantic-unavailable",
+        rawPayload: {},
+        observedAt: "2026-08-26T00:00:00.000Z",
+      }),
+    }, {
+      getRate: async (base) => ({ id: "fx-unavailable", base, quote: "CNY", rate: "7", provider: "test", observedAt: "2026-08-26T00:00:00.000Z", expiresAt: "2026-08-27T00:00:00.000Z" }),
+    }, undefined, {
+      classify: async () => { throw new Error("SEMANTIC_RELEVANCE_JSON_REQUIRED"); },
+    });
+
+    expect(result.semanticEvaluation).toEqual({ outcome: "FAILED", attempts: 2, failureCode: "PROTOCOL_INVALID" });
   });
 
   it("keeps a cheap foreign-domain result in the audit ledger but out of comparison", async () => {
@@ -146,32 +252,32 @@ describe("evidence-gated cross-market research", () => {
         observedAt: "2026-08-26T00:00:00.000Z",
       }),
     };
-    const result = await researchOffers({ ...goal, markets: ["SG"] }, goal.query, productSource, {
+    const result = await searchOffers({ ...goal, markets: ["SG"] }, goal.query, productSource, {
       getRate: async (base) => ({ id: "fx", base, quote: "CNY", rate: "7", provider: "test", observedAt: "2026-08-26T00:00:00.000Z", expiresAt: "2026-08-27T00:00:00.000Z" }),
     });
     expect(result.listings).toHaveLength(1);
-    expect(result.comparisonSet.rankedOffers).toHaveLength(0);
-    expect(result.comparisonSet.qualifications[0]).toMatchObject({ status: "INELIGIBLE", reasonCodes: ["MARKET_EVIDENCE_CONFLICT"] });
+    expect(result.rankedOfferSet.rankedOffers).toHaveLength(0);
+    expect(result.rankedOfferSet.eligibilityResults[0]).toMatchObject({ status: "INELIGIBLE", reasonCodes: ["MARKET_EVIDENCE_CONFLICT"] });
   });
 
-  it("returns an explicit unavailable wave with per-market causes when every provider call fails", async () => {
-    const result = await researchOffers(goal, goal.query, {
+  it("returns an explicit unavailable attempt with per-market causes when every provider call fails", async () => {
+    const result = await searchOffers(goal, goal.query, {
       search: async (_query, market) => { throw new Error(market === "US" ? "BUYWHERE_TIMEOUT" : "BUYWHERE_HTTP_503"); },
     }, {
       getRate: async () => { throw new Error("FX_MUST_NOT_RUN_WITHOUT_ARTIFACTS"); },
     });
     expect(result.availability).toBe("UNAVAILABLE");
     expect(result.artifacts).toEqual([]);
-    expect(result.comparisonSet.rankedOffers).toEqual([]);
+    expect(result.rankedOfferSet.rankedOffers).toEqual([]);
     expect(result.markets).toEqual([
       expect.objectContaining({ market: "US", status: "FAILED", errorCode: "BUYWHERE_TIMEOUT" }),
       expect.objectContaining({ market: "SG", status: "FAILED", errorCode: "BUYWHERE_HTTP_503" }),
     ]);
   });
 
-  it("merges waves by stable listing identity and stops when a second wave adds no comparable offer", async () => {
+  it("merges attempts by stable listing identity and stops when a second attempt adds no comparable offer", async () => {
     let calls = 0;
-    const campaign = await runResearchCampaign({ ...goal, markets: ["US"] }, ["specific", "broader"], {
+    const batch = await runOfferSearchBatch({ ...goal, markets: ["US"] }, ["specific", "broader"], {
       search: async (_query, market) => {
         calls += 1;
         return {
@@ -185,7 +291,7 @@ describe("evidence-gated cross-market research", () => {
             country_code: "US",
             category_path: ["Portable Audio", "Headphones"],
           }],
-          artifactRef: `sha256:wave-${calls}`,
+          artifactRef: `sha256:attempt-${calls}`,
           rawPayload: { data: [] },
           observedAt: `2026-08-26T00:00:0${calls}.000Z`,
         };
@@ -193,8 +299,8 @@ describe("evidence-gated cross-market research", () => {
     }, {
       getRate: async (base) => ({ id: `fx-${calls}`, base, quote: "CNY", rate: "7", provider: "test", observedAt: "2026-08-26T00:00:00.000Z", expiresAt: "2026-08-27T00:00:00.000Z" }),
     });
-    expect(campaign.waves).toHaveLength(2);
-    expect(campaign.listings).toHaveLength(1);
-    expect(campaign.coverage).toMatchObject({ comparableCount: 1, stopReason: "NO_NEW_COMPARABLES", adequate: true });
+    expect(batch.attempts).toHaveLength(2);
+    expect(batch.listings).toHaveLength(1);
+    expect(batch.coverage).toMatchObject({ comparableCount: 1, stopReason: "NO_NEW_COMPARABLES", adequate: true });
   });
 });

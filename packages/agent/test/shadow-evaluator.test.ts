@@ -8,7 +8,7 @@ import {
   type ShadowPolicy,
 } from "../src/shadow-evaluator.js";
 
-const routes = ["talk", "clarify", "refilter", "rerank", "research"];
+const routes = ["talk", "clarify", "refilter", "sort", "search"];
 const policy: ShadowPolicy = { minimumRouteCounts: Object.fromEntries(routes.map((route) => [route, 10])) };
 
 function passingCorpus(): ShadowConversationResult[] {

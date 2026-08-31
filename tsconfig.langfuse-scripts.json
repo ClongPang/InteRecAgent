@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": [
+    "scripts/sync_langfuse_eval_dataset.ts",
+    "scripts/sync_langfuse_prompt.ts",
+    "scripts/publish_langfuse_development_evaluation.ts",
+    "scripts/publish_langfuse_development_evaluation_scores.ts",
+    "scripts/check_langfuse_development_evaluation.ts"
+  ]
+}

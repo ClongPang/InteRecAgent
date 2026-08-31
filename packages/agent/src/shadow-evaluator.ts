@@ -1,4 +1,4 @@
-const REQUIRED_ROUTES = ["talk", "clarify", "refilter", "rerank", "research"] as const;
+const REQUIRED_ROUTES = ["talk", "clarify", "refilter", "sort", "search"] as const;
 
 export interface ShadowTurnResult {
   route: string;

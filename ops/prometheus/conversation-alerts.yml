@@ -63,3 +63,25 @@ groups:
         for: 0m
         labels: { severity: P1 }
         annotations: { summary: "Conversation event entered the outbox dead letter state" }
+  - name: interec-conversation-behavior
+    rules:
+      - alert: InteRecGoalFieldRetentionFailure
+        expr: increase(rec_agent_goal_retention_checks_total{outcome="FAIL"}[5m]) > 0
+        for: 0m
+        labels: { severity: P1 }
+        annotations: { summary: "A known shopping-goal field changed while resolving another clarification" }
+      - alert: InteRecPlanRepairExhausted
+        expr: increase(rec_agent_plan_review_decisions_total{decision="REJECTED"}[5m]) > 0
+        for: 0m
+        labels: { severity: P1 }
+        annotations: { summary: "A Turn exhausted its bounded plan-repair budget" }
+      - alert: InteRecRepeatedClarificationRateHigh
+        expr: sum(rate(rec_agent_clarification_resolutions_total{outcome="REPEATED"}[15m])) / clamp_min(sum(rate(rec_agent_clarification_resolutions_total[15m])), 0.000001) > 0.1
+        for: 15m
+        labels: { severity: P2 }
+        annotations: { summary: "More than 10% of clarification answers repeat the same unresolved question" }
+      - alert: InteRecSemanticRelevanceFailureRateHigh
+        expr: sum(rate(rec_agent_semantic_relevance_attempts_total{outcome="FAILED"}[15m])) / clamp_min(sum(rate(rec_agent_semantic_relevance_attempts_total[15m])), 0.000001) > 0.1
+        for: 15m
+        labels: { severity: P2 }
+        annotations: { summary: "More than 10% of semantic relevance attempts require fail-closed handling" }

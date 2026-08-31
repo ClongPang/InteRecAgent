@@ -2,11 +2,11 @@ import { randomUUID } from "node:crypto";
 
 import { BuyWhereClient, FxRatesClient } from "./providers.js";
 import { ConversationWorker } from "./conversation-worker.js";
-import { PostgresConversationResearchRepository } from "./conversation-research-repository.js";
+import { PostgresConversationSearchRepository } from "./conversation-search-repository.js";
 import { createPiModelRuntime } from "./model-factory.js";
 import { registerPostgresOperationalMetrics } from "./operational-metrics.js";
 import { PostgresConversationRepository } from "./postgres-conversation-repository.js";
-import { PostgresProviderGovernor } from "./provider-governor.js";
+import { PostgresProviderCallController } from "./provider-call-controller.js";
 import { resolveBuyWhereRuntimeConfig } from "./runtime-config.js";
 import { startTelemetry } from "./telemetry.js";
 
@@ -23,8 +23,8 @@ const telemetry = await startTelemetry("interec-conversation-worker");
 const operationalMetrics = registerPostgresOperationalMetrics(repository.pool);
 const worker = new ConversationWorker(
   repository,
-  new PostgresConversationResearchRepository(repository.pool),
-  new PostgresProviderGovernor(repository.pool),
+  new PostgresConversationSearchRepository(repository.pool),
+  new PostgresProviderCallController(repository.pool),
   new BuyWhereClient(buyWhere.apiKey, { timeoutMs: buyWhere.timeoutMs }),
   new FxRatesClient(),
   createPiModelRuntime(),

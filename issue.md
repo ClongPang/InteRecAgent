@@ -304,7 +304,7 @@ planner.finalize
 commit_turn_plan
 ├─ validate-plan
 ├─ stage-plan
-├─ execute-operation: inspect-research-coverage
+├─ execute-operation: inspect-search-coverage
 │  └─ load-research-wave
 ├─ execute-operation: research
 │  └─ search-provider

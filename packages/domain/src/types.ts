@@ -1,9 +1,10 @@
-import type { MarketId } from "./catalog-contracts.js";
-import type { CandidateDiscoveryMetadata, RecommendationSupportLevel } from "./discovery.js";
+import type { MarketId } from "./catalog-validation-policies.js";
+import type { CandidateRankingMetadata, CategoryValidationMode } from "./candidate-ranking-types.js";
+import type { CandidateAdmissionDecision, QueryProductRelevanceAssessment } from "./query-product-relevance-types.js";
 
 export type Market = MarketId;
 export type StockStatus = "IN_STOCK" | "OUT_OF_STOCK" | "UNKNOWN";
-export type EvidenceStatus = "OBSERVED" | "DERIVED" | "VERIFIED" | "UNKNOWN" | "CONFLICTED" | "EXPIRED";
+export type SourceValueStatus = "OBSERVED" | "DERIVED" | "UNKNOWN" | "CONFLICTED" | "EXPIRED";
 
 export interface EvidenceRef {
   artifactRef: string;
@@ -12,16 +13,16 @@ export interface EvidenceRef {
   observedAt: string;
 }
 
-export interface Fact<T> {
+export interface SourcedValue<T> {
   value: T | null;
-  status: EvidenceStatus;
+  status: SourceValueStatus;
   evidence: EvidenceRef[];
 }
 
 export type ItemRole = "PRIMARY_PRODUCT" | "ACCESSORY" | "REPLACEMENT_PART" | "BUNDLE" | "SERVICE" | "UNKNOWN";
 export type ProductCondition = "NEW" | "REFURBISHED" | "USED" | "UNKNOWN";
 
-export interface ProductTarget {
+export interface SearchTargetSnapshot {
   categoryId: string;
   targetText?: string;
   canonicalModel: string | null;
@@ -29,9 +30,9 @@ export interface ProductTarget {
   conditionPreference: "NEW" | "NEW_OR_UNSPECIFIED" | "REFURBISHED" | "USED" | "ANY";
 }
 
-export interface Goal {
+export interface SearchGoalSnapshot {
   query: string;
-  target: ProductTarget;
+  target: SearchTargetSnapshot;
   markets: Market[];
   budgetCny: string | null;
   stockPreference: "ANY" | "KNOWN_IN_STOCK";
@@ -64,32 +65,32 @@ export interface FxSnapshot {
 }
 
 export interface ProductIdentity {
-  categoryId: Fact<string>;
-  canonicalModel: Fact<string>;
-  itemRole: Fact<ItemRole>;
-  condition: Fact<ProductCondition>;
+  categoryId: SourcedValue<string>;
+  canonicalModel: SourcedValue<string>;
+  itemRole: SourcedValue<ItemRole>;
+  condition: SourcedValue<ProductCondition>;
   comparisonKey: string | null;
   status: "RESOLVED" | "UNRESOLVED" | "CONFLICTED";
 }
 
-export interface DiscoveredListing {
+export interface RetrievedListing {
   listingRef: string;
   provider: "buywhere";
   providerListingId: string;
   retrievalMarket: Market;
-  title: Fact<string>;
-  originalMoney: Fact<Money>;
-  merchantLabel: Fact<string>;
-  merchantTargetUrl: Fact<string>;
-  merchantDomain: Fact<string>;
-  outboundUrl: Fact<string>;
-  providerCountry: Fact<string>;
-  categoryPath: Fact<string[]>;
-  providerProductType: Fact<string>;
-  stock: Fact<StockStatus>;
+  title: SourcedValue<string>;
+  originalMoney: SourcedValue<Money>;
+  merchantLabel: SourcedValue<string>;
+  merchantTargetUrl: SourcedValue<string>;
+  merchantDomain: SourcedValue<string>;
+  outboundUrl: SourcedValue<string>;
+  providerCountry: SourcedValue<string>;
+  categoryPath: SourcedValue<string[]>;
+  providerProductType: SourcedValue<string>;
+  stock: SourcedValue<StockStatus>;
   identity: ProductIdentity;
-  imageUrl: Fact<string>;
-  sourceUpdatedAt: Fact<string>;
+  imageUrl: SourcedValue<string>;
+  sourceUpdatedAt: SourcedValue<string>;
   observedAt: string;
   rawArtifactRef: string;
 }
@@ -109,7 +110,7 @@ export interface ComparableOffer {
   listingRef: string;
   provider: "buywhere";
   productIdentity: ProductIdentity;
-  /** Goal category hint; distinct from a verified item identity. */
+  /** Shopping-goal category hint; distinct from a rule-resolved product identity. */
   targetCategoryId: string;
   title: string;
   originalMoney: Money;
@@ -122,20 +123,24 @@ export interface ComparableOffer {
   stock: StockStatus;
   condition: ProductCondition;
   observedAt: string;
-  supportLevel: RecommendationSupportLevel;
-  discovery: CandidateDiscoveryMetadata;
+  validationMode: CategoryValidationMode;
+  ranking: CandidateRankingMetadata;
+  queryProductRelevance: QueryProductRelevanceAssessment;
+  candidateAdmission: CandidateAdmissionDecision;
   evidenceRefs: EvidenceRef[];
-  qualification: {
+  eligibility: {
     status: "COMPARABLE" | "DISCOVERABLE";
-    policyVersion: "proof-carrying-v1" | "proof-carrying-v2";
+    policyVersion: "source-grounding-v1" | "source-grounding-v2" | "source-grounding-v3";
     reasonCodes: string[];
   };
 }
 
-export interface QualificationResult {
-  listing: DiscoveredListing;
+export interface ListingEligibilityResult {
+  listing: RetrievedListing;
   status: "COMPARABLE" | "DISCOVERABLE" | "INELIGIBLE" | "INSUFFICIENT_EVIDENCE";
   reasonCodes: string[];
+  queryProductRelevance: QueryProductRelevanceAssessment;
+  candidateAdmission: CandidateAdmissionDecision;
   offer: ComparableOffer | null;
 }
 
@@ -143,12 +148,12 @@ export interface RankedComparableOffer {
   offer: ComparableOffer;
   rank: number;
   rankingReasonCodes: string[];
-  rankVector: CandidateDiscoveryMetadata["rankVector"];
+  rankVector: CandidateRankingMetadata["rankVector"];
 }
 
-export interface ComparisonSet {
-  policyVersion: "proof-carrying-v1" | "proof-carrying-v2";
-  qualifications: QualificationResult[];
+export interface RankedOfferSet {
+  policyVersion: "source-grounding-v1" | "source-grounding-v2" | "source-grounding-v3";
+  eligibilityResults: ListingEligibilityResult[];
   rankedOffers: RankedComparableOffer[];
 }
 
@@ -181,7 +186,7 @@ export interface BuyWhereRawProduct {
 
 export interface ListingIngestionContext {
   retrievalMarket: Market;
-  target: ProductTarget;
+  target: SearchTargetSnapshot;
   observedAt: string;
   rawArtifactRef: string;
   jsonPathPrefix?: string;

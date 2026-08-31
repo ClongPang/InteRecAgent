@@ -29,7 +29,7 @@
           "allowedOutcomes": ["GOAL_UPDATED"],
           "requiredCandidateRefs": [],
           "requiredAnswerSlots": ["constraint_summary"],
-          "requiredFacts": [],
+          "requiredResponseFields": [],
           "expectedTerminalStates": ["APPLIED"]
         },
         {
@@ -44,15 +44,15 @@
           "allowedOutcomes": ["RECOMMENDATION"],
           "requiredCandidateRefs": ["offer-a"],
           "requiredAnswerSlots": ["price"],
-          "requiredFacts": [{ "offerRef": "offer-a", "predicate": "price", "normalizedValue": 999, "unitOrCurrency": "CNY", "evidenceScope": "listing" }],
+          "requiredResponseFields": [{ "offerRef": "offer-a", "predicate": "price", "normalizedValue": 999, "unitOrCurrency": "CNY", "evidenceScope": "listing" }],
           "expectedTerminalStates": ["PUBLISHED"]
         }
       ],
-      "independentListingGold": [
+      "listingEligibilityLabels": [
         { "offerRef": "offer-a", "qualified": true, "resultLevel": "RECOMMENDATION" },
         { "offerRef": "offer-b", "qualified": false, "resultLevel": "REJECT" }
       ],
-      "independentSourceFactGold": [
+      "sourceFieldReferenceLabels": [
         { "sourceFactRef": "source-price-a", "offerRef": "offer-a", "predicate": "price", "normalizedValue": 999, "unitOrCurrency": "CNY", "evidenceScope": "listing" }
       ]
     },
@@ -77,7 +77,7 @@
           "allowedOutcomes": ["NO_MATCH"],
           "requiredCandidateRefs": [],
           "requiredAnswerSlots": ["no_match_reason"],
-          "requiredFacts": [],
+          "requiredResponseFields": [],
           "expectedTerminalStates": ["DEGRADED"]
         },
         {
@@ -92,12 +92,12 @@
           "allowedOutcomes": ["CLARIFICATION"],
           "requiredCandidateRefs": [],
           "requiredAnswerSlots": ["next_step"],
-          "requiredFacts": [],
+          "requiredResponseFields": [],
           "expectedTerminalStates": ["PUBLISHED"]
         }
       ],
-      "independentListingGold": [],
-      "independentSourceFactGold": []
+      "listingEligibilityLabels": [],
+      "sourceFieldReferenceLabels": []
     }
   ],
   "trials": [

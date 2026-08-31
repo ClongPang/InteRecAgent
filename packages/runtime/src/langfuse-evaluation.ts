@@ -1,13 +1,19 @@
-import { createHash } from "node:crypto";
+﻿import { createHash } from "node:crypto";
 
-import type { GoldBlueprint, GoldBlueprintTask, InternalQualificationCases } from "@interec/agent";
+import {
+  evaluateDevelopmentBehaviorAssertions,
+  type DevelopmentEvaluationCases,
+  type DevelopmentTurnExpectation,
+  type EvaluationAuthoringPlan,
+  type EvaluationPlanTask,
+} from "@interec/agent";
 
-export const INTERNAL_QUALIFICATION_DATASET_NAME = "interec-agent/internal-qualification/gold-v1";
-export const INTERNAL_QUALIFICATION_EVALUATOR_VERSION = "qualification-v1";
+export const DEVELOPMENT_EVALUATION_DATASET_NAME = "interec-agent/development-evaluation/v1";
+export const DEVELOPMENT_EVALUATION_EVALUATOR_VERSION = "development-evaluation-v1";
 
 const DATASET_ITEM_NAMESPACE = "7d784350-60f6-50b0-8a04-c6b2d86f2105";
 
-export interface QualificationDatasetItem {
+export interface DevelopmentEvaluationDatasetItem {
   id: string;
   datasetName: string;
   input: {
@@ -18,39 +24,40 @@ export interface QualificationDatasetItem {
     focusDisplayRank?: number;
   };
   expectedOutput: {
-    fixtureOutcome: GoldBlueprintTask["fixtureOutcome"];
+    fixtureOutcome: EvaluationPlanTask["fixtureOutcome"];
     requiresQualifiedOutput: boolean;
-    minRequiredFacts: number;
-    turns: GoldBlueprintTask["turns"];
+    minRequiredResponseFields: number;
+    turns: EvaluationPlanTask["turns"];
+    turnExpectations?: DevelopmentTurnExpectation[];
     independentReviewerBrief: string[];
   };
   metadata: {
     family: string;
     title: string;
     businessRisk: string;
-    blueprintVersion: string;
-    blueprintSemanticSha256: string;
+    planVersion: string;
+    planSemanticSha256: string;
     casesSha256: string;
     fixtureVersion: string;
     fixtureSha256: string;
     capabilities: string[];
     invariants: string[];
     criticalSlices: string[];
-    qualificationLevel: "INTERNAL_QUALIFICATION";
+    evaluationScope: "DEVELOPMENT_EVALUATION";
     eligibleForResumeMetrics: false;
     privacyClass: "SYNTHETIC_EVALUATION";
     evaluatorVersion: string;
   };
 }
 
-export interface QualificationDatasetBuildOptions {
+export interface DevelopmentEvaluationDatasetBuildOptions {
   datasetName?: string;
   casesSha256: string;
   fixtureVersion: string;
   fixtureSha256: string;
 }
 
-export interface QualificationTraceScore {
+export interface DevelopmentEvaluationTraceScore {
   id: string;
   traceId: string;
   name: string;
@@ -60,7 +67,7 @@ export interface QualificationTraceScore {
   metadata: Record<string, unknown>;
 }
 
-export interface QualificationExperimentEvaluation {
+export interface EvaluationExperimentEvaluation {
   passed: boolean;
   checks: {
     runnerTerminal: boolean;
@@ -71,6 +78,7 @@ export interface QualificationExperimentEvaluation {
     plannedFactsObserved: boolean;
     stateEffectsConsistent: boolean;
     traceComplete: boolean;
+    behaviorInvariants: boolean;
   };
   observed: {
     outcomes: string[];
@@ -78,6 +86,7 @@ export interface QualificationExperimentEvaluation {
     claimCount: number;
     displayCount: number;
     sourceTraceIds: string[];
+    behaviorAssertionFailures: string[];
   };
 }
 
@@ -110,17 +119,17 @@ function strings(value: unknown): string[] {
   return array(value).filter((item): item is string => typeof item === "string");
 }
 
-function expectedOutcomePassed(outcome: string, observed: string[], researchRows: JsonRecord[], disclosures: string[]): boolean {
+function expectedOutcomePassed(outcome: string, observed: string[], searchRows: JsonRecord[], disclosures: string[]): boolean {
   if (outcome === "QUALIFIED_RECOMMENDATION") return observed.includes("RECOMMENDATION");
-  if (outcome === "DISCOVERY_ONLY") return observed.includes("DISCOVERY") && !observed.includes("RECOMMENDATION");
+  if (outcome === "SEARCH_RESULTS_ONLY") return observed.includes("SEARCH_RESULTS") && !observed.includes("RECOMMENDATION");
   if (outcome === "NO_QUALIFIED_OFFER") return observed.includes("NO_MATCH") && !observed.includes("RECOMMENDATION");
   if (outcome === "PARTIAL_RESULT") {
-    const partial = researchRows.some((row) => row["wave_status"] === "PARTIAL" || row["market_status"] === "FAILED");
+    const partial = searchRows.some((row) => row["wave_status"] === "PARTIAL" || row["market_status"] === "FAILED");
     return partial && disclosures.includes("PARTIAL_PROVIDER_COVERAGE")
-      && (observed.includes("RECOMMENDATION") || observed.includes("DISCOVERY"));
+      && (observed.includes("RECOMMENDATION") || observed.includes("SEARCH_RESULTS"));
   }
   if (outcome === "PROVIDER_UNAVAILABLE") {
-    const completedMarkets = researchRows.filter((row) => row["market_status"] === "COMPLETED").length;
+    const completedMarkets = searchRows.filter((row) => row["market_status"] === "COMPLETED").length;
     return completedMarkets === 0 && (observed.includes("NO_MATCH") || observed.includes("DEGRADED"));
   }
   return false;
@@ -150,10 +159,10 @@ function stateEffectsConsistent(finalState: JsonRecord): boolean {
     && workingSet["boundGoalVersion"] === goalRevision!["version"];
 }
 
-export function evaluateQualificationExperimentTrial(
+export function evaluateEvaluationExperimentTrial(
   trialValue: unknown,
   expectedValue: unknown,
-): QualificationExperimentEvaluation {
+): EvaluationExperimentEvaluation {
   const trial = record(trialValue, "experiment.trial");
   const expected = record(expectedValue, "experiment.expectedOutput");
   const turns = array(trial["turnEvidence"]).map((value) => record(value, "experiment.turnEvidence"));
@@ -169,7 +178,7 @@ export function evaluateQualificationExperimentTrial(
       return typeof claim["claimId"] === "string" ? [claim["claimId"]] : [];
     });
   }));
-  const researchRows = turns.flatMap((turn) => array(turn["research"]).map((value) => record(value, "experiment.research")));
+  const searchRows = turns.flatMap((turn) => array(turn["search"]).map((value) => record(value, "experiment.search")));
   const disclosures = turns.flatMap((turn) => {
     const envelope = record(turn["envelope_json"] ?? {}, "experiment.envelope");
     return array(envelope["blocks"]).flatMap((value) => {
@@ -181,22 +190,34 @@ export function evaluateQualificationExperimentTrial(
   const workingSet = finalState["workingSet"] ? record(finalState["workingSet"], "experiment.workingSet") : null;
   const displayCount = workingSet ? strings(workingSet["displayOfferRefs"]).length : 0;
   const sourceTraceIds = turns.map((turn) => String(turn["trace_id"] ?? "")).filter((id) => /^[0-9a-f]{32}$/.test(id));
+  const behaviorAssertions = evaluateDevelopmentBehaviorAssertions(
+    Array.isArray(expected["turnExpectations"]) ? expected["turnExpectations"] as DevelopmentTurnExpectation[] : undefined,
+    turns,
+  );
   const fixtureOutcome = String(expected["fixtureOutcome"] ?? "");
   const checks = {
     runnerTerminal: trial["status"] === "COMPLETED",
     noFailedTurn: turns.every((turn) => turn["status"] === "COMPLETED" || turn["status"] === "SUPERSEDED"),
     protocolClean: fallbackCodes.length === 0,
-    expectedOutcome: expectedOutcomePassed(fixtureOutcome, outcomes, researchRows, disclosures),
+    expectedOutcome: expectedOutcomePassed(fixtureOutcome, outcomes, searchRows, disclosures),
     qualifiedOutput: expected["requiresQualifiedOutput"] !== true || (outcomes.includes("RECOMMENDATION") && displayCount > 0),
-    plannedFactsObserved: claimIds.size >= Number(expected["minRequiredFacts"] ?? 0),
+    plannedFactsObserved: claimIds.size >= Number(expected["minRequiredResponseFields"] ?? 0),
     stateEffectsConsistent: stateEffectsConsistent(finalState),
     traceComplete: sourceTraceIds.length === turns.length && turns.length > 0,
+    behaviorInvariants: behaviorAssertions.passed,
   };
   return {
     passed: checks.runnerTerminal && checks.noFailedTurn && checks.expectedOutcome && checks.qualifiedOutput
-      && checks.plannedFactsObserved && checks.stateEffectsConsistent && checks.traceComplete,
+      && checks.plannedFactsObserved && checks.stateEffectsConsistent && checks.traceComplete && checks.behaviorInvariants,
     checks,
-    observed: { outcomes, fallbackCount: fallbackCodes.length, claimCount: claimIds.size, displayCount, sourceTraceIds },
+    observed: {
+      outcomes,
+      fallbackCount: fallbackCodes.length,
+      claimCount: claimIds.size,
+      displayCount,
+      sourceTraceIds,
+      behaviorAssertionFailures: behaviorAssertions.failures,
+    },
   };
 }
 
@@ -204,20 +225,20 @@ function sha256(value: string): string {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
-export function buildInternalQualificationDatasetItems(
-  blueprint: GoldBlueprint,
-  cases: InternalQualificationCases,
-  options: QualificationDatasetBuildOptions,
-): QualificationDatasetItem[] {
-  if (cases.blueprintVersion !== blueprint.blueprintVersion) throw new Error("LANGFUSE_DATASET_BLUEPRINT_VERSION_MISMATCH");
-  const taskById = new Map(blueprint.tasks.map((task) => [task.taskId, task]));
+export function buildDevelopmentEvaluationDatasetItems(
+  plan: EvaluationAuthoringPlan,
+  cases: DevelopmentEvaluationCases,
+  options: DevelopmentEvaluationDatasetBuildOptions,
+): DevelopmentEvaluationDatasetItem[] {
+  if (cases.planVersion !== plan.planVersion) throw new Error("LANGFUSE_DATASET_EVALUATION_PLAN_VERSION_MISMATCH");
+  const taskById = new Map(plan.tasks.map((task) => [task.taskId, task]));
   if (taskById.size !== cases.cases.length) throw new Error("LANGFUSE_DATASET_CASE_COUNT_MISMATCH");
-  const datasetName = options.datasetName ?? INTERNAL_QUALIFICATION_DATASET_NAME;
+  const datasetName = options.datasetName ?? DEVELOPMENT_EVALUATION_DATASET_NAME;
   return cases.cases.map((testCase) => {
     const task = taskById.get(testCase.taskId);
     if (!task) throw new Error(`LANGFUSE_DATASET_TASK_UNKNOWN:${testCase.taskId}`);
     return {
-      id: deterministicUuidV5(`${datasetName}\0${blueprint.blueprintVersion}\0${testCase.taskId}`),
+      id: deterministicUuidV5(`${datasetName}\0${plan.planVersion}\0${testCase.taskId}`),
       datasetName,
       input: {
         taskId: testCase.taskId,
@@ -229,26 +250,27 @@ export function buildInternalQualificationDatasetItems(
       expectedOutput: {
         fixtureOutcome: task.fixtureOutcome,
         requiresQualifiedOutput: task.requiresQualifiedOutput,
-        minRequiredFacts: task.minRequiredFacts,
+        minRequiredResponseFields: task.minRequiredResponseFields,
         turns: task.turns,
+        ...(testCase.turnExpectations ? { turnExpectations: testCase.turnExpectations } : {}),
         independentReviewerBrief: task.independentReviewerBrief,
       },
       metadata: {
         family: task.family,
         title: task.title,
         businessRisk: task.businessRisk,
-        blueprintVersion: blueprint.blueprintVersion,
-        blueprintSemanticSha256: cases.blueprintSemanticSha256,
+        planVersion: plan.planVersion,
+        planSemanticSha256: cases.planSemanticSha256,
         casesSha256: options.casesSha256,
         fixtureVersion: options.fixtureVersion,
         fixtureSha256: options.fixtureSha256,
         capabilities: task.capabilities,
         invariants: task.invariants,
         criticalSlices: task.criticalSlices,
-        qualificationLevel: "INTERNAL_QUALIFICATION",
+        evaluationScope: "DEVELOPMENT_EVALUATION",
         eligibleForResumeMetrics: false,
         privacyClass: "SYNTHETIC_EVALUATION",
-        evaluatorVersion: INTERNAL_QUALIFICATION_EVALUATOR_VERSION,
+        evaluatorVersion: DEVELOPMENT_EVALUATION_EVALUATOR_VERSION,
       },
     };
   });
@@ -263,7 +285,7 @@ function scorePlanEntry(
   evaluatorSha256: string,
   name: string,
   passed: boolean,
-): QualificationTraceScore {
+): DevelopmentEvaluationTraceScore {
   const value = passed ? 1 : 0;
   return {
     id: deterministicUuidV5(`score\0${traceId}\0${trialId}\0${name}\0${evaluatorSha256}`),
@@ -271,30 +293,30 @@ function scorePlanEntry(
     name,
     value,
     dataType: "BOOLEAN",
-    comment: `${INTERNAL_QUALIFICATION_EVALUATOR_VERSION}: ${name}=${value}`,
+    comment: `${DEVELOPMENT_EVALUATION_EVALUATOR_VERSION}: ${name}=${value}`,
     metadata: {
       scope: "multi_turn_trial",
       taskId,
       trialId,
       runIndex,
       sourceTraceIds: traceIds,
-      evaluatorVersion: INTERNAL_QUALIFICATION_EVALUATOR_VERSION,
+      evaluatorVersion: DEVELOPMENT_EVALUATION_EVALUATOR_VERSION,
       evaluatorSha256,
       eligibleForResumeMetrics: false,
     },
   };
 }
 
-export function buildQualificationTraceScorePlan(scoreReportValue: unknown, runValue: unknown): QualificationTraceScore[] {
+export function buildDevelopmentEvaluationTraceScorePlan(scoreReportValue: unknown, runValue: unknown): DevelopmentEvaluationTraceScore[] {
   const scoreReport = record(scoreReportValue, "scoreReport");
   const run = record(runValue, "run");
-  if (scoreReport["qualificationLevel"] !== "INTERNAL_QUALIFICATION" || scoreReport["eligibleForResumeMetrics"] !== false) {
+  if (scoreReport["evaluationScope"] !== "DEVELOPMENT_EVALUATION" || scoreReport["eligibleForResumeMetrics"] !== false) {
     throw new Error("LANGFUSE_SCORE_BOUNDARY_INVALID");
   }
-  if (run["qualificationLevel"] !== "INTERNAL_QUALIFICATION" || run["eligibleForResumeMetrics"] !== false) {
+  if (run["evaluationScope"] !== "DEVELOPMENT_EVALUATION" || run["eligibleForResumeMetrics"] !== false) {
     throw new Error("LANGFUSE_RUN_BOUNDARY_INVALID");
   }
-  for (const key of ["blueprintSemanticSha256", "fixtureSha256", "implementationSha256"] as const) {
+  for (const key of ["planSemanticSha256", "fixtureSha256", "implementationSha256"] as const) {
     if (scoreReport[key] !== run[key]) throw new Error(`LANGFUSE_SCORE_RUN_MISMATCH:${key}`);
   }
   const evaluatorSha256 = String(scoreReport["evaluatorSha256"] ?? "");
@@ -303,7 +325,7 @@ export function buildQualificationTraceScorePlan(scoreReportValue: unknown, runV
     const trial = record(value, "run.trial");
     return [String(trial["trialId"]), trial] as const;
   }));
-  return array(scoreReport["trials"]).flatMap((value): QualificationTraceScore[] => {
+  return array(scoreReport["trials"]).flatMap((value): DevelopmentEvaluationTraceScore[] => {
     const scored = record(value, "score.trial");
     const trialId = String(scored["trialId"] ?? "");
     const taskId = String(scored["taskId"] ?? "");
@@ -318,11 +340,11 @@ export function buildQualificationTraceScorePlan(scoreReportValue: unknown, runV
     const runIndex = Number(runTrial["runIndex"]);
     if (!Number.isSafeInteger(runIndex) || runIndex < 1) throw new Error(`LANGFUSE_SCORE_RUN_INDEX_INVALID:${trialId}`);
     const dimensions = [
-      ["qualification_business_pass", scored["passed"] === true],
-      ["qualification_protocol_clean", checks["protocolClean"] === true],
-      ["qualification_expected_outcome", checks["expectedOutcome"] === true],
-      ["qualification_state_consistent", checks["stateEffectsConsistent"] === true],
-      ["qualification_operation_diagnostics", checks["operationTraceDiagnostic"] === true],
+      ["development_eval_business_pass", scored["passed"] === true],
+      ["development_eval_protocol_clean", checks["protocolClean"] === true],
+      ["development_eval_expected_outcome", checks["expectedOutcome"] === true],
+      ["development_eval_state_consistent", checks["stateEffectsConsistent"] === true],
+      ["development_eval_behavior_invariants", checks["behaviorInvariants"] === true],
     ] as const;
     return dimensions.map(([name, passed]) => scorePlanEntry(
       finalTraceId,
@@ -337,7 +359,7 @@ export function buildQualificationTraceScorePlan(scoreReportValue: unknown, runV
   });
 }
 
-export function qualificationArtifactFingerprint(value: unknown): string {
+export function evaluationArtifactFingerprint(value: unknown): string {
   const canonical = (entry: unknown): string => {
     if (Array.isArray(entry)) return `[${entry.map(canonical).join(",")}]`;
     if (entry && typeof entry === "object") {

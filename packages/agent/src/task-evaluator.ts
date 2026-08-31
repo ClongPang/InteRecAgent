@@ -1,6 +1,6 @@
 export const EVALUATION_FAMILIES = [
   "clarify_resume",
-  "multi_market_research",
+  "multi_market_offer_search",
   "compound_operations",
   "compare_existing",
   "market_refilter",
@@ -11,11 +11,11 @@ export const EVALUATION_FAMILIES = [
   "unknown_facts",
   "partial_provider_failure",
   "interrupt_and_supersede",
-  "capability_tiering",
+  "category_validation_modes",
 ] as const;
 
 export type EvaluationFamily = typeof EVALUATION_FAMILIES[number];
-export type EvaluationMode = "DEVELOPMENT" | "SEALED";
+export type EvaluationMode = "DEVELOPMENT" | "HELD_OUT";
 export type MetricEligibility = "STATE" | "REFERENT" | "OPERATIONS" | "CANDIDATE" | "FACT";
 
 export interface OperationPredicate {
@@ -34,13 +34,13 @@ export interface ProviderBudget {
   max: number;
 }
 
-export interface IndependentListingGold {
+export interface ListingEligibilityLabel {
   offerRef: string;
   qualified: boolean;
-  resultLevel: "RECOMMENDATION" | "DISCOVERY" | "REJECT";
+  resultLevel: "RECOMMENDATION" | "SEARCH_RESULTS" | "REJECT";
 }
 
-export interface IndependentSourceFactGold {
+export interface SourceFieldReferenceLabel {
   sourceFactRef: string;
   offerRef: string;
   predicate: string;
@@ -49,7 +49,7 @@ export interface IndependentSourceFactGold {
   evidenceScope: string;
 }
 
-export interface RequiredFactGold {
+export interface RequiredResponseField {
   offerRef: string;
   predicate: string;
   normalizedValue: unknown;
@@ -69,7 +69,7 @@ export interface EvaluationTurnSpec {
   allowedOutcomes: string[];
   requiredCandidateRefs: string[];
   requiredAnswerSlots: string[];
-  requiredFacts: RequiredFactGold[];
+  requiredResponseFields: RequiredResponseField[];
   expectedTerminalStates: string[];
 }
 
@@ -82,8 +82,8 @@ export interface EvaluationTaskSpec {
   requiresQualifiedOutput: boolean;
   metricEligibility: MetricEligibility[];
   turns: EvaluationTurnSpec[];
-  independentListingGold: IndependentListingGold[];
-  independentSourceFactGold: IndependentSourceFactGold[];
+  listingEligibilityLabels: ListingEligibilityLabel[];
+  sourceFieldReferenceLabels: SourceFieldReferenceLabel[];
 }
 
 export interface PlannedTrial {
@@ -335,7 +335,7 @@ function parseOperationPredicate(value: unknown, path: string): OperationPredica
   };
 }
 
-function parseRequiredFact(value: unknown, path: string): RequiredFactGold {
+function parseRequiredResponseField(value: unknown, path: string): RequiredResponseField {
   const item = record(value, path);
   exactKeys(item, ["offerRef", "predicate", "normalizedValue", "unitOrCurrency", "evidenceScope"], path);
   const unit = item["unitOrCurrency"];
@@ -351,7 +351,7 @@ function parseRequiredFact(value: unknown, path: string): RequiredFactGold {
 
 function parseTask(value: unknown, path: string): EvaluationTaskSpec {
   const item = record(value, path);
-  exactKeys(item, ["schemaVersion", "taskId", "family", "fixtureVersion", "fixtureHasQualifiedOffer", "requiresQualifiedOutput", "metricEligibility", "turns", "independentListingGold", "independentSourceFactGold"], path);
+  exactKeys(item, ["schemaVersion", "taskId", "family", "fixtureVersion", "fixtureHasQualifiedOffer", "requiresQualifiedOutput", "metricEligibility", "turns", "listingEligibilityLabels", "sourceFieldReferenceLabels"], path);
   if (item["schemaVersion"] !== "interec-eval-task-v1") throw new Error(`EVAL_SCHEMA_INVALID:${path}.schemaVersion`);
   const family = stringValue(item["family"], `${path}.family`);
   if (!(EVALUATION_FAMILIES as readonly string[]).includes(family)) throw new Error(`EVAL_FAMILY_INVALID:${family}`);
@@ -361,7 +361,7 @@ function parseTask(value: unknown, path: string): EvaluationTaskSpec {
   if (!Array.isArray(item["turns"]) || item["turns"].length < 2 || item["turns"].length > 4) throw new Error(`EVAL_TURNS_INVALID:${path}`);
   const turns = item["turns"].map((turn, index) => {
     const turnItem = record(turn, `${path}.turns.${index}`);
-    exactKeys(turnItem, ["turnIndex", "userInput", "expectedGoal", "forbiddenGoalPaths", "requiredOperations", "forbiddenOperations", "expectedReferents", "providerBudgets", "allowedOutcomes", "requiredCandidateRefs", "requiredAnswerSlots", "requiredFacts", "expectedTerminalStates"], `${path}.turns.${index}`);
+    exactKeys(turnItem, ["turnIndex", "userInput", "expectedGoal", "forbiddenGoalPaths", "requiredOperations", "forbiddenOperations", "expectedReferents", "providerBudgets", "allowedOutcomes", "requiredCandidateRefs", "requiredAnswerSlots", "requiredResponseFields", "expectedTerminalStates"], `${path}.turns.${index}`);
     const providerBudgets: Record<string, ProviderBudget> = {};
     for (const [provider, rawBudget] of Object.entries(record(turnItem["providerBudgets"], `${path}.turns.${index}.providerBudgets`))) {
       const budget = record(rawBudget, `${path}.turns.${index}.providerBudgets.${provider}`);
@@ -380,8 +380,8 @@ function parseTask(value: unknown, path: string): EvaluationTaskSpec {
     });
     const requiredOperations = turnItem["requiredOperations"];
     const forbiddenOperations = turnItem["forbiddenOperations"];
-    const requiredFacts = turnItem["requiredFacts"];
-    if (!Array.isArray(requiredOperations) || !Array.isArray(forbiddenOperations) || !Array.isArray(requiredFacts)) throw new Error(`EVAL_FIELD_INVALID:${path}.turns.${index}`);
+    const requiredResponseFields = turnItem["requiredResponseFields"];
+    if (!Array.isArray(requiredOperations) || !Array.isArray(forbiddenOperations) || !Array.isArray(requiredResponseFields)) throw new Error(`EVAL_FIELD_INVALID:${path}.turns.${index}`);
     return {
       turnIndex: count(turnItem["turnIndex"], `${path}.turns.${index}.turnIndex`),
       userInput: stringValue(turnItem["userInput"], `${path}.turns.${index}.userInput`),
@@ -394,31 +394,31 @@ function parseTask(value: unknown, path: string): EvaluationTaskSpec {
       allowedOutcomes: stringArray(turnItem["allowedOutcomes"], `${path}.turns.${index}.allowedOutcomes`),
       requiredCandidateRefs: stringArray(turnItem["requiredCandidateRefs"], `${path}.turns.${index}.requiredCandidateRefs`),
       requiredAnswerSlots: stringArray(turnItem["requiredAnswerSlots"], `${path}.turns.${index}.requiredAnswerSlots`),
-      requiredFacts: requiredFacts.map((fact, factIndex) => parseRequiredFact(fact, `${path}.turns.${index}.requiredFacts.${factIndex}`)),
+      requiredResponseFields: requiredResponseFields.map((fact, factIndex) => parseRequiredResponseField(fact, `${path}.turns.${index}.requiredResponseFields.${factIndex}`)),
       expectedTerminalStates: stringArray(turnItem["expectedTerminalStates"], `${path}.turns.${index}.expectedTerminalStates`),
     };
   });
-  const listingsRaw = item["independentListingGold"];
-  const sourceFactsRaw = item["independentSourceFactGold"];
+  const listingsRaw = item["listingEligibilityLabels"];
+  const sourceFactsRaw = item["sourceFieldReferenceLabels"];
   if (!Array.isArray(listingsRaw) || !Array.isArray(sourceFactsRaw)) throw new Error(`EVAL_FIELD_INVALID:${path}.independentGold`);
-  const independentListingGold = listingsRaw.map((entry, index) => {
-    const listing = record(entry, `${path}.independentListingGold.${index}`);
-    exactKeys(listing, ["offerRef", "qualified", "resultLevel"], `${path}.independentListingGold.${index}`);
-    const resultLevel = stringValue(listing["resultLevel"], `${path}.independentListingGold.${index}.resultLevel`);
-    if (!(new Set<string>(["RECOMMENDATION", "DISCOVERY", "REJECT"])).has(resultLevel)) throw new Error(`EVAL_RESULT_LEVEL_INVALID:${resultLevel}`);
-    return { offerRef: stringValue(listing["offerRef"], `${path}.independentListingGold.${index}.offerRef`), qualified: booleanValue(listing["qualified"], `${path}.independentListingGold.${index}.qualified`), resultLevel: resultLevel as IndependentListingGold["resultLevel"] };
+  const listingEligibilityLabels = listingsRaw.map((entry, index) => {
+    const listing = record(entry, `${path}.listingEligibilityLabels.${index}`);
+    exactKeys(listing, ["offerRef", "qualified", "resultLevel"], `${path}.listingEligibilityLabels.${index}`);
+    const resultLevel = stringValue(listing["resultLevel"], `${path}.listingEligibilityLabels.${index}.resultLevel`);
+    if (!(new Set<string>(["RECOMMENDATION", "SEARCH_RESULTS", "REJECT"])).has(resultLevel)) throw new Error(`EVAL_RESULT_LEVEL_INVALID:${resultLevel}`);
+    return { offerRef: stringValue(listing["offerRef"], `${path}.listingEligibilityLabels.${index}.offerRef`), qualified: booleanValue(listing["qualified"], `${path}.listingEligibilityLabels.${index}.qualified`), resultLevel: resultLevel as ListingEligibilityLabel["resultLevel"] };
   });
-  const independentSourceFactGold = sourceFactsRaw.map((entry, index) => {
-    const fact = record(entry, `${path}.independentSourceFactGold.${index}`);
-    exactKeys(fact, ["sourceFactRef", "offerRef", "predicate", "normalizedValue", "unitOrCurrency", "evidenceScope"], `${path}.independentSourceFactGold.${index}`);
-    const parsed = parseRequiredFact({ offerRef: fact["offerRef"], predicate: fact["predicate"], normalizedValue: fact["normalizedValue"], unitOrCurrency: fact["unitOrCurrency"], evidenceScope: fact["evidenceScope"] }, `${path}.independentSourceFactGold.${index}.value`);
-    return { sourceFactRef: stringValue(fact["sourceFactRef"], `${path}.independentSourceFactGold.${index}.sourceFactRef`), ...parsed };
+  const sourceFieldReferenceLabels = sourceFactsRaw.map((entry, index) => {
+    const fact = record(entry, `${path}.sourceFieldReferenceLabels.${index}`);
+    exactKeys(fact, ["sourceFactRef", "offerRef", "predicate", "normalizedValue", "unitOrCurrency", "evidenceScope"], `${path}.sourceFieldReferenceLabels.${index}`);
+    const parsed = parseRequiredResponseField({ offerRef: fact["offerRef"], predicate: fact["predicate"], normalizedValue: fact["normalizedValue"], unitOrCurrency: fact["unitOrCurrency"], evidenceScope: fact["evidenceScope"] }, `${path}.sourceFieldReferenceLabels.${index}.value`);
+    return { sourceFactRef: stringValue(fact["sourceFactRef"], `${path}.sourceFieldReferenceLabels.${index}.sourceFactRef`), ...parsed };
   });
-  const listingRefs = independentListingGold.map((listing) => listing.offerRef);
+  const listingRefs = listingEligibilityLabels.map((listing) => listing.offerRef);
   if (new Set(listingRefs).size !== listingRefs.length) throw new Error(`EVAL_LISTING_GOLD_DUPLICATE:${path}`);
-  const sourceFactRefs = independentSourceFactGold.map((fact) => fact.sourceFactRef);
+  const sourceFactRefs = sourceFieldReferenceLabels.map((fact) => fact.sourceFactRef);
   if (new Set(sourceFactRefs).size !== sourceFactRefs.length) throw new Error(`EVAL_SOURCE_FACT_GOLD_DUPLICATE:${path}`);
-  if (independentSourceFactGold.some((fact) => !listingRefs.includes(fact.offerRef))) throw new Error(`EVAL_SOURCE_FACT_OFFER_UNKNOWN:${path}`);
+  if (sourceFieldReferenceLabels.some((fact) => !listingRefs.includes(fact.offerRef))) throw new Error(`EVAL_SOURCE_FACT_OFFER_UNKNOWN:${path}`);
   return {
     schemaVersion: "interec-eval-task-v1",
     taskId: stringValue(item["taskId"], `${path}.taskId`),
@@ -428,8 +428,8 @@ function parseTask(value: unknown, path: string): EvaluationTaskSpec {
     requiresQualifiedOutput: booleanValue(item["requiresQualifiedOutput"], `${path}.requiresQualifiedOutput`),
     metricEligibility: eligibility as MetricEligibility[],
     turns,
-    independentListingGold,
-    independentSourceFactGold,
+    listingEligibilityLabels,
+    sourceFieldReferenceLabels,
   };
 }
 
@@ -438,7 +438,7 @@ export function parseEvaluationManifest(value: unknown): EvaluationManifest {
   exactKeys(item, ["schemaVersion", "mode", "implementationVersion", "modelId", "modelParametersHash", "promptVersion", "evaluatorVersion", "fixtureVersion", "tasks", "trials"], "manifest");
   if (item["schemaVersion"] !== "interec-eval-manifest-v1") throw new Error("EVAL_MANIFEST_SCHEMA_INVALID");
   const mode = item["mode"];
-  if (mode !== "DEVELOPMENT" && mode !== "SEALED") throw new Error("EVAL_MANIFEST_MODE_INVALID");
+  if (mode !== "DEVELOPMENT" && mode !== "HELD_OUT") throw new Error("EVAL_MANIFEST_MODE_INVALID");
   if (!Array.isArray(item["tasks"]) || !Array.isArray(item["trials"])) throw new Error("EVAL_MANIFEST_COLLECTION_INVALID");
   const tasks = item["tasks"].map((task, index) => parseTask(task, `manifest.tasks.${index}`));
   const trials = item["trials"].map((trial, index) => {
@@ -493,15 +493,15 @@ export function validateEvaluationManifest(manifest: EvaluationManifest): void {
     if (!manifest.tasks.some((task) => task.requiresQualifiedOutput) || !manifest.tasks.some((task) => !task.fixtureHasQualifiedOffer)) throw new Error("EVAL_DEVELOPMENT_NEEDS_POSITIVE_AND_NEGATIVE");
     return;
   }
-  if (manifest.tasks.length !== 39 || manifest.trials.length !== 117) throw new Error(`EVAL_SEALED_SCALE_INVALID:${manifest.tasks.length}:${manifest.trials.length}`);
+  if (manifest.tasks.length !== 39 || manifest.trials.length !== 117) throw new Error(`EVAL_HELD_OUT_SCALE_INVALID:${manifest.tasks.length}:${manifest.trials.length}`);
   for (const family of EVALUATION_FAMILIES) {
     const countForFamily = manifest.tasks.filter((task) => task.family === family).length;
-    if (countForFamily !== 3) throw new Error(`EVAL_SEALED_FAMILY_COUNT:${family}:${countForFamily}`);
+    if (countForFamily !== 3) throw new Error(`EVAL_HELD_OUT_FAMILY_COUNT:${family}:${countForFamily}`);
   }
   const positiveTasks = manifest.tasks.filter((task) => task.fixtureHasQualifiedOffer && task.requiresQualifiedOutput);
   if (positiveTasks.length < 18) throw new Error(`EVAL_POSITIVE_TASK_COUNT:${positiveTasks.length}/18`);
   const plannedPositiveFacts = positiveTasks.reduce((sum, task) => {
-    const uniqueFacts = new Set(task.turns.flatMap((turn) => turn.requiredFacts.map(factKey)));
+    const uniqueFacts = new Set(task.turns.flatMap((turn) => turn.requiredResponseFields.map(factKey)));
     return sum + uniqueFacts.size * 3;
   }, 0);
   if (plannedPositiveFacts < 108) throw new Error(`EVAL_FACT_DENOMINATOR:${plannedPositiveFacts}/108`);
@@ -582,14 +582,14 @@ export function parseEvaluationTrials(value: unknown): EvaluationTrialArtifact[]
   return value.map((trial, index) => parseTrial(trial, `trials.${index}`));
 }
 
-function factKey(fact: RequiredFactGold | ActualFact | IndependentSourceFactGold): string {
+function factKey(fact: RequiredResponseField | ActualFact | SourceFieldReferenceLabel): string {
   return canonical([fact.offerRef, fact.predicate, fact.normalizedValue, fact.unitOrCurrency, fact.evidenceScope]);
 }
 
 function evaluateTrial(task: EvaluationTaskSpec, artifact: EvaluationTrialArtifact): TrialEvaluation {
   const failures: string[] = [];
-  const listingGold = new Map(task.independentListingGold.map((listing) => [listing.offerRef, listing]));
-  const sourceFactGold = new Map(task.independentSourceFactGold.map((fact) => [fact.sourceFactRef, fact]));
+  const listingLabels = new Map(task.listingEligibilityLabels.map((listing) => [listing.offerRef, listing]));
+  const sourceFieldLabels = new Map(task.sourceFieldReferenceLabels.map((fact) => [fact.sourceFactRef, fact]));
   let expectedOperations = 0;
   let matchedOperations = 0;
   let expectedReferents = 0;
@@ -647,7 +647,7 @@ function evaluateTrial(task: EvaluationTaskSpec, artifact: EvaluationTrialArtifa
     for (const requiredRef of expected.requiredCandidateRefs) if (!actual.recommendedOfferRefs.includes(requiredRef)) failures.push(`required_candidate:${expected.turnIndex}:${requiredRef}`);
     for (const offerRef of actual.recommendedOfferRefs) {
       recommendedCandidates += 1;
-      const gold = listingGold.get(offerRef);
+      const gold = listingLabels.get(offerRef);
       if (gold?.qualified === true && gold.resultLevel === "RECOMMENDATION") qualifiedRecommendedCandidates += 1;
       else failures.push(`unqualified_recommendation:${expected.turnIndex}:${offerRef}`);
     }
@@ -656,7 +656,7 @@ function evaluateTrial(task: EvaluationTaskSpec, artifact: EvaluationTrialArtifa
     if (actual.unannotatedUserVisibleFactCount > 0) failures.push(`unannotated_facts:${expected.turnIndex}:${actual.unannotatedUserVisibleFactCount}`);
     for (const fact of visible) {
       const validEvidence = fact.evidenceSourceFactRefs.some((sourceFactRef) => {
-        const gold = sourceFactGold.get(sourceFactRef);
+        const gold = sourceFieldLabels.get(sourceFactRef);
         return gold !== undefined && factKey(gold) === factKey(fact);
       });
       const key = factKey(fact);
@@ -664,7 +664,7 @@ function evaluateTrial(task: EvaluationTaskSpec, artifact: EvaluationTrialArtifa
       if (!validEvidence) failures.push(`fact_evidence:${expected.turnIndex}:${fact.offerRef}:${fact.predicate}`);
     }
     const actualFactKeys = new Set(visible.map(factKey));
-    for (const requiredFact of expected.requiredFacts) if (!actualFactKeys.has(factKey(requiredFact))) failures.push(`required_fact:${expected.turnIndex}:${requiredFact.offerRef}:${requiredFact.predicate}`);
+    for (const requiredFact of expected.requiredResponseFields) if (!actualFactKeys.has(factKey(requiredFact))) failures.push(`required_fact:${expected.turnIndex}:${requiredFact.offerRef}:${requiredFact.predicate}`);
   }
   visibleFacts = uniqueFactConsistency.size + unannotatedFacts;
   evidenceConsistentFacts = [...uniqueFactConsistency.values()].filter(Boolean).length;
@@ -765,14 +765,14 @@ export function evaluateTaskTrials(manifest: EvaluationManifest, artifacts: Eval
     inconsistentFacts: sum(evaluations, (evaluation) => evaluation.counts.visibleFacts - evaluation.counts.evidenceConsistentFacts),
   };
   const requiredMetricEntries = Object.entries(metrics).filter(([name, value]) => {
-    if (manifest.mode === "SEALED") return true;
+    if (manifest.mode === "HELD_OUT") return true;
     return !(["endToEndTaskSuccess", "threeRunStability"] as string[]).includes(name) && value.denominator > 0;
   });
   failures.push(...requiredMetricEntries.filter(([, value]) => !value.passed).map(([name, value]) => `metric:${name}:${value.numerator}/${value.denominator}`));
   if (counts.forbiddenOperations > 0) failures.push(`forbidden_operations:${counts.forbiddenOperations}`);
   if (counts.wrongCandidateRecommendations > 0) failures.push(`wrong_candidate_recommendations:${counts.wrongCandidateRecommendations}`);
   if (counts.inconsistentFacts > 0) failures.push(`inconsistent_facts:${counts.inconsistentFacts}`);
-  if (manifest.mode === "SEALED") {
+  if (manifest.mode === "HELD_OUT") {
     for (const [family, result] of Object.entries(familyStableTasks)) if (!result.passed) failures.push(`family_stability:${family}:${result.stable}/${result.total}`);
   }
   return {

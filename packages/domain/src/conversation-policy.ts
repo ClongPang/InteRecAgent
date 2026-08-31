@@ -4,12 +4,12 @@ import { routeForTurnPlan, validateTurnPlan } from "./turn-plan.js";
 import { reprojectWorkingSetForGoal } from "./working-set.js";
 import type { ConversationRoute, ConversationState, GoalOperation, ShoppingGoal, TurnPlan } from "./conversation-types.js";
 
-export type ResearchNeed = "NOT_NEEDED" | "INSUFFICIENT_COVERAGE" | "STALE" | "USER_REQUESTED_REFRESH";
+export type SearchNeed = "NOT_NEEDED" | "INSUFFICIENT_COVERAGE" | "STALE" | "USER_REQUESTED_REFRESH";
 
 export interface ConversationPolicyInput {
   plan: TurnPlan;
   state: ConversationState;
-  researchNeed: ResearchNeed;
+  searchNeed: SearchNeed;
 }
 
 export interface ConversationPolicyDecision {
@@ -24,48 +24,110 @@ function isGoalOperation(operation: TurnPlan["ops"][number]): operation is GoalO
   return operation.kind.startsWith("GOAL_");
 }
 
+/**
+ * Validates a Pi-Agent plan without changing its semantic operations. Missing
+ * or conflicting actions are reported as domain errors and converted to typed
+ * PlanReview feedback by the caller.
+ */
 export function evaluateConversationPolicy(input: ConversationPolicyInput): ConversationPolicyDecision {
-  let plan = validateTurnPlan(input.plan);
-  let projectedGoal = applyGoalOperations(
+  const plan = validateTurnPlan(input.plan);
+  const projectedGoal = applyGoalOperations(
     input.state.goalRevision?.goal ?? emptyShoppingGoal(),
     plan.ops.filter(isGoalOperation),
   );
-  let hasResearch = plan.ops.some((operation) => operation.kind === "RESEARCH_OFFERS");
-  let hasClarification = plan.ops.some((operation) => operation.kind === "REQUEST_CLARIFICATION");
-  const requiredBasicSlot = projectedGoal.target === null
-    ? "target_product"
-    : projectedGoal.retrievalMarkets.length === 0
-      ? "retrieval_markets"
-      : null;
-  let canonicalizedClarification = false;
-  // A provider request cannot repair an incomplete research contract. Convert
-  // both an explicit clarification and a premature research request into the
-  // same state-derived clarification, while preserving independent Goal edits.
-  if ((hasClarification || hasResearch) && requiredBasicSlot) {
-    let opId = `host-required-${requiredBasicSlot}`;
-    for (let suffix = 2; plan.ops.some((operation) => operation.opId === opId); suffix += 1) opId = `host-required-${requiredBasicSlot}-${suffix}`;
-    plan = validateTurnPlan({
-      ...plan,
-      ops: [
-        ...plan.ops.filter((operation) => operation.kind !== "REQUEST_CLARIFICATION"
-          && operation.kind !== "RESEARCH_OFFERS"
-          && !(operation.kind === "GOAL_ADD_GAP" && operation.gap.slotId !== requiredBasicSlot)),
-        { opId, kind: "REQUEST_CLARIFICATION", slotId: requiredBasicSlot, reasonCode: "MISSING_REQUIRED_GOAL_FIELD" },
-      ],
-    });
-    projectedGoal = applyGoalOperations(
-      input.state.goalRevision?.goal ?? emptyShoppingGoal(),
-      plan.ops.filter(isGoalOperation),
-    );
-    hasResearch = false;
-    hasClarification = true;
-    canonicalizedClarification = true;
-  }
   const baseGoal = input.state.goalRevision?.goal ?? emptyShoppingGoal();
+  const hasSearch = plan.ops.some((operation) => operation.kind === "SEARCH_OFFERS");
+  const hasClarification = plan.ops.some((operation) => operation.kind === "REQUEST_CLARIFICATION");
+  const searchAction = plan.ops.find((operation) => operation.kind === "SEARCH_OFFERS");
+  const explicitRefresh = searchAction?.kind === "SEARCH_OFFERS" && searchAction.reasonCode === "USER_REQUESTED_REFRESH";
+  const startsInitialShoppingGoal = input.state.workingSet === null
+    && input.searchNeed === "INSUFFICIENT_COVERAGE"
+    && plan.ops.some((operation) => isGoalOperation(operation));
+  const skippedPurchaseMarket = (input.state.dialogue.clarificationHistory ?? []).some((item) =>
+    item.outcome === "SKIPPED" && item.clarification.kind === "PURCHASE_MARKET")
+    || plan.ops.some((operation) => operation.kind === "RESOLVE_CLARIFICATION"
+      && operation.outcome === "SKIPPED"
+      && operation.clarification.kind === "PURCHASE_MARKET");
+  const projectedWorkingSet = input.state.workingSet
+    ? reprojectWorkingSetForGoal(input.state.workingSet, projectedGoal)
+    : null;
+  const candidateAction = plan.ops.find((operation) => [
+    "REJECT_OFFERS",
+    "SET_COMPARISON",
+    "INSPECT_WORKING_SET",
+    "REFILTER_WORKING_SET",
+    "SORT_WORKING_SET_BY_PRICE",
+  ].includes(operation.kind) || (operation.kind === "SET_FOCUS" && operation.referent !== null));
+
+  if (hasSearch && hasClarification) {
+    throw new DomainError("SEARCH_BEFORE_CLARIFICATION", "A turn cannot call a provider while requesting blocking clarification");
+  }
+  if (startsInitialShoppingGoal && !hasSearch && !hasClarification && projectedGoal.target === null) {
+    throw new DomainError(
+      "TARGET_CLARIFICATION_REQUIRED",
+      "The initial shopping goal is missing a target and the proposed plan omitted concrete target clarification",
+    );
+  }
+  if (startsInitialShoppingGoal && !hasSearch && !hasClarification && projectedGoal.retrievalMarkets.length === 0) {
+    throw new DomainError(
+      "PURCHASE_MARKET_CLARIFICATION_REQUIRED",
+      "The initial shopping goal is missing a purchase market and the proposed plan omitted concrete market clarification",
+    );
+  }
+  if (candidateAction && (projectedWorkingSet?.pool.length ?? 0) === 0) {
+    throw new DomainError(
+      "CANDIDATE_SET_REQUIRED",
+      `Candidate operation ${candidateAction.kind} requires a non-empty projected candidate set`,
+    );
+  }
+  if (hasSearch && projectedGoal.target === null) {
+    throw new DomainError("SEARCH_TARGET_REQUIRED", "Provider search requires a resolved shopping target");
+  }
+  if (hasSearch && projectedGoal.retrievalMarkets.length === 0
+    && !(searchAction?.kind === "SEARCH_OFFERS" && (searchAction.marketScope?.length ?? 0) > 0)) {
+    throw new DomainError("SEARCH_MARKETS_REQUIRED", "Provider search requires at least one supported retrieval market");
+  }
+  if (searchAction?.kind === "SEARCH_OFFERS" && searchAction.marketScope) {
+    const scope = [...searchAction.marketScope].sort();
+    if (projectedGoal.retrievalMarkets.length > 0) {
+      throw new DomainError(
+        "SEARCH_MARKET_SCOPE_REDUNDANT",
+        "An exploratory marketScope must not override or duplicate explicit retrieval markets",
+      );
+    }
+    if (!skippedPurchaseMarket) {
+      throw new DomainError(
+        "EXPLORATORY_MARKET_SCOPE_NOT_AUTHORIZED",
+        "Exploratory market scope is allowed only after the user skips purchase-market clarification",
+      );
+    }
+    if (JSON.stringify(scope) !== JSON.stringify(["SG", "US"])
+      || !searchAction.assumptionDisclosureCodes?.includes("PURCHASE_MARKET_SCOPE_ASSUMED")) {
+      throw new DomainError(
+        "EXPLORATORY_MARKET_SCOPE_INVALID",
+        "An authorized exploratory market scope must be US/SG and disclose the assumption",
+      );
+    }
+  }
+  if (searchAction?.kind === "SEARCH_OFFERS"
+    && searchAction.assumptionDisclosureCodes?.includes("PRODUCT_CONDITION_NOT_RESTRICTED")
+    && projectedGoal.target?.condition !== "ANY") {
+    throw new DomainError(
+      "CONDITION_ASSUMPTION_DISCLOSURE_MISMATCH",
+      "Unrestricted-condition disclosure is valid only when product condition is ANY",
+    );
+  }
+  if (hasSearch && projectedGoal.unresolved.length > 0) {
+    throw new DomainError(
+      "SEARCH_BLOCKED_BY_GOAL_GAPS",
+      `Provider search is blocked by unresolved goal slots: ${projectedGoal.unresolved.map((gap) => gap.slotId).join(",")}`,
+    );
+  }
+
   const changesTarget = plan.ops.some((operation) => operation.kind === "GOAL_SET_TARGET")
     && JSON.stringify(baseGoal.target) !== JSON.stringify(projectedGoal.target);
-  const completesInitialResearchGoal = input.state.workingSet === null
-    && input.researchNeed === "INSUFFICIENT_COVERAGE"
+  const completesInitialSearchGoal = input.state.workingSet === null
+    && input.searchNeed === "INSUFFICIENT_COVERAGE"
     && plan.ops.some((operation) => isGoalOperation(operation) && [
       "GOAL_SET_TARGET",
       "GOAL_SET_BUDGET",
@@ -80,70 +142,47 @@ export function evaluateConversationPolicy(input: ConversationPolicyInput): Conv
     && projectedGoal.target.canonicalModel !== null
     && projectedGoal.retrievalMarkets.length > 0
     && projectedGoal.unresolved.length === 0;
-  if (!hasResearch && (completesInitialResearchGoal || completesChangedTargetGoal)) {
-    let opId = "host-required-research";
-    for (let suffix = 2; plan.ops.some((operation) => operation.opId === opId); suffix += 1) opId = `host-required-research-${suffix}`;
-    plan = validateTurnPlan({
-      ...plan,
-      ops: [
-        ...plan.ops.filter((operation) => operation.kind !== "REQUEST_CLARIFICATION"),
-        { opId, kind: "RESEARCH_OFFERS", reasonCode: completesInitialResearchGoal ? "GOAL_BECAME_RESEARCH_READY" : "TARGET_CHANGED" },
-      ],
-    });
-    projectedGoal = applyGoalOperations(
-      input.state.goalRevision?.goal ?? emptyShoppingGoal(),
-      plan.ops.filter(isGoalOperation),
+  if (!hasSearch && !hasClarification && (completesInitialSearchGoal || completesChangedTargetGoal)) {
+    throw new DomainError(
+      "SEARCH_OPERATION_REQUIRED",
+      completesInitialSearchGoal
+        ? "The goal became search-ready but the proposed plan omitted SEARCH_OFFERS"
+        : "The target changed and invalidated current evidence but the proposed plan omitted SEARCH_OFFERS",
     );
-    hasResearch = true;
-    hasClarification = false;
   }
-  let researchOperation = plan.ops.find((operation) => operation.kind === "RESEARCH_OFFERS");
 
   const goalChanged = plan.ops.some(isGoalOperation);
-  const sameResearchContract = JSON.stringify(baseGoal.target) === JSON.stringify(projectedGoal.target)
+  const sameSearchInputs = JSON.stringify(baseGoal.target) === JSON.stringify(projectedGoal.target)
     && JSON.stringify(baseGoal.hardConstraints) === JSON.stringify(projectedGoal.hardConstraints);
-  const reusableProjection = input.state.workingSet && sameResearchContract
+  const reusableProjection = input.state.workingSet && sameSearchInputs
     ? reprojectWorkingSetForGoal(input.state.workingSet, projectedGoal)
     : null;
-  const explicitRefresh = researchOperation?.kind === "RESEARCH_OFFERS" && researchOperation.reasonCode === "USER_REQUESTED_REFRESH";
-  if (hasResearch && goalChanged && !explicitRefresh && reusableProjection && reusableProjection.displayOfferRefs.length > 0) {
-    plan = validateTurnPlan({ ...plan, ops: plan.ops.filter((operation) => operation.kind !== "RESEARCH_OFFERS") });
-    hasResearch = false;
-    researchOperation = undefined;
+  if (hasSearch && goalChanged && !explicitRefresh && reusableProjection && reusableProjection.displayOfferRefs.length > 0) {
+    throw new DomainError(
+      "UNNECESSARY_PROVIDER_SEARCH",
+      "The current grounded working set can satisfy this goal change without another provider request",
+    );
   }
-  const route = routeForTurnPlan(plan);
 
-  if (hasResearch && hasClarification) {
-    throw new DomainError("RESEARCH_BEFORE_CLARIFICATION", "A turn cannot call a provider while requesting blocking clarification");
-  }
-  if (hasResearch && projectedGoal.target === null) {
-    throw new DomainError("RESEARCH_TARGET_REQUIRED", "Provider research requires a resolved shopping target");
-  }
-  if (hasResearch && projectedGoal.retrievalMarkets.length === 0) {
-    throw new DomainError("RESEARCH_MARKETS_REQUIRED", "Provider research requires at least one supported retrieval market");
-  }
-  if (hasResearch && projectedGoal.unresolved.length > 0) {
-    throw new DomainError("RESEARCH_BLOCKED_BY_GOAL_GAPS", `Provider research is blocked by unresolved goal slots: ${projectedGoal.unresolved.map((gap) => gap.slotId).join(",")}`);
-  }
   const invalidatesEvidence = plan.ops.some((operation) => [
     "GOAL_SET_TARGET",
     "GOAL_CLEAR_TARGET",
     "GOAL_SET_RETRIEVAL_MARKETS",
     "GOAL_SET_STOCK_PREFERENCE",
   ].includes(operation.kind));
-  if (hasResearch && input.researchNeed === "NOT_NEEDED" && !invalidatesEvidence && !explicitRefresh) {
-    throw new DomainError("UNNECESSARY_PROVIDER_RESEARCH", "Current verified working-set evidence is sufficient; provider research is not allowed");
+  if (hasSearch && input.searchNeed === "NOT_NEEDED" && !invalidatesEvidence && !explicitRefresh) {
+    throw new DomainError("UNNECESSARY_PROVIDER_SEARCH", "Current grounded working-set evidence is sufficient; provider search is not allowed");
   }
 
   return {
     plan,
-    route,
-    providerCallsAllowed: hasResearch ? 1 : 0,
+    route: routeForTurnPlan(plan),
+    providerCallsAllowed: hasSearch ? 1 : 0,
     projectedGoal,
     reasonCodes: [
-      hasResearch ? `RESEARCH_${explicitRefresh ? "USER_REQUESTED_REFRESH" : invalidatesEvidence ? "INSUFFICIENT_COVERAGE" : input.researchNeed}` : "ZERO_PROVIDER_ROUTE",
-      ...((completesInitialResearchGoal || completesChangedTargetGoal) && researchOperation ? ["HOST_COMPLETED_RESEARCH_PLAN"] : []),
-      ...(canonicalizedClarification ? ["HOST_CANONICALIZED_REQUIRED_CLARIFICATION"] : []),
+      hasSearch
+        ? `SEARCH_${explicitRefresh ? "USER_REQUESTED_REFRESH" : invalidatesEvidence ? "INSUFFICIENT_COVERAGE" : input.searchNeed}`
+        : "ZERO_PROVIDER_ROUTE",
       ...(hasClarification ? ["BLOCKING_CLARIFICATION"] : []),
     ],
   };

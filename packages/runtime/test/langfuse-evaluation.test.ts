@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 
-import type { GoldBlueprint, InternalQualificationCases } from "@interec/agent";
+import type { EvaluationAuthoringPlan, DevelopmentEvaluationCases } from "@interec/agent";
 import {
-  buildInternalQualificationDatasetItems,
-  buildQualificationTraceScorePlan,
+  buildDevelopmentEvaluationDatasetItems,
+  buildDevelopmentEvaluationTraceScorePlan,
   deterministicUuidV5,
-  evaluateQualificationExperimentTrial,
+  evaluateEvaluationExperimentTrial,
 } from "../src/langfuse-evaluation.js";
 
 const task = {
@@ -14,7 +14,7 @@ const task = {
   title: "multi-turn task",
   businessRisk: "losing constraints",
   variationProfile: {
-    targetArchetype: "VERIFIED_HEADPHONES",
+    targetArchetype: "RULE_VALIDATED_HEADPHONES",
     marketPattern: "US_SG",
     budgetMode: "STRICT",
     languageStyle: "ZH",
@@ -27,46 +27,46 @@ const task = {
   ],
   fixtureOutcome: "QUALIFIED_RECOMMENDATION",
   requiresQualifiedOutput: true,
-  minRequiredFacts: 2,
+  minRequiredResponseFields: 2,
   capabilities: ["clarification_resume"],
   invariants: ["INV-1"],
   criticalSlices: ["POSITIVE_OUTPUT"],
   independentReviewerBrief: ["review state continuity"],
-} satisfies GoldBlueprint["tasks"][number];
+} satisfies EvaluationAuthoringPlan["tasks"][number];
 
-const blueprint = {
-  schemaVersion: "interec-gold-blueprint-v1",
-  blueprintVersion: "gold-v1",
+const plan = {
+  schemaVersion: "interec-evaluation-authoring-plan-v1",
+  planVersion: "gold-v1",
   status: "AUTHORING_CANDIDATE",
   eligibleForResumeMetrics: false,
   authoringRole: "test",
   independenceBoundary: "test",
   externalInvariantGates: [{ invariantId: "INV-1", gate: "gate" }],
   tasks: [task],
-} satisfies GoldBlueprint;
+} satisfies EvaluationAuthoringPlan;
 
 const cases = {
-  schemaVersion: "interec-internal-qualification-cases-v1",
-  qualificationLevel: "INTERNAL_QUALIFICATION",
+  schemaVersion: "interec-development-evaluation-cases-v1",
+  evaluationScope: "DEVELOPMENT_EVALUATION",
   eligibleForResumeMetrics: false,
-  blueprintVersion: "gold-v1",
-  blueprintSemanticSha256: `sha256:${"a".repeat(64)}`,
+  planVersion: "gold-v1",
+  planSemanticSha256: `sha256:${"a".repeat(64)}`,
   cases: [{
     taskId: "task-01",
     fixtureSeed: "HEADPHONES_XM5",
     environmentAction: "NONE",
     userTurns: ["first", "second"],
   }],
-} satisfies InternalQualificationCases;
+} satisfies DevelopmentEvaluationCases;
 
 describe("Langfuse evaluation projection", () => {
   it("creates stable project-global item ids and preserves the multi-turn task", () => {
-    const first = buildInternalQualificationDatasetItems(blueprint, cases, {
+    const first = buildDevelopmentEvaluationDatasetItems(plan, cases, {
       casesSha256: `sha256:${"b".repeat(64)}`,
       fixtureVersion: "fixture-v1",
       fixtureSha256: `sha256:${"c".repeat(64)}`,
     });
-    const second = buildInternalQualificationDatasetItems(blueprint, cases, {
+    const second = buildDevelopmentEvaluationDatasetItems(plan, cases, {
       casesSha256: `sha256:${"b".repeat(64)}`,
       fixtureVersion: "fixture-v1",
       fixtureSha256: `sha256:${"c".repeat(64)}`,
@@ -83,9 +83,9 @@ describe("Langfuse evaluation projection", () => {
     const trace1 = "1".repeat(32);
     const trace2 = "2".repeat(32);
     const run = {
-      qualificationLevel: "INTERNAL_QUALIFICATION",
+      evaluationScope: "DEVELOPMENT_EVALUATION",
       eligibleForResumeMetrics: false,
-      blueprintSemanticSha256: `sha256:${"a".repeat(64)}`,
+      planSemanticSha256: `sha256:${"a".repeat(64)}`,
       fixtureSha256: `sha256:${"b".repeat(64)}`,
       implementationSha256: `sha256:${"c".repeat(64)}`,
       trials: [{
@@ -96,9 +96,9 @@ describe("Langfuse evaluation projection", () => {
       }],
     };
     const score = {
-      qualificationLevel: "INTERNAL_QUALIFICATION",
+      evaluationScope: "DEVELOPMENT_EVALUATION",
       eligibleForResumeMetrics: false,
-      blueprintSemanticSha256: run.blueprintSemanticSha256,
+      planSemanticSha256: run.planSemanticSha256,
       fixtureSha256: run.fixtureSha256,
       implementationSha256: run.implementationSha256,
       evaluatorSha256: `sha256:${"d".repeat(64)}`,
@@ -110,30 +110,30 @@ describe("Langfuse evaluation projection", () => {
           protocolClean: true,
           expectedOutcome: true,
           stateEffectsConsistent: true,
-          operationTraceDiagnostic: false,
+          behaviorInvariants: true,
         },
       }],
     };
-    const plan = buildQualificationTraceScorePlan(score, run);
+    const plan = buildDevelopmentEvaluationTraceScorePlan(score, run);
     expect(plan).toHaveLength(5);
     expect(plan.every((entry) => entry.traceId === trace2)).toBe(true);
-    expect(plan.find((entry) => entry.name === "qualification_operation_diagnostics")?.value).toBe(0);
+    expect(plan.find((entry) => entry.name === "development_eval_behavior_invariants")?.value).toBe(1);
     expect(plan[0]?.metadata["sourceTraceIds"]).toEqual([trace1, trace2]);
   });
 
-  it("fails closed when qualification traces are unavailable", () => {
-    expect(() => buildQualificationTraceScorePlan({
-      qualificationLevel: "INTERNAL_QUALIFICATION",
+  it("fails closed when evaluation traces are unavailable", () => {
+    expect(() => buildDevelopmentEvaluationTraceScorePlan({
+      evaluationScope: "DEVELOPMENT_EVALUATION",
       eligibleForResumeMetrics: false,
-      blueprintSemanticSha256: "same",
+      planSemanticSha256: "same",
       fixtureSha256: "same",
       implementationSha256: "same",
       evaluatorSha256: `sha256:${"d".repeat(64)}`,
       trials: [{ trialId: "trial", taskId: "task", passed: true, checks: {} }],
     }, {
-      qualificationLevel: "INTERNAL_QUALIFICATION",
+      evaluationScope: "DEVELOPMENT_EVALUATION",
       eligibleForResumeMetrics: false,
-      blueprintSemanticSha256: "same",
+      planSemanticSha256: "same",
       fixtureSha256: "same",
       implementationSha256: "same",
       trials: [{ trialId: "trial", taskId: "task", runIndex: 1, turnEvidence: [] }],
@@ -144,7 +144,7 @@ describe("Langfuse evaluation projection", () => {
     const expectedOutput = {
       fixtureOutcome: "QUALIFIED_RECOMMENDATION",
       requiresQualifiedOutput: true,
-      minRequiredFacts: 2,
+      minRequiredResponseFields: 2,
     };
     const trial = {
       status: "COMPLETED",
@@ -155,7 +155,7 @@ describe("Langfuse evaluation projection", () => {
         draft_json: {},
         ledger_json: { claims: [{ claimId: "c1" }, { claimId: "c2" }] },
         envelope_json: { blocks: [] },
-        research: [],
+        search: [],
       }],
       finalState: {
         goalRevision: { version: 2 },
@@ -169,12 +169,13 @@ describe("Langfuse evaluation projection", () => {
         },
       },
     };
-    const result = evaluateQualificationExperimentTrial(trial, expectedOutput);
+    const result = evaluateEvaluationExperimentTrial(trial, expectedOutput);
     expect(result.passed).toBe(true);
     expect(result.checks.traceComplete).toBe(true);
+    expect(result.checks.behaviorInvariants).toBe(true);
     expect(result.observed.sourceTraceIds).toEqual(["1".repeat(32)]);
 
-    const missingTrace = evaluateQualificationExperimentTrial({
+    const missingTrace = evaluateEvaluationExperimentTrial({
       ...trial,
       turnEvidence: [{ ...trial.turnEvidence[0], trace_id: null }],
     }, expectedOutput);

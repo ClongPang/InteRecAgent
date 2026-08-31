@@ -24,14 +24,14 @@ const forbidden = [
 
 const violations = [];
 const requiredFiles = [
-  "packages/runtime/src/conversation-research-world.ts",
-  "packages/runtime/src/conversation-research-repository.ts",
-  "packages/runtime/src/provider-governor.ts",
+  "packages/runtime/src/conversation-offer-search-service.ts",
+  "packages/runtime/src/conversation-search-repository.ts",
+  "packages/runtime/src/provider-call-controller.ts",
   "packages/runtime/src/conversation-worker.ts",
   "packages/runtime/src/conversation-worker-main.ts",
   "packages/api/src/conversation-api-main.ts",
   "frontend/src/conversation/client.ts",
-  "packages/domain/src/catalog-contracts.ts",
+  "packages/domain/src/catalog-validation-policies.ts",
   "packages/runtime/conversation-migrations/0003_research_proof_chain.sql",
   "packages/runtime/conversation-migrations/0004_research_owned_row_constraints.sql",
   "packages/runtime/conversation-migrations/0005_promoted_proof_immutability.sql",
@@ -40,7 +40,7 @@ for (const relativePath of requiredFiles) {
   try {
     await readFile(resolve(root, relativePath), "utf8");
   } catch {
-    violations.push(`${relativePath}: required Conversation research/proof component is missing`);
+    violations.push(`${relativePath}: required Conversation search/source-grounding component is missing`);
   }
 }
 for (const relativePath of activeSurfaces) {
@@ -135,40 +135,54 @@ for (const directory of activeCodePaths) {
   }
 }
 
-const contracts = await readFile(resolve(root, "packages/domain/src/catalog-contracts.ts"), "utf8");
+const policies = await readFile(resolve(root, "packages/domain/src/catalog-validation-policies.ts"), "utf8");
 for (const required of ['categoryId: "headphones"', 'categoryId: "smartphone"', 'marketId: "US"', 'marketId: "SG"']) {
-  if (!contracts.includes(required)) violations.push(`catalog-contracts.ts: missing first-release contract ${required}`);
+  if (!policies.includes(required)) violations.push(`catalog-validation-policies.ts: missing first-release policy entry ${required}`);
 }
 
-const draftHost = await readFile(resolve(root, "packages/agent/src/draft-host.ts"), "utf8");
+const turnExecutor = await readFile(resolve(root, "packages/agent/src/conversation-turn-executor.ts"), "utf8");
+const turnAgent = await readFile(resolve(root, "packages/agent/src/turn-agent.ts"), "utf8");
 const modelSchemas = await readFile(resolve(root, "packages/agent/src/schemas.ts"), "utf8");
-const qualificationRunner = await readFile(resolve(root, "scripts/run_internal_qualification.ts"), "utf8");
-const qualificationScorer = await readFile(resolve(root, "scripts/score_internal_qualification.ts"), "utf8");
-if (!draftHost.includes("compileTurnIntent(sanitizeGoalProposal")) {
-  violations.push("draft-host.ts: model semantic effects do not pass through the intent compiler");
+const evaluationRunner = await readFile(resolve(root, "scripts/run_development_evaluation.ts"), "utf8");
+const evaluationScorer = await readFile(resolve(root, "scripts/score_development_evaluation.ts"), "utf8");
+if (!/const\s+sanitizedHostProposal\s*=\s*sanitizeGoalProposal\(/u.test(turnExecutor)
+  || !/const\s+supportedProposal\s*=\s*normalizeTurnPlanProposal\(\s*sanitizedHostProposal\s*,/u.test(turnExecutor)) {
+  violations.push("conversation-turn-executor.ts: model-proposed operations do not pass through the plan normalizer");
 }
-if (!draftHost.includes("const allowLexicalIntentRecovery = false")) {
-  violations.push("draft-host.ts: lexical missing-intent recovery is not explicitly disabled");
+if (/allowLexicalIntentRecovery|executor-recovered-|recoverExplicitWorkingSetProposal/u.test(turnExecutor)) {
+  violations.push("conversation-turn-executor.ts: executor-owned lexical planning recovery remains in active code");
 }
-if (modelSchemas.includes('Type.Literal("RERANK_WORKING_SET")')) {
-  violations.push("schemas.ts: model protocol exposes Host-owned mechanical reranking");
+if (/registeredCategory\?\.categoryId\s*===/u.test(turnExecutor)) {
+  violations.push("conversation-turn-executor.ts: category grounding branches by a specific registered category instead of consulting the policy registry");
 }
-if (/focusRanks\s*=\s*new Map|focusRanks\.get\(testCase\.taskId\)/u.test(qualificationRunner)) {
-  violations.push("run_internal_qualification.ts: evaluator UI context is hard-coded by task ID");
+if (turnAgent.includes("想买前置式洗衣机")) {
+  violations.push("turn-agent.ts: evaluation-case wording leaked into the production planning prompt");
 }
-const businessGate = qualificationScorer.slice(
-  qualificationScorer.indexOf("const businessPassed"),
-  qualificationScorer.indexOf("return {", qualificationScorer.indexOf("const businessPassed")),
+if (!turnAgent.includes("Apply one semantic owner per requirement")) {
+  violations.push("turn-agent.ts: target, constraint, and preference semantic ownership is not explicit");
+}
+if (modelSchemas.includes('Type.Literal("SORT_WORKING_SET_BY_PRICE")')) {
+  violations.push("schemas.ts: model protocol exposes executor-owned price sorting");
+}
+if (/focusRanks\s*=\s*new Map|focusRanks\.get\(testCase\.taskId\)/u.test(evaluationRunner)) {
+  violations.push("run_development_evaluation.ts: evaluator UI context is hard-coded by task ID");
+}
+const businessGate = evaluationScorer.slice(
+  evaluationScorer.indexOf("const businessPassed"),
+  evaluationScorer.indexOf("return {", evaluationScorer.indexOf("const businessPassed")),
 );
 if (/semanticFailures|operationTraceDiagnostic/u.test(businessGate)) {
-  violations.push("score_internal_qualification.ts: wording-derived operation diagnostics affect business success");
+  violations.push("score_development_evaluation.ts: wording-derived operation diagnostics affect business success");
 }
-if (!qualificationScorer.includes("invalidProviderTrials")) {
-  violations.push("score_internal_qualification.ts: provider failures are not excluded from the valid trial denominator");
+if (evaluationScorer.includes("semanticOperationFailures") || evaluationScorer.includes("META_LANGUAGE_OPERATION_PATTERN")) {
+  violations.push("score_development_evaluation.ts: wording-derived operation diagnostics remain in the evaluator");
+}
+if (!evaluationScorer.includes("invalidProviderTrials")) {
+  violations.push("score_development_evaluation.ts: provider failures are not excluded from the valid trial denominator");
 }
 
 if (violations.length > 0) {
   throw new Error(`ACTIVE_ARCHITECTURE_VIOLATION\n${violations.map((item) => `- ${item}`).join("\n")}`);
 }
 
-process.stdout.write("single implementation: Conversation UI/API/repository/fresh pi-agent/semantic compiler/catalog contracts/proof world/SSE/durable worker\n");
+process.stdout.write("single implementation: Conversation UI/API/repository/pi-agent/plan normalizer/category validation policies/source grounding/SSE/durable worker\n");

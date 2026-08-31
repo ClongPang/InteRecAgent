@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildComparisonSet,
+  buildRankedOfferSet,
   convertToCny,
-  decideComparisonSet,
+  decideRankedOfferSet,
   ingestBuyWhereListing,
-  qualifyListing,
+  evaluateListingEligibility,
   renderDecision,
   resolveProductTarget,
   type BuyWhereRawProduct,
-  type DiscoveredListing,
+  type RetrievedListing,
   type FxSnapshot,
-  type Goal,
+  type SearchGoalSnapshot,
   type ListingIngestionContext,
 } from "../src/index.js";
 
@@ -26,7 +26,7 @@ const fx: FxSnapshot = {
   expiresAt: "2026-08-27T00:00:00.000Z",
 };
 const target = resolveProductTarget("Sony WH-1000XM5 headphones");
-const goal: Goal = {
+const goal: SearchGoalSnapshot = {
   query: "Sony WH-1000XM5 headphones",
   target,
   markets: ["US", "SG"],
@@ -56,13 +56,13 @@ function raw(overrides: Partial<BuyWhereRawProduct> = {}): BuyWhereRawProduct {
   };
 }
 
-function listing(overrides: Partial<BuyWhereRawProduct> = {}, customContext = context): DiscoveredListing {
+function listing(overrides: Partial<BuyWhereRawProduct> = {}, customContext = context): RetrievedListing {
   const result = ingestBuyWhereListing(raw(overrides), customContext);
   if (!result) throw new Error("fixture did not ingest");
   return result;
 }
 
-describe("proof-carrying offer kernel", () => {
+describe("source-grounded offer ranking", () => {
   it("uses decimal arithmetic and deterministic rounding", () => {
     expect(convertToCny({ amount: "19.99", currency: "USD" }, fx)).toBe("142.40");
   });
@@ -97,10 +97,14 @@ describe("proof-carrying offer kernel", () => {
   });
 
   it("promotes only a resolved identity with non-conflicting market evidence", () => {
-    const result = qualifyListing(listing(), goal, new Map([["USD", fx]]));
+    const result = evaluateListingEligibility(listing(), goal, new Map([["USD", fx]]));
     expect(result.status).toBe("COMPARABLE");
     expect(result.offer?.marketEvidence.level).toBe("TARGET_DOMAIN_MARKET_CONSISTENT");
-    expect(result.offer?.qualification.policyVersion).toBe("proof-carrying-v2");
+    expect(result.offer?.eligibility.policyVersion).toBe("source-grounding-v3");
+    expect(result).toMatchObject({
+      queryProductRelevance: { label: "EXACT", policyVersion: "esci-admission-v2" },
+      candidateAdmission: { cohort: "MAIN_RECOMMENDATION", eligibleForMainRanking: true },
+    });
     expect(result.offer?.evidenceRefs.length).toBeGreaterThan(0);
   });
 
@@ -112,7 +116,7 @@ describe("proof-carrying offer kernel", () => {
       itemRole: "PRIMARY_PRODUCT" as const,
       conditionPreference: "ANY" as const,
     };
-    const openGoal: Goal = {
+    const openGoal: SearchGoalSnapshot = {
       ...goal,
       query: "lightweight laptop for travel",
       target: openTarget,
@@ -127,30 +131,30 @@ describe("proof-carrying offer kernel", () => {
       url: "https://merchant.us/laptop-1",
       click_url: undefined,
     }, { ...context, target: openTarget, rawArtifactRef: "sha256:laptop" });
-    const result = qualifyListing(openListing, openGoal, new Map([["USD", fx]]));
+    const result = evaluateListingEligibility(openListing, openGoal, new Map([["USD", fx]]));
     expect(result).toMatchObject({
       status: "DISCOVERABLE",
       offer: {
-        supportLevel: "DISCOVERY",
+        validationMode: "SEARCH_ONLY",
         productIdentity: { status: "UNRESOLVED", comparisonKey: null },
-        discovery: {
-          identityLevel: "OFFER_ONLY",
+        ranking: {
+          identityResolution: "LISTING_LEVEL",
           identityKey: null,
           matchedPreferenceKeys: ["portable"],
         },
       },
     });
-    expect(result.offer?.discovery.rankVector.eligibilityTier).toBe(1);
+    expect(result.offer?.ranking.rankVector.eligibilityTier).toBe(1);
     expect(result.reasonCodes).toContain("HARD_CONSTRAINTS_UNVERIFIED");
   });
 
-  it("ranks discovery offers lexicographically and deterministically", () => {
+  it("ranks search-only offers lexicographically and deterministically", () => {
     const openTarget = { categoryId: "laptop", targetText: "lightweight laptop", canonicalModel: null, itemRole: "PRIMARY_PRODUCT" as const, conditionPreference: "ANY" as const };
-    const openGoal: Goal = { ...goal, query: "lightweight laptop", target: openTarget, preferenceHints: [{ key: "portable", value: "lightweight", weight: 1 }] };
+    const openGoal: SearchGoalSnapshot = { ...goal, query: "lightweight laptop", target: openTarget, preferenceHints: [{ key: "portable", value: "lightweight", weight: 1 }] };
     const light = listing({ id: "light", title: "Lightweight Laptop 14", category_path: ["Laptops"], url: "https://merchant.us/light", click_url: undefined }, { ...context, target: openTarget, rawArtifactRef: "sha256:light" });
     const gaming = listing({ id: "gaming", title: "Gaming Laptop 16", category_path: ["Laptops"], price: { amount: "199", currency: "USD" }, url: "https://other.us/gaming", click_url: undefined }, { ...context, target: openTarget, rawArtifactRef: "sha256:gaming" });
-    const left = buildComparisonSet([gaming, light], openGoal, new Map([["USD", fx]])).rankedOffers;
-    const right = buildComparisonSet([light, gaming], openGoal, new Map([["USD", fx]])).rankedOffers;
+    const left = buildRankedOfferSet([gaming, light], openGoal, new Map([["USD", fx]])).rankedOffers;
+    const right = buildRankedOfferSet([light, gaming], openGoal, new Map([["USD", fx]])).rankedOffers;
     expect(left.map((item) => item.offer.offerRef)).toEqual(right.map((item) => item.offer.offerRef));
     expect(left[0]?.offer.title).toBe("Lightweight Laptop 14");
     expect(left[0]?.rankVector.positiveCoverage).toBe(1);
@@ -159,25 +163,25 @@ describe("proof-carrying offer kernel", () => {
   it("keeps multiple product identities in a category-level recommendation set", () => {
     const categoryTarget = resolveProductTarget("headphones");
     const categoryContext = { ...context, target: categoryTarget };
-    const categoryGoal: Goal = { ...goal, query: "headphones", target: categoryTarget };
+    const categoryGoal: SearchGoalSnapshot = { ...goal, query: "headphones", target: categoryTarget };
     const first = listing({ id: "generic-1", title: "Oraimo Active Noise Cancelling Headphones", url: "https://merchant.us/oraimo", click_url: undefined }, categoryContext);
     const second = listing({ id: "bose-1", title: "Bose QuietComfort Active Noise Cancelling Headphones", url: "https://merchant.us/bose", click_url: undefined }, categoryContext);
-    const comparison = buildComparisonSet([first, second], categoryGoal, new Map([["USD", fx]]));
+    const comparison = buildRankedOfferSet([first, second], categoryGoal, new Map([["USD", fx]]));
     expect(comparison.rankedOffers).toHaveLength(2);
     expect(new Set(comparison.rankedOffers.map((item) => item.offer.productIdentity.comparisonKey)).size).toBe(2);
   });
 
   it("requires category-contract evidence for a hard noise-cancelling constraint", () => {
-    const constrained: Goal = {
+    const constrained: SearchGoalSnapshot = {
       ...goal,
       hardConstraints: [{ key: "noise_cancelling", operator: "EQ", value: true }],
     };
-    expect(qualifyListing(listing(), constrained, new Map([["USD", fx]]))).toMatchObject({ status: "COMPARABLE" });
-    expect(qualifyListing(listing({ title: "Sony WH-1000XM5 Open-Back Headphones" }), constrained, new Map([["USD", fx]]))).toMatchObject({
+    expect(evaluateListingEligibility(listing(), constrained, new Map([["USD", fx]]))).toMatchObject({ status: "COMPARABLE" });
+    expect(evaluateListingEligibility(listing({ title: "Sony WH-1000XM5 Open-Back Headphones" }), constrained, new Map([["USD", fx]]))).toMatchObject({
       status: "INELIGIBLE",
       reasonCodes: ["HARD_CONSTRAINT_CONFLICT"],
     });
-    expect(qualifyListing(listing({ title: "Sony WH-1000XM5 Wireless Headphones" }), constrained, new Map([["USD", fx]]))).toMatchObject({
+    expect(evaluateListingEligibility(listing({ title: "Sony WH-1000XM5 Wireless Headphones" }), constrained, new Map([["USD", fx]]))).toMatchObject({
       status: "INSUFFICIENT_EVIDENCE",
       reasonCodes: ["HARD_CONSTRAINT_EVIDENCE_REQUIRED"],
     });
@@ -185,7 +189,7 @@ describe("proof-carrying offer kernel", () => {
 
   it("fails closed when Provider country and merchant country conflict", () => {
     const kuwait = listing({ url: "https://merchant.kw/products/sony", click_url: "https://buywhere.ai/api/click?url=https%3A%2F%2Fmerchant.kw%2Fproducts%2Fsony", country_code: "US" });
-    expect(qualifyListing(kuwait, goal, new Map([["USD", fx]]))).toMatchObject({
+    expect(evaluateListingEligibility(kuwait, goal, new Map([["USD", fx]]))).toMatchObject({
       status: "INELIGIBLE",
       reasonCodes: ["MARKET_EVIDENCE_CONFLICT"],
       offer: null,
@@ -194,7 +198,7 @@ describe("proof-carrying offer kernel", () => {
 
   it("does not promote a generic-domain listing without a market attestation", () => {
     const unknown = listing({ url: "https://merchant.com/products/sony", click_url: undefined, country_code: undefined });
-    expect(qualifyListing(unknown, goal, new Map([["USD", fx]]))).toMatchObject({
+    expect(evaluateListingEligibility(unknown, goal, new Map([["USD", fx]]))).toMatchObject({
       status: "INSUFFICIENT_EVIDENCE",
       reasonCodes: ["MARKET_EVIDENCE_REQUIRED"],
     });
@@ -206,9 +210,11 @@ describe("proof-carrying offer kernel", () => {
       category_path: ["Electronics", "Headphone Accessories"],
     });
     expect(accessory.identity.itemRole.value).toBe("ACCESSORY");
-    expect(qualifyListing(accessory, goal, new Map([["USD", fx]]))).toMatchObject({
+    expect(evaluateListingEligibility(accessory, goal, new Map([["USD", fx]]))).toMatchObject({
       status: "INELIGIBLE",
-      reasonCodes: ["PRODUCT_IDENTITY_CONFLICT"],
+      reasonCodes: ["QUERY_PRODUCT_COMPLEMENT"],
+      queryProductRelevance: { label: "COMPLEMENT" },
+      candidateAdmission: { cohort: "RELATED_COHORT", eligibleForMainRanking: false },
     });
   });
 
@@ -220,7 +226,7 @@ describe("proof-carrying offer kernel", () => {
       conditionPreference: "NEW" as const,
     };
     const phoneContext: ListingIngestionContext = { ...context, target: phoneTarget };
-    const phoneGoal: Goal = { ...goal, query: "iPhone 16 Pro 256GB new", target: phoneTarget };
+    const phoneGoal: SearchGoalSnapshot = { ...goal, query: "iPhone 16 Pro 256GB new", target: phoneTarget };
     const phoneListing = (id: string, title: string) => listing({
       id,
       title,
@@ -231,22 +237,22 @@ describe("proof-carrying offer kernel", () => {
 
     const accessory = phoneListing("case", "Presidio2 Pro MagSafe Apple iPhone 16 Pro Case");
     expect(accessory.identity.itemRole.value).toBe("ACCESSORY");
-    expect(qualifyListing(accessory, phoneGoal, new Map([["USD", fx]]))).toMatchObject({ status: "INELIGIBLE", reasonCodes: ["PRODUCT_IDENTITY_CONFLICT"] });
+    expect(evaluateListingEligibility(accessory, phoneGoal, new Map([["USD", fx]]))).toMatchObject({ status: "INELIGIBLE", reasonCodes: ["QUERY_PRODUCT_COMPLEMENT"], queryProductRelevance: { label: "COMPLEMENT" } });
 
     const wrongStorage = phoneListing("128gb", "Brand New Apple iPhone 16 Pro Smartphone - 128GB");
-    expect(qualifyListing(wrongStorage, phoneGoal, new Map([["USD", fx]]))).toMatchObject({ status: "INELIGIBLE", reasonCodes: ["PRODUCT_IDENTITY_CONFLICT"] });
+    expect(evaluateListingEligibility(wrongStorage, phoneGoal, new Map([["USD", fx]]))).toMatchObject({ status: "INELIGIBLE", reasonCodes: ["QUERY_PRODUCT_SUBSTITUTE"], queryProductRelevance: { label: "SUBSTITUTE" }, candidateAdmission: { cohort: "ALTERNATIVE_COHORT" } });
 
     const unknownCondition = phoneListing("unknown-condition", "Apple iPhone 16 Pro Smartphone - 256GB");
-    expect(qualifyListing(unknownCondition, phoneGoal, new Map([["USD", fx]]))).toMatchObject({ status: "INELIGIBLE", reasonCodes: ["CONDITION_MISMATCH"] });
+    expect(evaluateListingEligibility(unknownCondition, phoneGoal, new Map([["USD", fx]]))).toMatchObject({ status: "INELIGIBLE", reasonCodes: ["CONDITION_MISMATCH"] });
 
     const exactNew = phoneListing("exact-new", "Brand New Apple iPhone 16 Pro Smartphone - 256GB");
-    expect(qualifyListing(exactNew, phoneGoal, new Map([["USD", fx]]))).toMatchObject({ status: "COMPARABLE" });
+    expect(evaluateListingEligibility(exactNew, phoneGoal, new Map([["USD", fx]]))).toMatchObject({ status: "COMPARABLE" });
     expect(exactNew.identity.canonicalModel.value).toBe("IPHONE 16 PRO 256GB");
   });
 
   it("keeps refurbished offers out of a new-or-unspecified comparison", () => {
     const refurbished = listing({ title: "Refurbished Sony WH-1000XM5 Wireless Headphones" });
-    expect(qualifyListing(refurbished, goal, new Map([["USD", fx]]))).toMatchObject({
+    expect(evaluateListingEligibility(refurbished, goal, new Map([["USD", fx]]))).toMatchObject({
       status: "INELIGIBLE",
       reasonCodes: ["CONDITION_MISMATCH"],
     });
@@ -255,11 +261,11 @@ describe("proof-carrying offer kernel", () => {
   it("never mixes different condition comparison keys even when the goal allows any condition", () => {
     const newListing = listing({ id: "new", title: "Brand New Sony WH-1000XM5 Wireless Headphones" });
     const refurbished = listing({ id: "refurb", title: "Refurbished Sony WH-1000XM5 Wireless Headphones" }, { ...context, rawArtifactRef: "sha256:refurb" });
-    const anyConditionGoal: Goal = { ...goal, target: { ...goal.target, conditionPreference: "ANY" } };
-    const comparison = buildComparisonSet([refurbished, newListing], anyConditionGoal, new Map([["USD", fx]]));
+    const anyConditionGoal: SearchGoalSnapshot = { ...goal, target: { ...goal.target, conditionPreference: "ANY" } };
+    const comparison = buildRankedOfferSet([refurbished, newListing], anyConditionGoal, new Map([["USD", fx]]));
     expect(comparison.rankedOffers).toHaveLength(1);
     expect(comparison.rankedOffers[0]?.offer.condition).toBe("NEW");
-    expect(comparison.qualifications.find((item) => item.listing.listingRef === refurbished.listingRef)).toMatchObject({
+    expect(comparison.eligibilityResults.find((item) => item.listing.listingRef === refurbished.listingRef)).toMatchObject({
       status: "INELIGIBLE",
       reasonCodes: ["COMPARISON_KEY_MISMATCH"],
     });
@@ -271,8 +277,8 @@ describe("proof-carrying offer kernel", () => {
       { id: "cheap", price: { amount: "69", currency: "USD" }, url: "https://merchant.com/cheap", click_url: undefined, country_code: undefined },
       { ...context, rawArtifactRef: "sha256:cheap" },
     );
-    const baseline = decideComparisonSet(buildComparisonSet([verified], goal, new Map([["USD", fx]])));
-    const mutated = decideComparisonSet(buildComparisonSet([unverified, verified], goal, new Map([["USD", fx]])));
+    const baseline = decideRankedOfferSet(buildRankedOfferSet([verified], goal, new Map([["USD", fx]])));
+    const mutated = decideRankedOfferSet(buildRankedOfferSet([unverified, verified], goal, new Map([["USD", fx]])));
     expect(mutated.primaryOffer?.offer.offerRef).toBe(baseline.primaryOffer?.offer.offerRef);
     expect(mutated.primaryOffer?.offer.originalMoney.amount).toBe("299.99");
   });
@@ -280,19 +286,19 @@ describe("proof-carrying offer kernel", () => {
   it("ranking is deterministic under input permutation", () => {
     const first = listing({ id: "first", price: { amount: "299", currency: "USD" } });
     const second = listing({ id: "second", price: { amount: "289", currency: "USD" } }, { ...context, rawArtifactRef: "sha256:second" });
-    const left = buildComparisonSet([first, second], goal, new Map([["USD", fx]])).rankedOffers.map((item) => item.offer.offerRef);
-    const right = buildComparisonSet([second, first], goal, new Map([["USD", fx]])).rankedOffers.map((item) => item.offer.offerRef);
+    const left = buildRankedOfferSet([first, second], goal, new Map([["USD", fx]])).rankedOffers.map((item) => item.offer.offerRef);
+    const right = buildRankedOfferSet([second, first], goal, new Map([["USD", fx]])).rankedOffers.map((item) => item.offer.offerRef);
     expect(left).toEqual(right);
   });
 
   it("keeps one deterministic representative for duplicate merchant-product offers", () => {
     const higher = listing({ id: "higher", merchant: "merchant_us", price: { amount: "309", currency: "USD" }, url: "https://www.merchant.us/sony-higher", click_url: undefined });
     const lower = listing({ id: "lower", merchant: "merchant.us", price: { amount: "289", currency: "USD" }, url: "https://merchant.us/sony-lower", click_url: undefined }, { ...context, rawArtifactRef: "sha256:lower" });
-    const comparison = buildComparisonSet([higher, lower, structuredClone(lower)], goal, new Map([["USD", fx]]));
-    expect(comparison.policyVersion).toBe("proof-carrying-v2");
+    const comparison = buildRankedOfferSet([higher, lower, structuredClone(lower)], goal, new Map([["USD", fx]]));
+    expect(comparison.policyVersion).toBe("source-grounding-v3");
     expect(comparison.rankedOffers).toHaveLength(1);
     expect(comparison.rankedOffers[0]?.offer.originalMoney.amount).toBe("289");
-    expect(comparison.qualifications.find((item) => item.listing.listingRef === higher.listingRef)).toMatchObject({
+    expect(comparison.eligibilityResults.find((item) => item.listing.listingRef === higher.listingRef)).toMatchObject({
       status: "INELIGIBLE",
       reasonCodes: ["DUPLICATE_MERCHANT_PRODUCT_OFFER"],
       offer: null,
@@ -300,7 +306,7 @@ describe("proof-carrying offer kernel", () => {
   });
 
   it("renders only promoted evidence and discloses the market boundary", () => {
-    const decision = decideComparisonSet(buildComparisonSet([listing()], goal, new Map([["USD", fx]])));
+    const decision = decideRankedOfferSet(buildRankedOfferSet([listing()], goal, new Map([["USD", fx]])));
     const rendered = renderDecision(decision);
     expect(rendered).toContain("merchant.us");
     expect(rendered).toContain("目标站点域名与市场一致");

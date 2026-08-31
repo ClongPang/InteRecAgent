@@ -38,7 +38,7 @@ export interface FaultManifestRow {
 
 export interface FaultManifest {
   schemaVersion: "interec-fault-manifest-v1";
-  mode: "DEVELOPMENT" | "SEALED";
+  mode: "DEVELOPMENT" | "HELD_OUT";
   implementationVersion: string;
   databaseSchemaVersion: string;
   rows: FaultManifestRow[];
@@ -198,7 +198,7 @@ export function parseFaultManifest(value: unknown): FaultManifest {
   const item = record(value, "manifest");
   exactKeys(item, ["schemaVersion", "mode", "implementationVersion", "databaseSchemaVersion", "rows"], "manifest");
   if (item["schemaVersion"] !== "interec-fault-manifest-v1") throw new Error("FAULT_MANIFEST_SCHEMA_INVALID");
-  if (item["mode"] !== "DEVELOPMENT" && item["mode"] !== "SEALED") throw new Error("FAULT_MANIFEST_MODE_INVALID");
+  if (item["mode"] !== "DEVELOPMENT" && item["mode"] !== "HELD_OUT") throw new Error("FAULT_MANIFEST_MODE_INVALID");
   if (!Array.isArray(item["rows"])) throw new Error("FAULT_MANIFEST_ROWS_INVALID");
   const allowedMetrics = new Set<FaultEligibleMetric>(["STALE_COMMIT", "CONCURRENT_CLAIM", "DUPLICATE_STATE", "DUPLICATE_REPLY", "STEP_REUSE", "TRANSACTION_RESIDUE", "OUTBOX_DELIVERY", "PROVIDER_CALLS"]);
   const rows = item["rows"].map((value, index): FaultManifestRow => {

@@ -1,23 +1,32 @@
 import {
-  assessResearchCoverage,
-  buildComparisonSet,
+  assessSearchCoverage,
+  buildRankedOfferSet,
   ingestBuyWhereListing,
-  mergeDiscoveredListings,
-  type ComparisonSet,
-  type DiscoveredListing,
+  mergeRetrievedListings,
+  type RankedOfferSet,
+  type RetrievedListing,
   type FxSnapshot,
-  type Goal,
+  type SearchGoalSnapshot,
   type Market,
-  type ResearchCoverage,
-  type ResearchMarketOutcome,
+  type SearchCoverage,
+  type SearchMarketOutcome,
 } from "@interec/domain";
 
 import type { FxPort, MarketSearchResult, ProductSearchPort } from "./providers.js";
+import type { SemanticRelevancePort } from "./semantic-relevance-classifier.js";
+import { runtimeMetrics } from "./telemetry.js";
 
-export interface ResearchWaveResult {
+export type SemanticRelevanceFailureCode = "PROTOCOL_INVALID" | "MODEL_STOPPED" | "PROVIDER_ERROR";
+
+export type SemanticRelevanceEvaluation =
+  | { outcome: "NOT_REQUESTED"; attempts: 0; failureCode: null }
+  | { outcome: "SUCCEEDED"; attempts: number; failureCode: null }
+  | { outcome: "FAILED"; attempts: number; failureCode: SemanticRelevanceFailureCode };
+
+export interface SearchAttemptResult {
   availability: "AVAILABLE" | "UNAVAILABLE";
-  listings: DiscoveredListing[];
-  comparisonSet: ComparisonSet;
+  listings: RetrievedListing[];
+  rankedOfferSet: RankedOfferSet;
   markets: Array<{
     market: Market;
     status: "COMPLETED" | "FAILED";
@@ -27,35 +36,80 @@ export interface ResearchWaveResult {
   }>;
   artifacts: MarketSearchResult[];
   fxSnapshots: FxSnapshot[];
+  semanticSignals: ReadonlyMap<string, import("@interec/domain").SemanticRelevanceSignal>;
+  semanticEvaluation: SemanticRelevanceEvaluation;
 }
 
-export interface ResearchCampaignWave {
-  waveNo: number;
+export interface OfferSearchAttempt {
+  attemptNo: number;
   queryVariant: string;
-  result: ResearchWaveResult;
-  coverage: ResearchCoverage;
+  result: SearchAttemptResult;
+  coverage: SearchCoverage;
 }
 
-export interface ResearchCampaignResult {
-  goal: Goal;
-  waves: ResearchCampaignWave[];
-  listings: DiscoveredListing[];
+export interface OfferSearchBatchResult {
+  goal: SearchGoalSnapshot;
+  attempts: OfferSearchAttempt[];
+  listings: RetrievedListing[];
   artifacts: MarketSearchResult[];
   fxSnapshots: FxSnapshot[];
-  comparisonSet: ComparisonSet;
-  coverage: ResearchCoverage;
+  rankedOfferSet: RankedOfferSet;
+  coverage: SearchCoverage;
+  semanticEvaluation: SemanticRelevanceEvaluation;
 }
 
-export async function researchOffers(
-  goal: Goal,
+function semanticRelevanceFailureCode(error: unknown): SemanticRelevanceFailureCode {
+  const message = error instanceof Error ? error.message : "";
+  if (message.startsWith("SEMANTIC_RELEVANCE_MODEL_")) return "MODEL_STOPPED";
+  if (message.startsWith("SEMANTIC_RELEVANCE_")) return "PROTOCOL_INVALID";
+  return "PROVIDER_ERROR";
+}
+
+export async function evaluateSemanticRelevance(
+  semanticRelevance: SemanticRelevancePort | undefined,
+  goal: SearchGoalSnapshot,
+  listings: readonly RetrievedListing[],
+  signal?: AbortSignal,
+  maxAttempts = 2,
+): Promise<{
+  signals: ReadonlyMap<string, import("@interec/domain").SemanticRelevanceSignal>;
+  evaluation: SemanticRelevanceEvaluation;
+}> {
+  if (!semanticRelevance || listings.length === 0) {
+    return { signals: new Map(), evaluation: { outcome: "NOT_REQUESTED", attempts: 0, failureCode: null } };
+  }
+  let failureCode: SemanticRelevanceFailureCode = "PROVIDER_ERROR";
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const signals = await semanticRelevance.classify(goal, listings, signal);
+      if (signals.size !== listings.length || listings.some((listing) => !signals.has(listing.listingRef))) {
+        throw new Error("SEMANTIC_RELEVANCE_ASSESSMENTS_INCOMPLETE");
+      }
+      runtimeMetrics.semanticRelevanceAttempts.add(1, { outcome: "SUCCEEDED", failure_code: "NONE" });
+      return { signals, evaluation: { outcome: "SUCCEEDED", attempts: attempt, failureCode: null } };
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : error;
+      failureCode = semanticRelevanceFailureCode(error);
+      runtimeMetrics.semanticRelevanceAttempts.add(1, { outcome: "FAILED", failure_code: failureCode });
+    }
+  }
+  return {
+    signals: new Map(),
+    evaluation: { outcome: "FAILED", attempts: maxAttempts, failureCode },
+  };
+}
+
+export async function searchOffers(
+  goal: SearchGoalSnapshot,
   queryVariant: string,
   productSource: ProductSearchPort,
   fxSource: FxPort,
   signal?: AbortSignal,
-): Promise<ResearchWaveResult> {
+  semanticRelevance?: SemanticRelevancePort,
+): Promise<SearchAttemptResult> {
   const settled = await Promise.allSettled(goal.markets.map((market) => productSource.search(queryVariant, market, 8, signal)));
   const artifacts: MarketSearchResult[] = [];
-  const markets: ResearchWaveResult["markets"] = [];
+  const markets: SearchAttemptResult["markets"] = [];
   for (let index = 0; index < settled.length; index += 1) {
     const market = goal.markets[index];
     const result = settled[index];
@@ -72,10 +126,12 @@ export async function researchOffers(
     return {
       availability: "UNAVAILABLE",
       listings: [],
-      comparisonSet: buildComparisonSet([], goal, new Map()),
+      rankedOfferSet: buildRankedOfferSet([], goal, new Map()),
       markets,
       artifacts: [],
       fxSnapshots: [],
+      semanticSignals: new Map(),
+      semanticEvaluation: { outcome: "NOT_REQUESTED", attempts: 0, failureCode: null },
     };
   }
 
@@ -92,7 +148,7 @@ export async function researchOffers(
       .filter((result): result is PromiseFulfilledResult<readonly [string, Awaited<ReturnType<FxPort["getRate"]>>]> => result.status === "fulfilled")
       .map((result) => result.value),
   );
-  const listings: DiscoveredListing[] = [];
+  const listings: RetrievedListing[] = [];
   for (const artifact of artifacts) {
     for (const [productIndex, product] of artifact.products.entries()) {
       const listing = ingestBuyWhereListing(product, {
@@ -105,40 +161,46 @@ export async function researchOffers(
       if (listing) listings.push(listing);
     }
   }
+  const semantic = await evaluateSemanticRelevance(semanticRelevance, goal, listings, signal);
   return {
     availability: "AVAILABLE",
     listings,
-    comparisonSet: buildComparisonSet(listings, goal, fxByCurrency),
+    rankedOfferSet: buildRankedOfferSet(listings, goal, fxByCurrency, semantic.signals),
     markets,
     artifacts,
     fxSnapshots: [...fxByCurrency.values()],
+    semanticSignals: semantic.signals,
+    semanticEvaluation: semantic.evaluation,
   };
 }
 
-export async function runResearchCampaign(
-  goal: Goal,
+export async function runOfferSearchBatch(
+  goal: SearchGoalSnapshot,
   queryVariants: readonly string[],
   productSource: ProductSearchPort,
   fxSource: FxPort,
   signal?: AbortSignal,
-  maxWaves = 2,
-): Promise<ResearchCampaignResult> {
-  const variants = [...new Set(queryVariants.map((value) => value.trim()).filter(Boolean))].slice(0, maxWaves);
-  if (variants.length === 0) throw new Error("RESEARCH_QUERY_REQUIRED");
-  let listings: DiscoveredListing[] = [];
+  maxAttempts = 2,
+  semanticRelevance?: SemanticRelevancePort,
+): Promise<OfferSearchBatchResult> {
+  const variants = [...new Set(queryVariants.map((value) => value.trim()).filter(Boolean))].slice(0, maxAttempts);
+  if (variants.length === 0) throw new Error("SEARCH_QUERY_REQUIRED");
+  let listings: RetrievedListing[] = [];
   const artifactByRef = new Map<string, MarketSearchResult>();
   const fxById = new Map<string, FxSnapshot>();
-  const aggregateMarkets = new Map<string, ResearchMarketOutcome>();
-  const waves: ResearchCampaignWave[] = [];
-  let comparisonSet = buildComparisonSet([], goal, new Map());
-  let coverage: ResearchCoverage | null = null;
+  const semanticSignals = new Map<string, import("@interec/domain").SemanticRelevanceSignal>();
+  const aggregateMarkets = new Map<string, SearchMarketOutcome>();
+  const attempts: OfferSearchAttempt[] = [];
+  let rankedOfferSet = buildRankedOfferSet([], goal, new Map());
+  let coverage: SearchCoverage | null = null;
   let previousComparableCount = 0;
   for (let index = 0; index < variants.length; index += 1) {
     const queryVariant = variants[index]!;
-    const result = await researchOffers(goal, queryVariant, productSource, fxSource, signal);
-    listings = mergeDiscoveredListings(listings, result.listings);
+    const result = await searchOffers(goal, queryVariant, productSource, fxSource, signal, semanticRelevance);
+    listings = mergeRetrievedListings(listings, result.listings);
     for (const artifact of result.artifacts) artifactByRef.set(artifact.artifactRef, artifact);
     for (const fx of result.fxSnapshots) fxById.set(fx.id, fx);
+    for (const [listingRef, semanticSignal] of result.semanticSignals) semanticSignals.set(listingRef, semanticSignal);
     for (const market of result.markets) {
       const existing = aggregateMarkets.get(market.market);
       if (!existing || existing.status === "FAILED" || market.status === "COMPLETED") {
@@ -151,28 +213,33 @@ export async function runResearchCampaign(
       }
     }
     const fxByCurrency = new Map([...fxById.values()].map((fx) => [fx.base, fx]));
-    comparisonSet = buildComparisonSet(listings, goal, fxByCurrency);
-    coverage = assessResearchCoverage({
+    rankedOfferSet = buildRankedOfferSet(listings, goal, fxByCurrency, semanticSignals);
+    coverage = assessSearchCoverage({
       requestedMarkets: goal.markets,
       outcomes: [...aggregateMarkets.values()],
       listings,
-      comparisonSet,
+      rankedOfferSet,
       previousComparableCount,
-      waveNo: index + 1,
-      maxWaves: variants.length,
+      attemptNo: index + 1,
+      maxAttempts: variants.length,
     });
-    waves.push({ waveNo: index + 1, queryVariant, result, coverage });
+    attempts.push({ attemptNo: index + 1, queryVariant, result, coverage });
     if (coverage.stopReason !== "CONTINUE") break;
-    previousComparableCount = comparisonSet.rankedOffers.length;
+    previousComparableCount = rankedOfferSet.rankedOffers.length;
   }
-  if (!coverage) throw new Error("RESEARCH_CAMPAIGN_EMPTY");
+  if (!coverage) throw new Error("SEARCH_CAMPAIGN_EMPTY");
   return {
     goal,
-    waves,
+    attempts,
     listings,
     artifacts: [...artifactByRef.values()],
     fxSnapshots: [...fxById.values()],
-    comparisonSet,
+    rankedOfferSet,
     coverage,
+    semanticEvaluation: attempts.some((attempt) => attempt.result.semanticEvaluation.outcome === "SUCCEEDED")
+      ? attempts.findLast((attempt) => attempt.result.semanticEvaluation.outcome === "SUCCEEDED")!.result.semanticEvaluation
+      : attempts.some((attempt) => attempt.result.semanticEvaluation.outcome === "FAILED")
+        ? attempts.findLast((attempt) => attempt.result.semanticEvaluation.outcome === "FAILED")!.result.semanticEvaluation
+        : { outcome: "NOT_REQUESTED", attempts: 0, failureCode: null },
   };
 }

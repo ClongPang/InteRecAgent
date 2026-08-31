@@ -1,5 +1,7 @@
 import type { EvidenceRef, ItemRole, MarketEvidenceLevel, Money, ProductCondition, StockStatus } from "./types.js";
-import type { CandidateDiscoveryMetadata } from "./discovery.js";
+import type { CandidateRankingMetadata } from "./candidate-ranking-types.js";
+import type { CandidateAdmissionDecision, QueryProductRelevanceAssessment } from "./query-product-relevance-types.js";
+import type { ClarificationUncertainty } from "./uncertainty.js";
 
 export type ConversationStatus = "OPEN" | "CLOSED" | "BLOCKED";
 export type TurnExecutionStatus =
@@ -14,8 +16,8 @@ export type TurnExecutionStatus =
   | "SUPERSEDED"
   | "DEAD_LETTER";
 
-export type AssistantOutcome = "CHAT" | "CLARIFICATION" | "DISCOVERY" | "RECOMMENDATION" | "NO_MATCH" | "DEGRADED";
-export type ConversationRoute = "talk" | "clarify" | "refilter" | "rerank" | "research";
+export type AssistantOutcome = "CHAT" | "CLARIFICATION" | "SEARCH_RESULTS" | "RECOMMENDATION" | "NO_MATCH" | "DEGRADED";
+export type ConversationRoute = "talk" | "clarify" | "refilter" | "sort" | "search";
 
 export interface OperationSource {
   messageId: string;
@@ -100,7 +102,7 @@ export interface GoalRevision {
   committedByTurnId: string;
 }
 
-export interface CandidateProjection {
+export interface CandidateView {
   offerRef: string;
   title: string;
   canonicalModel: string | null;
@@ -114,13 +116,15 @@ export interface CandidateProjection {
   claimIds: string[];
   marketEvidenceLevel?: MarketEvidenceLevel;
   rankingReasonCodes?: string[];
-  discovery?: CandidateDiscoveryMetadata;
+  ranking?: CandidateRankingMetadata;
+  queryProductRelevance?: QueryProductRelevanceAssessment;
+  candidateAdmission?: CandidateAdmissionDecision;
 }
 
 export interface WorkingSet {
   version: number;
   boundGoalVersion: number;
-  pool: CandidateProjection[];
+  pool: CandidateView[];
   displayOfferRefs: string[];
   mentionedOfferRefs: string[];
   comparisonOfferRefs: string[];
@@ -142,24 +146,32 @@ export type CandidateBinding =
 
 export type InspectableField = "PRICE" | "MERCHANT" | "MARKET" | "STOCK" | "MODEL" | "CONDITION" | "RANKING_REASON" | "WARRANTY";
 
+import type { ClarificationIntent, ClarificationResponseSpec } from "./clarification.js";
+
 interface TurnOperationBase {
   opId: string;
 }
 
-export type WorldOperation =
+export type TurnAction =
   | (TurnOperationBase & { kind: "REJECT_OFFERS"; referents: CandidateReferent[]; reasonCode: string })
   | (TurnOperationBase & { kind: "RESTORE_OFFERS"; referents: CandidateReferent[] })
   | (TurnOperationBase & { kind: "SET_COMPARISON"; referents: CandidateReferent[] })
   | (TurnOperationBase & { kind: "SET_FOCUS"; referent: CandidateReferent | null })
   | (TurnOperationBase & { kind: "INSPECT_WORKING_SET"; referents: CandidateReferent[]; fields: InspectableField[] })
-  | (TurnOperationBase & { kind: "INSPECT_RESEARCH_COVERAGE" })
+  | (TurnOperationBase & { kind: "INSPECT_SEARCH_COVERAGE" })
   | (TurnOperationBase & { kind: "REFILTER_WORKING_SET" })
-  | (TurnOperationBase & { kind: "RERANK_WORKING_SET"; preferenceKey: string })
-  | (TurnOperationBase & { kind: "RESEARCH_OFFERS"; reasonCode: string; queryVariant?: string })
-  | (TurnOperationBase & { kind: "REQUEST_CLARIFICATION"; slotId: string; reasonCode: string })
+  | (TurnOperationBase & { kind: "SORT_WORKING_SET_BY_PRICE"; preferenceKey: string })
+  | (TurnOperationBase & { kind: "SEARCH_OFFERS"; reasonCode: string; queryVariant?: string; marketScope?: string[]; assumptionDisclosureCodes?: string[] })
+  | (TurnOperationBase & {
+    kind: "REQUEST_CLARIFICATION";
+    clarification: ClarificationIntent;
+    uncertainty: ClarificationUncertainty;
+    reasonCode: string;
+  })
+  | (TurnOperationBase & { kind: "RESOLVE_CLARIFICATION"; clarificationId: string; clarification: ClarificationIntent; outcome: "ANSWERED" | "SKIPPED" })
   | (TurnOperationBase & { kind: "UNDO_REVISION"; revision: number });
 
-export type TurnOperation = GoalOperation | WorldOperation;
+export type TurnOperation = GoalOperation | TurnAction;
 
 export interface PendingOperation {
   operation: TurnOperation;
@@ -173,7 +185,12 @@ export interface TurnPlan {
 }
 
 export interface DialogueState {
-  pendingClarification: { slotId: string; askedByMessageId: string } | null;
+  pendingClarification: { clarificationId: string; clarification: ClarificationIntent; askedByMessageId: string } | null;
+  clarificationHistory: Array<{
+    clarification: ClarificationIntent;
+    outcome: "ANSWERED" | "SKIPPED" | "ASSUMED";
+    recordedAtGoalVersion: number | null;
+  }>;
   pendingOps: PendingOperation[];
   focusOfferRef: string | null;
   comparisonOfferRefs: string[];
@@ -181,13 +198,14 @@ export interface DialogueState {
 }
 
 export type DialogueOperation =
-  | { kind: "DIALOGUE_REQUEST_CLARIFICATION"; slotId: string; askedByMessageId: string }
-  | { kind: "DIALOGUE_CLEAR_CLARIFICATION"; slotId: string }
+  | { kind: "DIALOGUE_REQUEST_CLARIFICATION"; clarificationId: string; clarification: ClarificationIntent; askedByMessageId: string }
+  | { kind: "DIALOGUE_CLEAR_CLARIFICATION"; clarification: ClarificationIntent }
+  | { kind: "DIALOGUE_RECORD_CLARIFICATION_OUTCOME"; clarification: ClarificationIntent; outcome: "ANSWERED" | "SKIPPED" | "ASSUMED"; goalVersion: number | null }
   | { kind: "DIALOGUE_SET_PENDING_OPERATIONS"; pendingOps: PendingOperation[] }
   | { kind: "DIALOGUE_SYNC_WORKING_SET"; focusOfferRef: string | null; comparisonOfferRefs: string[] }
   | { kind: "DIALOGUE_RECORD_ASSISTANT_MESSAGE"; messageId: string };
 
-export type ClaimKind = "PRICE" | "FX" | "MERCHANT" | "MARKET" | "STOCK" | "MODEL" | "CONDITION" | "RANKING_REASON" | "RESEARCH_STATUS";
+export type ClaimKind = "PRICE" | "FX" | "MERCHANT" | "MARKET" | "STOCK" | "MODEL" | "CONDITION" | "RANKING_REASON" | "SEARCH_STATUS";
 
 export interface ClaimEvidenceRef extends EvidenceRef {
   sourceFactRef: string;
@@ -198,7 +216,7 @@ export interface ClaimEvidenceRef extends EvidenceRef {
   fxSnapshotId?: string;
 }
 
-export interface VerifiedClaim {
+export interface GroundedClaim {
   claimId: string;
   kind: ClaimKind;
   canonicalValue: unknown;
@@ -207,15 +225,15 @@ export interface VerifiedClaim {
   offerRefs: string[];
 }
 
-export interface ClaimLedger {
-  claims: VerifiedClaim[];
+export interface GroundedClaimSet {
+  claims: GroundedClaim[];
 }
 
 export type AssistantBlock =
   | { type: "TRANSITION"; text: string }
   | { type: "CLAIM"; claimId: string }
   | { type: "COMPARISON"; claimIds: string[] }
-  | { type: "QUESTION"; slotId: string; wording: string }
+  | { type: "QUESTION"; clarificationId: string; clarification: ClarificationIntent; wording: string; rationale: string; responseSpec: ClarificationResponseSpec }
   | { type: "DISCLOSURE"; disclosureCode: string };
 
 export interface TypedNextMove {

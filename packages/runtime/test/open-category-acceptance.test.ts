@@ -1,22 +1,22 @@
 import {
   emptyDialogueState,
   evaluateConversationPolicy,
-  resolveCategoryRecommendationCapability,
+  resolveCategoryValidationCapability,
   type ConversationState,
-  type Goal,
+  type SearchGoalSnapshot,
   type TurnPlan,
 } from "@interec/domain";
 import { describe, expect, it } from "vitest";
 
-import { buildResearchProofBundle, runResearchCampaign } from "../src/index.js";
+import { buildSearchProvenanceBundle, runOfferSearchBatch } from "../src/index.js";
 
 describe("unregistered third-category acceptance", () => {
-  it("researches washing machines without budget or a category adapter and returns Discovery evidence", async () => {
-    expect(resolveCategoryRecommendationCapability("washing_machine", "front load washing machine")).toEqual({
-      supportLevel: "DISCOVERY",
+  it("searches washing machines without a budget or category validation policy and returns source-grounded results", async () => {
+    expect(resolveCategoryValidationCapability("washing_machine", "front load washing machine")).toEqual({
+      validationMode: "SEARCH_ONLY",
       categoryId: "washing_machine",
       queryTerm: "front load washing machine",
-      adapter: null,
+      policy: null,
     });
     const initialState: ConversationState = {
       revision: 0,
@@ -32,13 +32,14 @@ describe("unregistered third-category acceptance", () => {
       ops: [
         { opId: "target", kind: "GOAL_SET_TARGET", source, target: { categoryId: "washing_machine", targetText: "front load washing machine", canonicalModel: null, itemRole: "PRIMARY_PRODUCT", condition: "ANY" } },
         { opId: "market", kind: "GOAL_SET_RETRIEVAL_MARKETS", source, markets: ["US"] },
+        { opId: "search", kind: "SEARCH_OFFERS", reasonCode: "GOAL_BECAME_SEARCH_READY" },
       ],
     };
-    const policy = evaluateConversationPolicy({ plan, state: initialState, researchNeed: "INSUFFICIENT_COVERAGE" });
-    expect(policy.plan.ops.at(-1)).toMatchObject({ kind: "RESEARCH_OFFERS", reasonCode: "GOAL_BECAME_RESEARCH_READY" });
+    const policy = evaluateConversationPolicy({ plan, state: initialState, searchNeed: "INSUFFICIENT_COVERAGE" });
+    expect(policy.plan).toEqual(plan);
     expect(policy.projectedGoal.budget).toBeNull();
 
-    const goal: Goal = {
+    const goal: SearchGoalSnapshot = {
       query: "front load washing machine",
       target: { categoryId: "washing_machine", targetText: "front load washing machine", canonicalModel: null, itemRole: "PRIMARY_PRODUCT", conditionPreference: "ANY" },
       markets: ["US"],
@@ -57,31 +58,31 @@ describe("unregistered third-category acceptance", () => {
       metadata: { product_type: "Front Load Washer" },
     };
     const payload = { data: [product] };
-    const campaign = await runResearchCampaign(goal, [goal.query], {
+    const batch = await runOfferSearchBatch(goal, [goal.query], {
       search: async (_query, market) => ({ market, products: [product], artifactRef: "sha256:washing-machine", rawPayload: payload, observedAt: "2026-08-27T00:00:00.000Z" }),
     }, {
       getRate: async (base) => ({ id: "fx-washer", base, quote: "CNY", rate: "7", provider: "test", observedAt: "2026-08-27T00:00:00.000Z", expiresAt: "2026-08-28T00:00:00.000Z" }),
     });
-    const proof = buildResearchProofBundle({
-      comparisonSet: campaign.comparisonSet,
-      artifacts: campaign.artifacts,
-      coverage: campaign.coverage,
+    const provenance = buildSearchProvenanceBundle({
+      rankedOfferSet: batch.rankedOfferSet,
+      artifacts: batch.artifacts,
+      coverage: batch.coverage,
       workingSetVersion: 1,
       boundGoalVersion: 1,
     });
-    expect(campaign.comparisonSet.qualifications[0]).toMatchObject({
+    expect(batch.rankedOfferSet.eligibilityResults[0]).toMatchObject({
       status: "DISCOVERABLE",
-      offer: { supportLevel: "DISCOVERY", targetCategoryId: "washing_machine", productIdentity: { status: "UNRESOLVED", comparisonKey: null } },
+      offer: { validationMode: "SEARCH_ONLY", targetCategoryId: "washing_machine", productIdentity: { status: "UNRESOLVED", comparisonKey: null } },
     });
-    expect(proof.workingSet.pool[0]).toMatchObject({
+    expect(provenance.workingSet.pool[0]).toMatchObject({
       categoryId: "washing_machine",
-      discovery: { supportLevel: "DISCOVERY", identityLevel: "OFFER_ONLY", identityKey: null },
+      ranking: { validationMode: "SEARCH_ONLY", identityResolution: "LISTING_LEVEL", identityKey: null },
     });
-    expect(proof.claims.map((claim) => claim.kind)).toEqual(expect.arrayContaining(["PRICE", "MERCHANT", "MARKET"]));
+    expect(provenance.claims.map((claim) => claim.kind)).toEqual(expect.arrayContaining(["PRICE", "MERCHANT", "MARKET"]));
   });
 
-  it("keeps registered adapters on the Verified path", () => {
-    expect(resolveCategoryRecommendationCapability("headphones")).toMatchObject({ supportLevel: "VERIFIED", categoryId: "headphones", adapter: { contractVersion: "2026-08-01" } });
-    expect(resolveCategoryRecommendationCapability("smartphone")).toMatchObject({ supportLevel: "VERIFIED", categoryId: "smartphone" });
+  it("uses rule validation for categories with a registered policy", () => {
+    expect(resolveCategoryValidationCapability("headphones")).toMatchObject({ validationMode: "RULE_VALIDATED", categoryId: "headphones", policy: { version: "2026-08-01" } });
+    expect(resolveCategoryValidationCapability("smartphone")).toMatchObject({ validationMode: "RULE_VALIDATED", categoryId: "smartphone" });
   });
 });

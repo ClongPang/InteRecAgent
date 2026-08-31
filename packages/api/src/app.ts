@@ -46,6 +46,8 @@ function statusForRepositoryError(code: string): number {
     "TURN_NOT_RETRYABLE",
     "RETRY_INPUT_ALREADY_CONSUMED",
     "UNCONSUMED_MESSAGE_BATCH_LIMIT",
+    "NO_PENDING_CLARIFICATION",
+    "STALE_CLARIFICATION_ID",
   ].includes(code)) return 409;
   return 400;
 }
@@ -64,6 +66,15 @@ const turnInputSchema = Type.Union([
   Type.Object({ type: Type.Literal("PATCH_GOAL"), operations: Type.Array(unboundGoalOperationSchema, { minItems: 1, maxItems: 12 }) }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("UNDO"), revision: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("SET_COMPARISON"), offerRefs: Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { minItems: 2, maxItems: 4, uniqueItems: true }) }, { additionalProperties: false }),
+  Type.Object({
+    type: Type.Literal("ANSWER_CLARIFICATION"),
+    clarificationId: Type.String({ minLength: 1, maxLength: 256 }),
+    answer: Type.Union([
+      Type.Object({ type: Type.Literal("OPTION"), optionId: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
+      Type.Object({ type: Type.Literal("TEXT"), text: Type.String({ minLength: 1, maxLength: 4000 }) }, { additionalProperties: false }),
+      Type.Object({ type: Type.Literal("SKIP") }, { additionalProperties: false }),
+    ]),
+  }, { additionalProperties: false }),
 ]);
 
 export function createConversationApp(options: ConversationAppOptions) {

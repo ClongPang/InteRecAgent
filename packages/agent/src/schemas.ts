@@ -3,7 +3,7 @@ import { Type } from "typebox";
 
 // This is the model-facing wire shape, not the trusted domain Money type. Some
 // OpenAI-compatible providers represent an explicitly absent budget as empty
-// strings. Accept that bounded placeholder here so the deterministic Host can
+// strings. Accept that bounded placeholder here so the turn executor can
 // discard it from the proposal before strict domain validation.
 const money = Type.Object({ amount: Type.String({ maxLength: 64 }), currency: Type.String({ maxLength: 8 }) }, { additionalProperties: false });
 const target = Type.Object({
@@ -23,7 +23,7 @@ const base = {
   sourceMessageOrdinal: Type.Integer({ minimum: 0, maximum: 7 }),
   sourceSpan: Type.Optional(Type.Object({ start: Type.Integer({ minimum: 0 }), end: Type.Integer({ minimum: 0 }) }, { additionalProperties: false })),
 };
-const worldBase = {
+const shoppingDataBase = {
   opId: base.opId,
   sourceMessageOrdinal: Type.Optional(base.sourceMessageOrdinal),
   sourceSpan: base.sourceSpan,
@@ -52,12 +52,27 @@ export const turnOperationSchema = Type.Union([
   Type.Object({ ...base, kind: Type.Literal("GOAL_RESTORE_ENTITY"), entity }, { additionalProperties: false }),
   Type.Object({ ...base, kind: Type.Literal("GOAL_ADD_GAP"), gap: Type.Object({ slotId: Type.String({ minLength: 1, maxLength: 100 }), reasonCodes: Type.Array(Type.String({ minLength: 1, maxLength: 100 }), { maxItems: 10 }) }, { additionalProperties: false }) }, { additionalProperties: false }),
   Type.Object({ ...base, kind: Type.Literal("GOAL_RESOLVE_GAP"), slotId: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
-  Type.Object({ ...worldBase, kind: Type.Literal("REJECT_OFFERS"), referents: Type.Array(referent, { minItems: 1, maxItems: 4 }), reasonCode: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
-  Type.Object({ ...worldBase, kind: Type.Literal("RESTORE_OFFERS"), referents: Type.Array(referent, { minItems: 1, maxItems: 4 }) }, { additionalProperties: false }),
-  Type.Object({ ...worldBase, kind: Type.Literal("SET_COMPARISON"), referents: Type.Array(referent, { minItems: 2, maxItems: 4 }) }, { additionalProperties: false }),
-  Type.Object({ ...worldBase, kind: Type.Literal("SET_FOCUS"), referent: Type.Union([referent, Type.Null()]) }, { additionalProperties: false }),
   Type.Object({
-    ...worldBase,
+    ...shoppingDataBase,
+    kind: Type.Literal("RESOLVE_CLARIFICATION"),
+    clarificationId: Type.String({ minLength: 1, maxLength: 200 }),
+    clarification: Type.Object({
+      kind: Type.Union([
+        Type.Literal("BUDGET"), Type.Literal("PURCHASE_MARKET"), Type.Literal("TARGET_PRODUCT"),
+        Type.Literal("TARGET_MODEL"), Type.Literal("CONDITION"), Type.Literal("DELIVERY_DESTINATION"),
+        Type.Literal("QUANTITY"), Type.Literal("FORM_FACTOR"), Type.Literal("CANDIDATE_REFERENT"),
+      ]),
+      contextRef: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+      interpretations: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { minItems: 2, maxItems: 4, uniqueItems: true })),
+    }, { additionalProperties: false }),
+    outcome: Type.Union([Type.Literal("ANSWERED"), Type.Literal("SKIPPED")]),
+  }, { additionalProperties: false }),
+  Type.Object({ ...shoppingDataBase, kind: Type.Literal("REJECT_OFFERS"), referents: Type.Array(referent, { minItems: 1, maxItems: 4 }), reasonCode: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
+  Type.Object({ ...shoppingDataBase, kind: Type.Literal("RESTORE_OFFERS"), referents: Type.Array(referent, { minItems: 1, maxItems: 4 }) }, { additionalProperties: false }),
+  Type.Object({ ...shoppingDataBase, kind: Type.Literal("SET_COMPARISON"), referents: Type.Array(referent, { minItems: 2, maxItems: 4 }) }, { additionalProperties: false }),
+  Type.Object({ ...shoppingDataBase, kind: Type.Literal("SET_FOCUS"), referent: Type.Union([referent, Type.Null()]) }, { additionalProperties: false }),
+  Type.Object({
+    ...shoppingDataBase,
     kind: Type.Literal("INSPECT_WORKING_SET"),
     referents: Type.Array(referent, { maxItems: 4 }),
     fields: Type.Array(Type.Union([
@@ -71,22 +86,53 @@ export const turnOperationSchema = Type.Union([
       Type.Literal("WARRANTY"),
     ]), { minItems: 1, maxItems: 8 }),
   }, { additionalProperties: false }),
-  Type.Object({ ...worldBase, kind: Type.Literal("INSPECT_RESEARCH_COVERAGE") }, { additionalProperties: false }),
-  Type.Object({ ...worldBase, kind: Type.Literal("REFILTER_WORKING_SET") }, { additionalProperties: false }),
+  Type.Object({ ...shoppingDataBase, kind: Type.Literal("INSPECT_SEARCH_COVERAGE") }, { additionalProperties: false }),
+  Type.Object({ ...shoppingDataBase, kind: Type.Literal("REFILTER_WORKING_SET") }, { additionalProperties: false }),
   Type.Object({
-    ...worldBase,
-    kind: Type.Literal("RESEARCH_OFFERS"),
+    ...shoppingDataBase,
+    kind: Type.Literal("SEARCH_OFFERS"),
     reasonCode: Type.Union([
       Type.Literal("USER_REQUESTED_REFRESH"),
-      Type.Literal("GOAL_BECAME_RESEARCH_READY"),
+      Type.Literal("GOAL_BECAME_SEARCH_READY"),
       Type.Literal("TARGET_CHANGED"),
       Type.Literal("INSUFFICIENT_COVERAGE"),
       Type.Literal("STALE_EVIDENCE"),
     ]),
     queryVariant: Type.Optional(Type.String({ minLength: 1, maxLength: 300 })),
+    marketScope: Type.Optional(Type.Array(Type.Union([Type.Literal("US"), Type.Literal("SG")]), { minItems: 1, maxItems: 2, uniqueItems: true })),
+    assumptionDisclosureCodes: Type.Optional(Type.Array(Type.Union([
+      Type.Literal("PURCHASE_MARKET_SCOPE_ASSUMED"),
+      Type.Literal("PRODUCT_CONDITION_NOT_RESTRICTED"),
+    ]), { minItems: 1, maxItems: 2, uniqueItems: true })),
   }, { additionalProperties: false }),
-  Type.Object({ ...worldBase, kind: Type.Literal("REQUEST_CLARIFICATION"), slotId: Type.String({ minLength: 1, maxLength: 100 }), reasonCode: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
-  Type.Object({ ...worldBase, kind: Type.Literal("UNDO_REVISION"), revision: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
+  Type.Object({
+    ...shoppingDataBase,
+    kind: Type.Literal("REQUEST_CLARIFICATION"),
+    clarification: Type.Object({
+      kind: Type.Union([
+        Type.Literal("BUDGET"),
+        Type.Literal("PURCHASE_MARKET"),
+        Type.Literal("TARGET_PRODUCT"),
+        Type.Literal("TARGET_MODEL"),
+        Type.Literal("CONDITION"),
+        Type.Literal("DELIVERY_DESTINATION"),
+        Type.Literal("QUANTITY"),
+        Type.Literal("FORM_FACTOR"),
+        Type.Literal("CANDIDATE_REFERENT"),
+      ]),
+      contextRef: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+      interpretations: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { minItems: 2, maxItems: 4, uniqueItems: true })),
+    }, { additionalProperties: false }),
+    uncertainty: Type.Object({
+      type: Type.Union([
+        Type.Literal("INTENT_AMBIGUITY"),
+        Type.Literal("MISSING_USER_INFORMATION"),
+      ]),
+      userResolvable: Type.Literal(true),
+    }, { additionalProperties: false }),
+    reasonCode: Type.String({ minLength: 1, maxLength: 100 }),
+  }, { additionalProperties: false }),
+  Type.Object({ ...shoppingDataBase, kind: Type.Literal("UNDO_REVISION"), revision: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
 ]);
 
 export const turnPlanSchema = Type.Object({
@@ -102,21 +148,32 @@ const assistantBlockSchema = Type.Union([
       Type.Literal("STATE_UPDATED"),
       Type.Literal("EVIDENCE_SUMMARY"),
       Type.Literal("EVIDENCE_COMPARISON"),
-      Type.Literal("RESEARCH_COMPLETED"),
+      Type.Literal("SEARCH_COMPLETED"),
       Type.Literal("CHECKED_PREMISE"),
     ]),
     // Provider compatibility: harmless receipt IDs attached to a transition
-    // are accepted here and discarded before the Host sees the proposal.
+    // are accepted here and discarded before the turn executor sees the proposal.
     claimIds: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { maxItems: 12 })),
   }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("CLAIM"), claimId: Type.String({ minLength: 1, maxLength: 128 }) }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("COMPARISON"), claimIds: Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { minItems: 2, maxItems: 12 }) }, { additionalProperties: false }),
-  Type.Object({ type: Type.Literal("QUESTION"), slotId: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
+  Type.Object({
+    type: Type.Literal("QUESTION"),
+    clarification: Type.Object({
+      kind: Type.Union([
+        Type.Literal("BUDGET"), Type.Literal("PURCHASE_MARKET"), Type.Literal("TARGET_PRODUCT"),
+        Type.Literal("TARGET_MODEL"), Type.Literal("CONDITION"), Type.Literal("DELIVERY_DESTINATION"),
+        Type.Literal("QUANTITY"), Type.Literal("FORM_FACTOR"), Type.Literal("CANDIDATE_REFERENT"), Type.Literal("TURN_REPHRASE"),
+      ]),
+      contextRef: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+      interpretations: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { minItems: 2, maxItems: 4, uniqueItems: true })),
+    }, { additionalProperties: false }),
+  }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("DISCLOSURE"), disclosureCode: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
 ]);
 
 export const assistantEnvelopeSchema = Type.Object({
-  outcome: Type.Union([Type.Literal("CHAT"), Type.Literal("CLARIFICATION"), Type.Literal("DISCOVERY"), Type.Literal("RECOMMENDATION"), Type.Literal("NO_MATCH"), Type.Literal("DEGRADED")]),
+  outcome: Type.Union([Type.Literal("CHAT"), Type.Literal("CLARIFICATION"), Type.Literal("SEARCH_RESULTS"), Type.Literal("RECOMMENDATION"), Type.Literal("NO_MATCH"), Type.Literal("DEGRADED")]),
   blocks: Type.Array(assistantBlockSchema, { minItems: 1, maxItems: 20 }),
   // Keep this as a regular array schema for OpenAI-compatible providers. Empty
   // tuples are rejected by some providers even though they are valid JSON Schema.

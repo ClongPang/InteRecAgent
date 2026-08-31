@@ -7,7 +7,7 @@ import {
   createAgentEventObserver,
   inSpan,
   observeConversationTurn,
-  observeHostStep,
+  observeTurnExecutorStep,
   observeTurnEnqueue,
   observeTool,
   pseudonymousUserId,
@@ -71,7 +71,7 @@ describe("Langfuse telemetry", () => {
 
   it("classifies bounded domain safety failures without treating provider outages as safety incidents", () => {
     expect(classifySafetyBoundary("CLAIM_EVIDENCE_NOT_ALLOWED")).toEqual({ claimValidation: true, evidence: true, safety: true });
-    expect(classifySafetyBoundary("UNNECESSARY_PROVIDER_RESEARCH")).toEqual({ claimValidation: false, evidence: false, safety: true });
+    expect(classifySafetyBoundary("UNNECESSARY_PROVIDER_SEARCH")).toEqual({ claimValidation: false, evidence: false, safety: true });
     expect(classifySafetyBoundary("BUYWHERE_HTTP_503")).toEqual({ claimValidation: false, evidence: false, safety: false });
   });
 
@@ -169,7 +169,7 @@ describe("Langfuse telemetry", () => {
           inferenceIndex: 1,
           phase: "PLAN",
         }, async () => {
-          await observeHostStep("execute-operation", { kind: "RESEARCH_OFFERS" }, () => observeTool(
+          await observeTurnExecutorStep("execute-operation", { kind: "SEARCH_OFFERS" }, () => observeTool(
               "discover_offers",
               { queryVariant: turn.currentUserMessages[0] },
               () => inSpan("buywhere.search", { "rec_agent.market": "US" }, async () => ["offer-1"]),
@@ -191,7 +191,7 @@ describe("Langfuse telemetry", () => {
         "execute-turn-attempt",
         "planner.plan",
         "agent.tool.commit_turn_plan",
-        "host.execute-operation",
+        "turn_executor.execute-operation",
         "tool.discover_offers",
         "buywhere.search",
         "validate-agent-tool-causality",
@@ -200,7 +200,7 @@ describe("Langfuse telemetry", () => {
       expect(spans.every((span) => span.spanContext().traceId === turn.traceId)).toBe(true);
       const modelTool = spans.find((span) => span.name === "agent.tool.commit_turn_plan");
       const providerTool = spans.find((span) => span.name === "tool.discover_offers");
-      const hostStep = spans.find((span) => span.name === "host.execute-operation");
+      const turnExecutorStep = spans.find((span) => span.name === "turn_executor.execute-operation");
       const generation = spans.find((span) => span.name === "planner.plan");
       const traceRoot = spans.find((span) => span.name === "conversation-turn");
       const enqueue = spans.find((span) => span.name === "enqueue-turn");
@@ -209,8 +209,8 @@ describe("Langfuse telemetry", () => {
       expect(enqueue?.parentSpanContext?.spanId).toBe(traceRoot?.spanContext().spanId);
       expect(agentRoot?.parentSpanContext?.spanId).toBe(traceRoot?.spanContext().spanId);
       expect(modelTool).toBeDefined();
-      expect(hostStep?.parentSpanContext?.spanId).toBe(modelTool?.spanContext().spanId);
-      expect(providerTool?.parentSpanContext?.spanId).toBe(hostStep?.spanContext().spanId);
+      expect(turnExecutorStep?.parentSpanContext?.spanId).toBe(modelTool?.spanContext().spanId);
+      expect(providerTool?.parentSpanContext?.spanId).toBe(turnExecutorStep?.spanContext().spanId);
       expect(JSON.stringify(modelTool?.attributes)).toContain("call-1");
       expect(JSON.stringify(generation?.attributes)).toContain("PLAN");
       expect(JSON.stringify(generation?.attributes)).toContain("contextSha256");

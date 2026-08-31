@@ -5,8 +5,8 @@ import {
   ConversationWorker,
   FxRatesClient,
   PostgresConversationRepository,
-  PostgresConversationResearchRepository,
-  PostgresProviderGovernor,
+  PostgresConversationSearchRepository,
+  PostgresProviderCallController,
   createPiModelRuntime,
   resolveBuyWhereRuntimeConfig,
   runConversationMigrations,
@@ -82,8 +82,8 @@ await runConversationMigrations(repository.pool);
 const buyWhere = resolveBuyWhereRuntimeConfig();
 const worker = new ConversationWorker(
   repository,
-  new PostgresConversationResearchRepository(repository.pool),
-  new PostgresProviderGovernor(repository.pool),
+  new PostgresConversationSearchRepository(repository.pool),
+  new PostgresProviderCallController(repository.pool),
   new BuyWhereClient(buyWhere.apiKey, { timeoutMs: buyWhere.timeoutMs }),
   new FxRatesClient(),
   createPiModelRuntime(),
@@ -140,8 +140,8 @@ try {
       feedback: number;
     }>(
       `SELECT
-         (SELECT count(*)::int FROM interec_agent.tool_executions WHERE turn_id = $1 AND step_key LIKE 'research:%:market:%' AND status = 'SUCCEEDED') AS product_calls,
-         (SELECT count(*)::int FROM interec_agent.tool_executions WHERE turn_id = $1 AND step_key LIKE 'research:%:fx:%' AND status = 'SUCCEEDED') AS fx_calls,
+         (SELECT count(*)::int FROM interec_agent.tool_executions WHERE turn_id = $1 AND (step_key LIKE 'search:%:market:%' OR step_key LIKE 'research:%:market:%') AND status = 'SUCCEEDED') AS product_calls,
+         (SELECT count(*)::int FROM interec_agent.tool_executions WHERE turn_id = $1 AND (step_key LIKE 'search:%:fx:%' OR step_key LIKE 'research:%:fx:%') AND status = 'SUCCEEDED') AS fx_calls,
          (SELECT count(*)::int FROM interec_agent.provider_artifacts WHERE turn_id = $1) AS artifacts,
          (SELECT count(*)::int FROM interec_agent.attempt_claims WHERE turn_id = $1) AS claims,
          (SELECT count(*)::int FROM interec_agent.candidate_feedback_events WHERE turn_id = $1) AS feedback`,
@@ -160,9 +160,9 @@ try {
       candidates: {
         total: pool.length,
         displayed: projection.state.workingSet?.displayOfferRefs?.length ?? 0,
-        discovery: pool.filter((candidate: any) => candidate.discovery?.supportLevel === "DISCOVERY").length,
-        verified: pool.filter((candidate: any) => candidate.discovery?.supportLevel === "VERIFIED").length,
-        offerOnly: pool.filter((candidate: any) => candidate.discovery?.identityLevel === "OFFER_ONLY").length,
+        ranking: pool.filter((candidate: any) => candidate.ranking?.validationMode === "SEARCH_ONLY").length,
+        verified: pool.filter((candidate: any) => candidate.ranking?.validationMode === "RULE_VALIDATED").length,
+        offerOnly: pool.filter((candidate: any) => candidate.ranking?.identityResolution === "LISTING_LEVEL").length,
         sampleTitles: pool.slice(0, 3).map((candidate: any) => candidate.title),
       },
       databaseEvidence: databaseEvidence.rows[0],

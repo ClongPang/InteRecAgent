@@ -28,7 +28,7 @@ PostgreSQL durable ledger 已经是业务事实源，新的观测方案不能取
 
 ### 仅使用 Pi 内部 telemetry
 
-与 Agent 事件贴近，但不能覆盖 API、durable worker、PostgreSQL correlation 和外部 Provider，也没有满足本系统需要的生产 exporter 与运营视图。
+与 Agent 事件贴近，但不能覆盖 API、基于数据库租约的可恢复 Worker、PostgreSQL correlation 和外部 Provider，也没有满足本系统需要的生产 exporter 与运营视图。
 
 ### 自建 LLM trace 表与 Dashboard
 
@@ -41,7 +41,7 @@ PostgreSQL durable ledger 已经是业务事实源，新的观测方案不能取
 - Conversation、Turn、Pi Agent、generation、tool、Provider 形成一棵可检索 trace。
 - token、cost、evidence block、研究失败和错误可按模型、发布版本和环境分析。
 - `turn_id`/`trace_id` 双向关联，事故定位不依赖模糊时间窗口。
-- 后续 100 条 gold 与 Shadow 可以直接挂接 observation 级 score。
+- 后续独立标注评测集与真实旁路流量样本可以直接挂接 observation 级 score。
 
 代价与风险：
 

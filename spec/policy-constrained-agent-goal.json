@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "goalId": "policy-constrained-pi-agent-planning-v1",
+  "objective": "Preserve Pi-Agent planning autonomy while adding explicit business-policy approval, ESCI candidate admission, uncertainty-aware answerability, and bounded repair.",
+  "authoritativeDocuments": [
+    "docs/adr/0005-policy-constrained-pi-agent-planning.md",
+    "docs/policy-constrained-agent-implementation-plan.md"
+  ],
+  "phaseOrder": [
+    "P0_LOCK_AND_CHARACTERIZE",
+    "P1_TYPED_PLAN_REVIEW",
+    "P2_ESCI_CANDIDATE_ADMISSION",
+    "P3_UNCERTAINTY_AND_ANSWERABILITY",
+    "P4_DELETE_OLD_SEMANTIC_FALLBACKS",
+    "P5_LIVE_ACCEPTANCE_AND_CUTOVER"
+  ],
+  "invariants": [
+    {
+      "id": "PI_AGENT_OWNS_NATURAL_LANGUAGE_PLANNING",
+      "rule": "Pi-Agent proposes the ordered TurnPlan for every natural-language turn; business policy does not become a second planner."
+    },
+    {
+      "id": "POLICY_APPROVES_WITHOUT_SILENT_SEMANTIC_REWRITE",
+      "rule": "Business policy returns APPROVED, REPAIR_REQUIRED, or REJECTED and never silently adds, removes, or changes semantic operations."
+    },
+    {
+      "id": "ONLY_APPROVED_PLANS_EXECUTE",
+      "rule": "No unapproved proposal may mutate Goal, DialogueState, WorkingSet, call a provider, or publish an assistant response."
+    },
+    {
+      "id": "REPAIR_FEEDBACK_IS_STRUCTURED",
+      "rule": "Repair feedback identifies the violation location, observed value, and admissible alternatives within a bounded proposal budget."
+    },
+    {
+      "id": "KNOWN_FIELDS_SURVIVE_CLARIFICATION",
+      "rule": "Explicitly stated shopping-goal fields remain in the same approved plan when another field requires clarification; bounded repair reports all detectable omissions together."
+    },
+    {
+      "id": "SYSTEM_FAILURE_IS_NOT_USER_AMBIGUITY",
+      "rule": "Model, protocol, tool, and runtime failures never create user clarification."
+    },
+    {
+      "id": "MISSING_EVIDENCE_IS_NOT_USER_AMBIGUITY",
+      "rule": "A clear question with unknown evidence is answered by disclosure or retrieval, not by asking the user to rephrase."
+    },
+    {
+      "id": "CLARIFICATION_REQUIRES_USER_RESOLVABLE_INFORMATION",
+      "rule": "Clarification is allowed only for decision-relevant intent ambiguity or missing information that the user can provide."
+    },
+    {
+      "id": "ESCI_ADMISSION_PRECEDES_RANKING",
+      "rule": "Every retrieved item receives an auditable Exact, Substitute, Complement, Irrelevant, or Unresolved assessment before candidate admission and ranking."
+    },
+    {
+      "id": "NON_EXACT_ITEMS_DO_NOT_ENTER_MAIN_RECOMMENDATIONS",
+      "rule": "Substitutes, complements, irrelevant items, and unresolved items cannot enter the main-product recommendation cohort."
+    },
+    {
+      "id": "MODEL_PROVIDES_SEMANTICS_NOT_HARD_AUTHORIZATION",
+      "rule": "Models may infer open-world semantics, but deterministic policies own state mutation, candidate admission, clarification permission, and claim publication."
+    },
+    {
+      "id": "SINGLE_WRITABLE_PRODUCTION_PATH",
+      "rule": "Shadow evaluation is read-only; after cutover there is one writable production execution path and no legacy runtime fallback."
+    },
+    {
+      "id": "NO_BAD_CASE_CONTROL_FLOW",
+      "rule": "Production control flow is not driven by specific user phrases, product names, or one-off category examples."
+    },
+    {
+      "id": "NO_GENERIC_POLICY_DSL",
+      "rule": "The implementation uses typed domain policies and does not introduce a generic policy or workflow DSL."
+    }
+  ],
+  "esciAdmission": {
+    "EXACT": "MAIN_RECOMMENDATION",
+    "SUBSTITUTE": "ALTERNATIVE_COHORT",
+    "COMPLEMENT": "RELATED_COHORT",
+    "IRRELEVANT": "INELIGIBLE",
+    "UNRESOLVED": "INSUFFICIENT_EVIDENCE"
+  },
+  "uncertaintyOwnership": {
+    "INTENT_AMBIGUITY": "CLARIFICATION_ELIGIBLE",
+    "MISSING_USER_INFORMATION": "CLARIFICATION_ELIGIBLE",
+    "MISSING_EVIDENCE": "DISCLOSE_OR_RETRIEVE",
+    "SYSTEM_FAILURE": "RETRY_OR_DEGRADE"
+  },
+  "rejectedApproaches": [
+    "MODEL_ONLY_BUSINESS_AUTHORIZATION",
+    "HOST_GENERATES_ALL_NATURAL_LANGUAGE_PLANS",
+    "LLM_JUDGE_AS_SOLE_APPROVER",
+    "GENERIC_POLICY_DSL",
+    "PROMPT_OR_REGEX_BAD_CASE_PATCHING",
+    "SILENT_SEMANTIC_PLAN_REWRITE",
+    "MODEL_FAILURE_TO_TURN_REPHRASE"
+  ],
+  "completionEvidence": [
+    "typed plan review and bounded repair tests",
+    "cross-category ESCI candidate admission evaluation",
+    "uncertainty ownership and answerability tests",
+    "static checks proving old semantic fallbacks are deleted",
+    "PostgreSQL plan review persistence integration tests",
+    "real Pi-Agent, Buywhere, API, and frontend multi-turn acceptance",
+    "phase-by-phase goal drift audits"
+  ]
+}

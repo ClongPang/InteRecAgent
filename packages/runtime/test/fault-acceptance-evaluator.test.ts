@@ -31,7 +31,7 @@ function observationsFor(manifest: FaultManifest): FaultObservation[] {
     persistedSuccessfulStepRepeated: false,
     transactionResidueDetected: false,
     outboxDeliveryCorrect: true,
-    providerCallsPerStep: row.faultGroup.startsWith("PROVIDER") ? { "research:market:US": 1 } : {},
+    providerCallsPerStep: row.faultGroup.startsWith("PROVIDER") ? { "search:market:US": 1 } : {},
   }));
 }
 
@@ -61,7 +61,7 @@ describe("80-trial fault acceptance evaluator", () => {
   it("reports provider duplicate calls diagnostically without hiding affected trials", () => {
     const manifest = createDevelopmentFaultManifest("release-a", "schema-a");
     const observations = observationsFor(manifest);
-    observations[0]!.providerCallsPerStep["research:market:US"] = 3;
+    observations[0]!.providerCallsPerStep["search:market:US"] = 3;
     const report = evaluateFaultAcceptance(manifest, observations);
     expect(report.passed).toBe(true);
     expect(report.providerDuplicateCalls).toMatchObject({ extraCalls: 2, affectedTrials: 1, denominator: 80 });

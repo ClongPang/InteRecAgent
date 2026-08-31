@@ -2,25 +2,25 @@
 
 - 状态：Accepted for implementation；生产发布仍需完整验收
 - 日期：2026-08-26
-- 替代：ADR-0001 中 research-only 三工具话轮协议；不替代 ADR-0003 的正向证据准入原则
+- 替代：ADR-0001 中仅面向报价搜索的三工具话轮协议；不替代 ADR-0003 的来源充分性准入原则
 
 ## 决策
 
-InteRecAgent 的产品边界是长期 Shopping Conversation/Mission，而不是一次性推荐 run。每条用户输入形成一个 durable Turn；Turn 完成只表示已原子提交一条 AssistantMessage 和本轮状态变更，不关闭 Conversation。
+InteRecAgent 的产品边界是长期 Shopping Conversation/Mission，而不是一次性推荐 run。每条用户输入形成一个可由数据库租约接管和恢复的 Turn；Turn 完成只表示已原子提交一条 AssistantMessage 和本轮状态变更，不关闭 Conversation。
 
 每个 worker attempt 创建 fresh pi-agent。Agent 从 PostgreSQL 中指定 `baseRevision` 的受控 ConversationSnapshot 开始，依次完成：
 
 ```text
-Observe → commit_turn_plan → ordered WorldOps → publish_reply
+Observe → commit_turn_plan → ordered turn actions（内部类型 `TurnAction`）→ publish_reply
 ```
 
-Agent 负责开放语言理解、多操作 TurnPlan、受限工具编排和 AssistantEnvelope 组织。宿主负责 Goal/WorkingSet reducer、引用绑定、外调策略、proof-carrying 资格、金额、排序、ClaimVerifier 和原子状态发布。
+Agent 负责开放语言理解、多操作 TurnPlan、受限工具编排和内部结构化回复 `AssistantEnvelope` 的组织。受策略约束的话轮执行器负责 Goal/WorkingSet reducer、引用绑定、外调策略、候选规则校验、金额、规则排序、回复声明来源一致性校验和原子状态发布。
 
 普通对话、澄清、比较、解释、排除、重排、过滤和撤销在现有证据足够时不得调用 Provider。澄清、无匹配和降级是 AssistantEnvelope outcome，不是 Conversation 终态。
 
 ## 状态与一致性
 
-Goal、DialogueState、WorkingSet、AssistantMessage、可选 Decision、Turn status 和 conversation events 必须在一次最终事务中 exactly-once publication。所有中间操作写入 attempt-scoped TurnDraft；失败、取消、超时或 superseded attempt 不能成为 Conversation “latest”。
+Goal、DialogueState、WorkingSet、AssistantMessage、可选 Decision、Turn status 和 conversation events 必须在一次最终 PostgreSQL 事务中原子发布，并通过唯一约束和幂等检查避免重复最终提交。所有中间操作写入 attempt-scoped TurnDraft；失败、取消、超时或 superseded attempt 不能成为 Conversation “latest”。该保证只覆盖数据库内最终状态，不表示外部网络副作用端到端 exactly-once。
 
 外部调用允许 at-least-once。工具使用 stable step key 和 request hash 的 durable ledger；已成功步骤可重放，状态晋级仍受 base revision、attempt、fence 和有效 lease 约束。
 

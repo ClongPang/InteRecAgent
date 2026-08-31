@@ -5,11 +5,11 @@ import {
   createWorkingSet,
   emptyShoppingGoal,
   reprojectWorkingSetForGoal,
-  type CandidateProjection,
+  type CandidateView,
   type TurnPlan,
 } from "../src/index.js";
 
-function candidate(offerRef: string, title: string): CandidateProjection {
+function candidate(offerRef: string, title: string): CandidateView {
   return {
     offerRef,
     title,
@@ -22,9 +22,9 @@ function candidate(offerRef: string, title: string): CandidateProjection {
     cnyAmount: "5000",
     stock: "UNKNOWN",
     claimIds: [],
-    discovery: {
-      supportLevel: "DISCOVERY",
-      identityLevel: "OFFER_ONLY",
+    ranking: {
+      validationMode: "SEARCH_ONLY",
+      identityResolution: "LISTING_LEVEL",
       identityKey: null,
       matchedPreferenceKeys: [],
       contradictedPreferenceKeys: [],
@@ -37,10 +37,10 @@ describe("candidate feedback and preference projection", () => {
   it("derives append-only feedback from the validated turn plan", () => {
     const workingSet = createWorkingSet({ version: 2, boundGoalVersion: 1, pool: [candidate("a", "Lightweight Laptop"), candidate("b", "Gaming Laptop")] });
     const plan: TurnPlan = {
-      userIntentSummary: "research and refine",
+      userIntentSummary: "search and refine",
       leftover: [],
       ops: [
-        { opId: "research", kind: "RESEARCH_OFFERS", reasonCode: "USER_REQUESTED" },
+        { opId: "search", kind: "SEARCH_OFFERS", reasonCode: "USER_REQUESTED" },
         { opId: "focus", kind: "SET_FOCUS", referent: { kind: "OFFER_REF", offerRef: "a" } },
         { opId: "compare", kind: "SET_COMPARISON", referents: [{ kind: "OFFER_REF", offerRef: "a" }, { kind: "OFFER_REF", offerRef: "b" }] },
         { opId: "reject", kind: "REJECT_OFFERS", referents: [{ kind: "OFFER_REF", offerRef: "b" }], reasonCode: "USER_REJECTED" },
@@ -49,7 +49,7 @@ describe("candidate feedback and preference projection", () => {
       ],
     };
     expect(candidateFeedbackForTurn(plan, workingSet)).toMatchObject([
-      { kind: "IMPRESSION", operationId: "research", offerRefs: ["a", "b"] },
+      { kind: "IMPRESSION", operationId: "search", offerRefs: ["a", "b"] },
       { kind: "FOCUS", operationId: "focus", offerRefs: ["a"] },
       { kind: "COMPARE", operationId: "compare", offerRefs: ["a", "b"] },
       { kind: "REJECT", operationId: "reject", offerRefs: ["b"] },
@@ -58,7 +58,7 @@ describe("candidate feedback and preference projection", () => {
     ]);
   });
 
-  it("reranks an existing Discovery set from session preferences without mutating its proof pool", () => {
+  it("reranks an existing search-only set from session preferences without mutating its source candidate pool", () => {
     const set = createWorkingSet({ version: 2, boundGoalVersion: 1, pool: [candidate("gaming", "Gaming Laptop 16"), candidate("light", "Lightweight Laptop 14")] });
     const originalPool = structuredClone(set.pool);
     const goal = {

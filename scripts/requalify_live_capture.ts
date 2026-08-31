@@ -1,11 +1,11 @@
 import pg from "pg";
 
 import {
-  buildComparisonSet,
+  buildRankedOfferSet,
   canonicalModels,
-  qualifyListing,
-  resolveCategoryContract,
-  resolveMarketContract,
+  evaluateListingEligibility,
+  resolveCategoryValidationPolicy,
+  resolveMarketDefinition,
   resolveProductIdentity,
   type DiscoveredListing,
   type FxSnapshot,
@@ -26,10 +26,10 @@ function required(name: string): string {
 
 function proofGoal(shopping: ShoppingGoal): Goal {
   if (!shopping.target) throw new Error("REQUALIFY_TARGET_REQUIRED");
-  const contract = resolveCategoryContract(shopping.target.categoryId);
+  const contract = resolveCategoryValidationPolicy(shopping.target.categoryId);
   if (!contract) throw new Error("REQUALIFY_CATEGORY_CONTRACT_REQUIRED");
   const markets = shopping.retrievalMarkets.map((value) => {
-    const market = resolveMarketContract(value);
+    const market = resolveMarketDefinition(value);
     if (!market) throw new Error(`REQUALIFY_MARKET_CONTRACT_REQUIRED:${value}`);
     return market.marketId as Market;
   });
@@ -102,16 +102,16 @@ try {
       identity: resolveProductIdentity(title, classification, goal.target, evidence),
     };
   });
-  const qualifications = reidentified.map((listing) => qualifyListing(listing, goal, latestFxByCurrency));
+  const eligibilityResults = reidentified.map((listing) => evaluateListingEligibility(listing, goal, latestFxByCurrency));
   const reasonCounts = new Map<string, number>();
-  for (const qualification of qualifications) {
+  for (const qualification of eligibilityResults) {
     for (const reason of qualification.reasonCodes) reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
   }
-  const comparison = buildComparisonSet(reidentified, goal, latestFxByCurrency);
+  const comparison = buildRankedOfferSet(reidentified, goal, latestFxByCurrency);
   process.stdout.write(`${JSON.stringify({
     conversationId,
     listingCount: listings.length,
-    comparableCount: qualifications.filter((item) => item.status === "COMPARABLE").length,
+    comparableCount: eligibilityResults.filter((item) => item.status === "COMPARABLE").length,
     reasonCounts: Object.fromEntries([...reasonCounts.entries()].sort(([left], [right]) => left.localeCompare(right))),
     rankedOffers: comparison.rankedOffers.slice(0, 8).map(({ offer, rank }) => ({
       rank,

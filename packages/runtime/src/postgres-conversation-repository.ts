@@ -1,18 +1,22 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import {
+  DomainError,
   candidateFeedbackForTurn,
   emptyDialogueState,
+  normalizeDialogueState,
   renderAssistantEnvelope,
   routeForTurnPlan,
   validateAssistantEnvelope,
+  validateNoPlanDegradedPublication,
   validateTurnPlan,
   validateWorkingSet,
-  verifyClaimLedger,
+  validateGroundedClaimSet,
+  validateClarificationAnswer,
   type ConversationState,
   type GoalRevision,
   type WorkingSet,
-  type ClaimLedger,
+  type GroundedClaimSet,
 } from "@interec/domain";
 import pg from "pg";
 
@@ -25,19 +29,31 @@ import type {
   ConversationEventRecord,
   ConversationMessageRecord,
   ConversationProjectionRecord,
-  ConversationRecordV3,
+  ConversationRecord,
   ConversationRepository,
   ConversationTurnRecord,
   ConversationTurnInput,
   ConversationTurnStatus,
   FinalCommitResult,
   OwnerClaims,
+  RecordPlanReviewInput,
   RetryConversationTurnInput,
   ToolExecutionRecord,
   ToolReservation,
 } from "./conversation-repository-types.js";
 import { ConversationRepositoryError } from "./conversation-repository-types.js";
 import { runtimeMetrics, telemetryTraceIdForTurn } from "./telemetry.js";
+
+function validatePersistedPlan(plan: CommitConversationTurnInput["plan"], envelope?: AttemptDraft["envelope"]) {
+  if (plan.ops.length > 0) return validateTurnPlan(plan);
+  if (!envelope || envelope.outcome !== "DEGRADED" || envelope.addressedOpIds.length !== 0) {
+    throw new ConversationRepositoryError(
+      "EMPTY_PLAN_REQUIRES_SYSTEM_DEGRADATION",
+      "Only an unaddressed system-owned DEGRADED publication may persist without an approved plan",
+    );
+  }
+  return validateNoPlanDegradedPublication(plan);
+}
 
 const { Pool } = pg;
 type Queryable = Pick<pg.PoolClient, "query">;
@@ -73,22 +89,22 @@ export function canonicalPayloadHash(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
 }
 
-interface ResolvedPublishedClaimProof {
+interface ResolvedClaimSources {
   claimId: string;
   sourceFacts: Array<{ sourceFactId: string; fxSnapshotId: string | null }>;
 }
 
-async function verifyClaimProofChain(
+async function validatePublishedClaimSources(
   client: pg.PoolClient,
   input: {
     conversationId: string;
     turnId: string;
     attempt: number;
     currentRevision: number;
-    ledger: ClaimLedger;
+    ledger: GroundedClaimSet;
   },
-): Promise<ResolvedPublishedClaimProof[]> {
-  const resolved: ResolvedPublishedClaimProof[] = [];
+): Promise<ResolvedClaimSources[]> {
+  const resolved: ResolvedClaimSources[] = [];
   for (const claim of input.ledger.claims) {
     const candidates = await client.query<Record<string, unknown>>(
       `SELECT ac.id, ac.turn_id, ac.attempt, ac.kind, ac.canonical_value, ac.rendered_text, ac.offer_ref
@@ -111,7 +127,7 @@ async function verifyClaimProofChain(
       && canonicalPayloadHash(row["offer_ref"] ? [String(row["offer_ref"])] : []) === canonicalPayloadHash(claim.offerRefs),
     );
     if (!claimRow) {
-      throw new ConversationRepositoryError("CLAIM_PROOF_NOT_PERSISTED", `No persisted proof template matches claim ${claim.claimId}`);
+      throw new ConversationRepositoryError("CLAIM_SOURCE_NOT_PERSISTED", `No persisted source record matches claim ${claim.claimId}`);
     }
     const evidenceRows = await client.query<Record<string, unknown>>(
       `SELECT sf.id AS source_fact_id, sf.turn_id, sf.attempt, sf.source_fact_ref, sf.json_path,
@@ -128,7 +144,7 @@ async function verifyClaimProofChain(
     if (evidenceRows.rowCount !== claim.evidenceRefs.length) {
       throw new ConversationRepositoryError("CLAIM_EVIDENCE_COUNT_MISMATCH", `Persisted evidence count differs for claim ${claim.claimId}`);
     }
-    const sourceFacts: ResolvedPublishedClaimProof["sourceFacts"] = [];
+    const sourceFacts: ResolvedClaimSources["sourceFacts"] = [];
     for (const evidence of claim.evidenceRefs) {
       const row = evidenceRows.rows.find((candidate) =>
         String(candidate["source_fact_ref"]) === evidence.sourceFactRef
@@ -137,8 +153,8 @@ async function verifyClaimProofChain(
       );
       if (!row) throw new ConversationRepositoryError("CLAIM_EVIDENCE_NOT_PERSISTED", `Evidence is not persisted for claim ${claim.claimId}`);
       const currentAttempt = String(row["turn_id"]) === input.turnId && Number(row["attempt"]) === input.attempt;
-      const previouslyPromoted = row["promoted_revision"] !== null && Number(row["promoted_revision"]) <= input.currentRevision;
-      if (!currentAttempt && !previouslyPromoted) {
+      const previouslyPublished = row["promoted_revision"] !== null && Number(row["promoted_revision"]) <= input.currentRevision;
+      if (!currentAttempt && !previouslyPublished) {
         throw new ConversationRepositoryError("CLAIM_EVIDENCE_OUTSIDE_AUTHORITY", `Evidence is not current or previously promoted: ${evidence.sourceFactRef}`);
       }
       const mismatchedFields = [
@@ -160,8 +176,8 @@ async function verifyClaimProofChain(
       }
       if (persistedFxId) {
         const currentFx = String(row["fx_turn_id"]) === input.turnId && Number(row["fx_attempt"]) === input.attempt;
-        const promotedFx = row["fx_promoted_revision"] !== null && Number(row["fx_promoted_revision"]) <= input.currentRevision;
-        if (!currentFx && !promotedFx) throw new ConversationRepositoryError("CLAIM_FX_OUTSIDE_AUTHORITY", `FX snapshot is not current or previously promoted: ${persistedFxId}`);
+        const publishedFx = row["fx_promoted_revision"] !== null && Number(row["fx_promoted_revision"]) <= input.currentRevision;
+        if (!currentFx && !publishedFx) throw new ConversationRepositoryError("CLAIM_FX_OUTSIDE_AUTHORITY", `FX snapshot is not current or previously promoted: ${persistedFxId}`);
       }
       sourceFacts.push({ sourceFactId: String(row["source_fact_id"]), fxSnapshotId: persistedFxId });
     }
@@ -182,11 +198,11 @@ function nullableString(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value);
 }
 
-function mapConversation(row: Record<string, unknown>): ConversationRecordV3 {
+function mapConversation(row: Record<string, unknown>): ConversationRecord {
   return {
     id: String(row["id"]),
     owner: { tenantId: String(row["tenant_id"]), ownerId: String(row["owner_id"]) },
-    status: String(row["status"]) as ConversationRecordV3["status"],
+    status: String(row["status"]) as ConversationRecord["status"],
     currentRevision: Number(row["current_revision"]),
     messageCursor: Number(row["next_message_seq"]),
     eventCursor: Number(row["next_event_seq"]),
@@ -224,7 +240,7 @@ function mapMessage(row: Record<string, unknown>): ConversationMessageRecord {
     payload: {
       ...payload,
       ...(row["envelope_json"] ? { envelope: row["envelope_json"] } : {}),
-      ...(row["ledger_json"] ? { claimLedger: row["ledger_json"] } : {}),
+      ...(row["ledger_json"] ? { groundedClaims: row["ledger_json"] } : {}),
     },
     consumedByTurnId: row["consumed_by_turn_id"] === null ? null : String(row["consumed_by_turn_id"]),
     createdAt: asIso(row["created_at"]),
@@ -334,7 +350,7 @@ async function hydrateSnapshot(client: Queryable, conversationId: string, reques
     revision,
     status: String(current["status"]) as ConversationState["status"],
     goalRevision,
-    dialogue: row["dialogue_json"] as ConversationState["dialogue"],
+    dialogue: normalizeDialogueState(row["dialogue_json"]),
     workingSet,
   };
 }
@@ -395,7 +411,7 @@ export class PostgresConversationRepository implements ConversationRepository {
     this.pool = new Pool({ connectionString, max: maxConnections });
   }
 
-  public async createConversation(owner: OwnerClaims): Promise<ConversationRecordV3> {
+  public async createConversation(owner: OwnerClaims): Promise<ConversationRecord> {
     const tenantId = requiredText(owner.tenantId, "INVALID_TENANT_ID");
     const ownerId = requiredText(owner.ownerId, "INVALID_OWNER_ID");
     return withOwnerTransaction(this.pool, owner, async (client) => {
@@ -408,7 +424,7 @@ export class PostgresConversationRepository implements ConversationRepository {
     });
   }
 
-  public async getConversation(id: string, owner: OwnerClaims): Promise<ConversationRecordV3 | null> {
+  public async getConversation(id: string, owner: OwnerClaims): Promise<ConversationRecord | null> {
     return withOwnerTransaction(this.pool, owner, async (client) => {
       const result = await client.query<Record<string, unknown>>(
         `SELECT * FROM interec_agent.conversations
@@ -513,6 +529,16 @@ export class PostgresConversationRepository implements ConversationRepository {
       if (input.expectedRevision !== undefined && input.expectedRevision !== currentRevision) {
         throw new ConversationRepositoryError("REVISION_CONFLICT", `Expected revision ${input.expectedRevision}, current revision is ${currentRevision}`);
       }
+      if (input.input.type === "ANSWER_CLARIFICATION") {
+        const snapshot = await hydrateSnapshot(client, input.conversationId, currentRevision);
+        if (!snapshot) throw new ConversationRepositoryError("CONVERSATION_SNAPSHOT_NOT_FOUND", `Snapshot ${currentRevision} was not found`);
+        try {
+          validateClarificationAnswer(snapshot.dialogue, input.input.clarificationId, input.input.answer);
+        } catch (error) {
+          if (error instanceof DomainError) throw new ConversationRepositoryError(error.code, error.message);
+          throw error;
+        }
+      }
 
       const turnId = randomUUID();
       const activeTurnId = conversation["active_turn_id"] === null ? null : String(conversation["active_turn_id"]);
@@ -553,7 +579,7 @@ export class PostgresConversationRepository implements ConversationRepository {
         throw new ConversationRepositoryError("UNCONSUMED_MESSAGE_BATCH_LIMIT", "A Turn can contain at most eight consecutive USER messages");
       }
       const unconsumedInputs = unconsumed.rows.map((message) => message.payload_json);
-      if (unconsumedInputs.every((value) => value.type !== "MESSAGE")) {
+      if (unconsumedInputs.every((value) => value.type !== "MESSAGE" && !(value.type === "ANSWER_CLARIFICATION" && value.answer.type === "TEXT"))) {
         const operationCount = unconsumedInputs.reduce((count, value) => count + (value.type === "PATCH_GOAL" ? value.operations.length : 1), 0);
         if (operationCount > 12) throw new ConversationRepositoryError("TURN_OPERATION_BUDGET_EXCEEDED", `Typed batch contains ${operationCount} operations`);
       }
@@ -833,7 +859,7 @@ export class PostgresConversationRepository implements ConversationRepository {
   }
 
   public async stageAttemptDraft(turnId: string, attempt: number, fenceToken: string, draft: AttemptDraft): Promise<boolean> {
-    if (draft.plan) validateTurnPlan(draft.plan);
+    if (draft.plan) validatePersistedPlan(draft.plan, draft.envelope);
     if (draft.workingSet) validateWorkingSet(draft.workingSet);
     const patch: Record<string, unknown> = {};
     if (Object.prototype.hasOwnProperty.call(draft, "plan")) patch["plan"] = draft.plan ?? null;
@@ -841,7 +867,7 @@ export class PostgresConversationRepository implements ConversationRepository {
     if (Object.prototype.hasOwnProperty.call(draft, "dialogue")) patch["dialogue"] = draft.dialogue ?? null;
     if (Object.prototype.hasOwnProperty.call(draft, "workingSet")) patch["workingSet"] = draft.workingSet ?? null;
     if (Object.prototype.hasOwnProperty.call(draft, "envelope")) patch["envelope"] = draft.envelope ?? null;
-    if (Object.prototype.hasOwnProperty.call(draft, "claimLedger")) patch["claimLedger"] = draft.claimLedger ?? null;
+    if (Object.prototype.hasOwnProperty.call(draft, "groundedClaims")) patch["groundedClaims"] = draft.groundedClaims ?? null;
     if (Object.prototype.hasOwnProperty.call(draft, "fallbackReasonCode")) patch["fallbackReasonCode"] = draft.fallbackReasonCode ?? null;
     const result = await this.pool.query(
       `UPDATE interec_agent.turn_attempts ta
@@ -868,9 +894,42 @@ export class PostgresConversationRepository implements ConversationRepository {
         draft.dialogue ? JSON.stringify(draft.dialogue) : null,
         draft.workingSet ? JSON.stringify(draft.workingSet) : null,
         draft.envelope ? JSON.stringify(draft.envelope) : null,
-        draft.claimLedger ? JSON.stringify(draft.claimLedger) : null,
+        draft.groundedClaims ? JSON.stringify(draft.groundedClaims) : null,
         draft.evidenceKeys ?? null,
         JSON.stringify(patch),
+      ],
+    );
+    return result.rowCount === 1;
+  }
+
+  public async recordPlanReview(input: RecordPlanReviewInput): Promise<boolean> {
+    if (!Number.isSafeInteger(input.proposalNumber) || input.proposalNumber < 1 || input.proposalNumber > 3) {
+      throw new ConversationRepositoryError("INVALID_PLAN_PROPOSAL_NUMBER", "Plan proposal number must be between 1 and 3");
+    }
+    const result = await this.pool.query(
+      `INSERT INTO interec_agent.turn_plan_reviews (
+         id, turn_id, attempt, proposal_number, decision, policy_version,
+         proposal_json, reviewed_plan_json, violations_json, approved_plan_json
+       )
+       SELECT $4::uuid, t.id, $2, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb
+       FROM interec_agent.turns t
+       JOIN interec_agent.turn_attempts ta ON ta.turn_id = t.id AND ta.attempt = $2
+       WHERE t.id = $1 AND t.attempt = $2 AND t.fence_token = $3::bigint
+         AND t.status = 'RUNNING' AND ta.status = 'RUNNING' AND ta.fence_token = $3::bigint
+         AND t.lease_expires_at > clock_timestamp() AND t.deadline_at > clock_timestamp()
+       ON CONFLICT (turn_id, attempt, proposal_number) DO NOTHING`,
+      [
+        input.turnId,
+        input.attempt,
+        input.fenceToken,
+        randomUUID(),
+        input.proposalNumber,
+        input.review.decision,
+        input.review.policyVersion,
+        JSON.stringify(input.proposal),
+        JSON.stringify(input.reviewedPlan),
+        JSON.stringify("violations" in input.review ? input.review.violations : []),
+        input.approvedPlan ? JSON.stringify(input.approvedPlan) : null,
       ],
     );
     return result.rowCount === 1;
@@ -983,7 +1042,7 @@ export class PostgresConversationRepository implements ConversationRepository {
   }
 
   public async commitTurn(input: CommitConversationTurnInput): Promise<FinalCommitResult | null> {
-    const terminalRoute = routeForTurnPlan(input.plan);
+    const terminalRoute = input.plan.ops.length === 0 ? "talk" : routeForTurnPlan(input.plan);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -1042,7 +1101,7 @@ export class PostgresConversationRepository implements ConversationRepository {
         ["dialogue", input.state.dialogue],
         ["workingSet", input.state.workingSet],
         ["envelope", input.envelope],
-        ["claimLedger", input.claimLedger],
+        ["groundedClaims", input.groundedClaims],
       ] as const) {
         if (!Object.prototype.hasOwnProperty.call(draft, field)
           || canonicalPayloadHash(draft[field]) !== canonicalPayloadHash(value)) {
@@ -1052,7 +1111,7 @@ export class PostgresConversationRepository implements ConversationRepository {
       if (!attempt?.["plan_json"] || canonicalPayloadHash(attempt["plan_json"]) !== canonicalPayloadHash(input.plan)) {
         throw new ConversationRepositoryError("TURN_PLAN_NOT_STAGED", "Final commit plan does not match the attempt-scoped staged plan");
       }
-      const plan = validateTurnPlan(input.plan);
+      const plan = validatePersistedPlan(input.plan, input.envelope);
       const undoOperation = plan.ops.find((operation) => operation.kind === "UNDO_REVISION");
       const workingSet = input.state.workingSet ? validateWorkingSet(input.state.workingSet) : null;
       if (workingSet && (input.state.dialogue.focusOfferRef !== workingSet.focusOfferRef
@@ -1062,30 +1121,30 @@ export class PostgresConversationRepository implements ConversationRepository {
       const allowedOfferRefs = new Set(workingSet?.pool.map((item) => item.offerRef) ?? []);
       validateAssistantEnvelope(input.envelope, {
         plan,
-        claimLedger: input.claimLedger,
+        groundedClaims: input.groundedClaims,
         allowedOfferRefs,
-        allowedQuestionSlotIds: input.allowedQuestionSlotIds,
+        allowedClarificationIds: input.allowedClarificationIds,
         allowedDisclosureCodes: input.allowedDisclosureCodes,
       });
-      const deterministicText = renderAssistantEnvelope(input.envelope, input.claimLedger);
+      const deterministicText = renderAssistantEnvelope(input.envelope, input.groundedClaims);
       if (deterministicText !== input.renderedText.trim()) {
-        throw new ConversationRepositoryError("ASSISTANT_RENDER_MISMATCH", "Rendered assistant text differs from the verified envelope");
+        throw new ConversationRepositoryError("ASSISTANT_RENDER_MISMATCH", "Rendered assistant text differs from the validated envelope");
       }
-      let publishedClaimProofs: ResolvedPublishedClaimProof[] = [];
-      if (input.claimLedger.claims.length > 0) {
+      let publishedClaimSources: ResolvedClaimSources[] = [];
+      if (input.groundedClaims.claims.length > 0) {
         if (!workingSet) throw new ConversationRepositoryError("CLAIM_WORKING_SET_REQUIRED", "Claims require a committed working set");
-        verifyClaimLedger(input.claimLedger, {
+        validateGroundedClaimSet(input.groundedClaims, {
           workingSet,
           allowedEvidenceRefs: new Set((attempt["evidence_keys"] as string[] | null) ?? []),
           envelope: input.envelope,
           renderedDraft: input.renderedText,
         });
-        publishedClaimProofs = await verifyClaimProofChain(client, {
+        publishedClaimSources = await validatePublishedClaimSources(client, {
           conversationId: String(turn["conversation_id"]),
           turnId: input.turnId,
           attempt: input.attempt,
           currentRevision: Number(conversation["current_revision"]),
-          ledger: input.claimLedger,
+          ledger: input.groundedClaims,
         });
       }
       const nextRevision = Number(conversation["current_revision"]) + 1;
@@ -1136,7 +1195,7 @@ export class PostgresConversationRepository implements ConversationRepository {
         if (goalVersionId !== nullableString(target["goal_version_id"])
           || workingSetId !== nullableString(target["working_set_id"])
           || canonicalPayloadHash(input.state.dialogue) !== canonicalPayloadHash(target["dialogue_json"])) {
-          throw new ConversationRepositoryError("UNDO_STATE_MISMATCH", "Undo publication must restore the exact target Goal, Dialogue and WorkingSet pointers");
+          throw new ConversationRepositoryError("UNDO_STATE_MISMATCH", "Undo publication must restore the exact target shopping goal, Dialogue and WorkingSet pointers");
         }
       } else {
         const currentGoalId = nullableString(currentPointers?.["goal_version_id"]);
@@ -1193,10 +1252,10 @@ export class PostgresConversationRepository implements ConversationRepository {
         [responseId, turn["conversation_id"], input.turnId, input.envelope.outcome, input.renderedText.trim()],
       );
       await client.query("INSERT INTO interec_agent.assistant_envelopes (response_id, envelope_json) VALUES ($1, $2::jsonb)", [responseId, JSON.stringify(input.envelope)]);
-      await client.query("INSERT INTO interec_agent.claim_ledgers (response_id, ledger_json) VALUES ($1, $2::jsonb)", [responseId, JSON.stringify(input.claimLedger)]);
-      for (const claim of input.claimLedger.claims) {
-        const proof = publishedClaimProofs.find((item) => item.claimId === claim.claimId);
-        if (!proof) throw new ConversationRepositoryError("CLAIM_PROOF_NOT_RESOLVED", `Claim proof was not resolved: ${claim.claimId}`);
+      await client.query("INSERT INTO interec_agent.claim_ledgers (response_id, ledger_json) VALUES ($1, $2::jsonb)", [responseId, JSON.stringify(input.groundedClaims)]);
+      for (const claim of input.groundedClaims.claims) {
+        const groundedSource = publishedClaimSources.find((item) => item.claimId === claim.claimId);
+        if (!groundedSource) throw new ConversationRepositoryError("CLAIM_SOURCE_NOT_RESOLVED", `Claim sources were not resolved: ${claim.claimId}`);
         const publishedClaimId = randomUUID();
         await client.query(
           `INSERT INTO interec_agent.published_claims
@@ -1204,7 +1263,7 @@ export class PostgresConversationRepository implements ConversationRepository {
            VALUES ($1, $2, $3, $4, $5::jsonb, $6)`,
           [publishedClaimId, responseId, claim.claimId, claim.kind, JSON.stringify(claim.canonicalValue), claim.renderedText],
         );
-        for (const evidence of proof.sourceFacts) {
+        for (const evidence of groundedSource.sourceFacts) {
           await client.query(
             `INSERT INTO interec_agent.published_claim_evidence
                (published_claim_id, source_fact_id, fx_snapshot_id)
@@ -1279,10 +1338,10 @@ export class PostgresConversationRepository implements ConversationRepository {
     );
     if (existing.rows[0]) {
       if (canonicalPayloadHash(existing.rows[0]["goal_json"]) !== canonicalPayloadHash(goalRevision.goal)) {
-        throw new ConversationRepositoryError("GOAL_VERSION_CONFLICT", `Goal version ${goalRevision.version} has different state`);
+        throw new ConversationRepositoryError("GOAL_VERSION_CONFLICT", `shopping goal version ${goalRevision.version} has different state`);
       }
       if (canonicalPayloadHash(existing.rows[0]["operations_json"]) !== canonicalPayloadHash(goalRevision.operations)) {
-        throw new ConversationRepositoryError("GOAL_OPERATION_HISTORY_CONFLICT", `Goal version ${goalRevision.version} has different operations`);
+        throw new ConversationRepositoryError("GOAL_OPERATION_HISTORY_CONFLICT", `shopping goal version ${goalRevision.version} has different operations`);
       }
       return String(existing.rows[0]["id"]);
     }
@@ -1295,7 +1354,7 @@ export class PostgresConversationRepository implements ConversationRepository {
         "SELECT id FROM interec_agent.goal_versions WHERE conversation_id = $1 AND revision = $2",
         [conversationId, goalRevision.parentVersion],
       );
-      if (!parent.rows[0]) throw new ConversationRepositoryError("GOAL_PARENT_REVISION_NOT_FOUND", `Goal parent version not found: ${goalRevision.parentVersion}`);
+      if (!parent.rows[0]) throw new ConversationRepositoryError("GOAL_PARENT_REVISION_NOT_FOUND", `shopping goal parent version not found: ${goalRevision.parentVersion}`);
       parentId = parent.rows[0].id;
     }
     const currentId = currentGoalVersionId === null || currentGoalVersionId === undefined ? null : String(currentGoalVersionId);
@@ -1336,49 +1395,49 @@ export class PostgresConversationRepository implements ConversationRepository {
       throw new ConversationRepositoryError("WORKING_SET_VERSION_NOT_MONOTONE", `A new working-set version must use publication revision ${publicationRevision}`);
     }
     const refsHash = canonicalPayloadHash(workingSet.pool.map((candidate) => candidate.offerRef).sort());
-    const draftProof = await client.query<Record<string, unknown>>(
+    const draftRankedOfferSet = await client.query<Record<string, unknown>>(
       `SELECT id FROM interec_agent.comparison_sets
        WHERE conversation_id = $1 AND turn_id = $2 AND attempt = $3 AND status = 'DRAFT'
          AND candidate_refs_hash = $4 AND bound_goal_version = $5
        ORDER BY version DESC LIMIT 1 FOR UPDATE`,
       [conversationId, turnId, attempt, refsHash, workingSet.boundGoalVersion],
     );
-    let proofComparisonSetId = nullableString(draftProof.rows[0]?.["id"]);
-    if (proofComparisonSetId) {
-      const proofItems = await client.query<Record<string, unknown>>(
+    let sourceRankedOfferSetId = nullableString(draftRankedOfferSet.rows[0]?.["id"]);
+    if (sourceRankedOfferSetId) {
+      const rankedItems = await client.query<Record<string, unknown>>(
         `SELECT offer_ref, candidate_json FROM interec_agent.comparison_set_items
          WHERE comparison_set_id = $1 ORDER BY rank`,
-        [proofComparisonSetId],
+        [sourceRankedOfferSetId],
       );
-      if (proofItems.rowCount !== workingSet.pool.length) {
-        throw new ConversationRepositoryError("WORKING_SET_PROOF_SIZE_MISMATCH", "Working set and proof-qualified comparison set differ in size");
+      if (rankedItems.rowCount !== workingSet.pool.length) {
+        throw new ConversationRepositoryError("WORKING_SET_SOURCE_SIZE_MISMATCH", "Working set and source-ranked offer set differ in size");
       }
       for (const candidate of workingSet.pool) {
-        const item = proofItems.rows.find((row) => String(row["offer_ref"]) === candidate.offerRef);
+        const item = rankedItems.rows.find((row) => String(row["offer_ref"]) === candidate.offerRef);
         if (!item || canonicalPayloadHash(item["candidate_json"]) !== canonicalPayloadHash(candidate)) {
-          throw new ConversationRepositoryError("WORKING_SET_PROOF_MISMATCH", `Candidate differs from its proof-qualified projection: ${candidate.offerRef}`);
+          throw new ConversationRepositoryError("WORKING_SET_SOURCE_MISMATCH", `Candidate differs from its source-grounded projection: ${candidate.offerRef}`);
         }
       }
     } else if (currentWorkingSetId) {
-      const currentProof = await client.query<Record<string, unknown>>(
+      const currentSource = await client.query<Record<string, unknown>>(
         `SELECT proof_comparison_set_id, state_json FROM interec_agent.working_sets WHERE id = $1`,
         [currentWorkingSetId],
       );
-      const previous = currentProof.rows[0];
+      const previous = currentSource.rows[0];
       const previousPool = (previous?.["state_json"] as WorkingSet | undefined)?.pool ?? [];
       if (canonicalPayloadHash(previousPool) === canonicalPayloadHash(workingSet.pool)) {
-        proofComparisonSetId = nullableString(previous?.["proof_comparison_set_id"]);
+        sourceRankedOfferSetId = nullableString(previous?.["proof_comparison_set_id"]);
       }
     }
-    if (workingSet.pool.length > 0 && !proofComparisonSetId) {
-      throw new ConversationRepositoryError("WORKING_SET_PROOF_REQUIRED", "A non-empty working set must originate from a promoted comparison set");
+    if (workingSet.pool.length > 0 && !sourceRankedOfferSetId) {
+      throw new ConversationRepositoryError("WORKING_SET_SOURCE_REQUIRED", "A non-empty working set must originate from a published ranked offer set");
     }
     const id = randomUUID();
     await client.query(
       `INSERT INTO interec_agent.working_sets
          (id, conversation_id, revision, bound_goal_version, state_json, committed_by_turn_id, proof_comparison_set_id)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
-      [id, conversationId, workingSet.version, workingSet.boundGoalVersion, JSON.stringify(workingSet), turnId, proofComparisonSetId],
+      [id, conversationId, workingSet.version, workingSet.boundGoalVersion, JSON.stringify(workingSet), turnId, sourceRankedOfferSetId],
     );
     for (const [ordinal, candidate] of workingSet.pool.entries()) {
       const ref = candidate.offerRef;
@@ -1399,12 +1458,12 @@ export class PostgresConversationRepository implements ConversationRepository {
         ],
       );
     }
-    if (draftProof.rows[0]) {
+    if (draftRankedOfferSet.rows[0]) {
       await client.query(
         `UPDATE interec_agent.comparison_sets
          SET status = 'PROMOTED', promoted_revision = $2
          WHERE id = $1 AND status = 'DRAFT'`,
-        [proofComparisonSetId, publicationRevision],
+        [sourceRankedOfferSetId, publicationRevision],
       );
       await client.query(
         `UPDATE interec_agent.source_facts SET promoted_revision = $3

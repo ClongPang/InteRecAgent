@@ -121,6 +121,14 @@ export const runtimeMetrics = {
   providerDuration: new DeferredHistogram(),
   providerErrors: new DeferredCounter(),
   candidateCacheLookups: new DeferredCounter(),
+  candidateAdmissions: new DeferredCounter(),
+  semanticRelevanceAttempts: new DeferredCounter(),
+  clarificationDecisions: new DeferredCounter(),
+  clarificationResolutions: new DeferredCounter(),
+  planReviewDecisions: new DeferredCounter(),
+  goalFieldRetentionChecks: new DeferredCounter(),
+  answerabilityDecisions: new DeferredCounter(),
+  uncertaintyMisattributions: new DeferredCounter(),
   feedbackEvents: new DeferredCounter(),
   terminalTurns: new DeferredCounter(),
   outboxPublished: new DeferredCounter(),
@@ -150,6 +158,14 @@ function bindRuntimeMetrics(): void {
     providerDuration: meter.createHistogram("rec_agent.provider.request.duration", { unit: "s" }),
     providerErrors: meter.createCounter("rec_agent.provider.errors", { unit: "{error}" }),
     candidateCacheLookups: meter.createCounter("rec_agent.candidate_cache.lookups", { unit: "{lookup}" }),
+    candidateAdmissions: meter.createCounter("rec_agent.candidate.admissions", { unit: "{candidate}" }),
+    semanticRelevanceAttempts: meter.createCounter("rec_agent.semantic_relevance.attempts", { unit: "{attempt}" }),
+    clarificationDecisions: meter.createCounter("rec_agent.clarification.decisions", { unit: "{decision}" }),
+    clarificationResolutions: meter.createCounter("rec_agent.clarification.resolutions", { unit: "{resolution}" }),
+    planReviewDecisions: meter.createCounter("rec_agent.plan_review.decisions", { unit: "{decision}" }),
+    goalFieldRetentionChecks: meter.createCounter("rec_agent.goal.retention_checks", { unit: "{check}" }),
+    answerabilityDecisions: meter.createCounter("rec_agent.answerability.decisions", { unit: "{decision}" }),
+    uncertaintyMisattributions: meter.createCounter("rec_agent.uncertainty.misattributions", { unit: "{violation}" }),
     feedbackEvents: meter.createCounter("rec_agent.feedback.events", { unit: "{event}" }),
     terminalTurns: meter.createCounter("rec_agent.turn.terminal", { unit: "{turn}" }),
     outboxPublished: meter.createCounter("rec_agent.outbox.published", { unit: "{message}" }),
@@ -317,8 +333,8 @@ export interface SafetyBoundaryClassification {
 export function classifySafetyBoundary(errorCode: string): SafetyBoundaryClassification {
   const code = errorCode.toUpperCase();
   const claimValidation = /CLAIM|ASSISTANT_ENVELOPE/.test(code);
-  const evidence = /EVIDENCE|PROOF|QUALIFICATION|ARTIFACT|SOURCE_FACT|FX_|MARKET_CONFLICT|PRODUCT_IDENTITY/.test(code);
-  const safety = claimValidation || evidence || /HARD_CONSTRAINT|WORKING_SET|REFERENT|OFFER_|UNNECESSARY_PROVIDER_RESEARCH|RESEARCH_BEFORE_CLARIFICATION|RESEARCH_BLOCKED|UI_FOCUS/.test(code);
+  const evidence = /EVIDENCE|SOURCE|ELIGIBILITY|ARTIFACT|FX_|MARKET_CONFLICT|PRODUCT_IDENTITY/.test(code);
+  const safety = claimValidation || evidence || /HARD_CONSTRAINT|WORKING_SET|REFERENT|OFFER_|UNNECESSARY_PROVIDER_SEARCH|SEARCH_BEFORE_CLARIFICATION|SEARCH_BLOCKED|UI_FOCUS/.test(code);
   return { claimValidation, evidence, safety };
 }
 
@@ -828,7 +844,7 @@ export async function observeTool<T>(
   );
 }
 
-export async function observeHostStep<T>(
+export async function observeTurnExecutorStep<T>(
   name: string,
   input: unknown,
   operation: () => Promise<T>,
@@ -836,11 +852,11 @@ export async function observeHostStep<T>(
   metadata: Record<string, unknown> = {},
 ): Promise<T> {
   return startActiveObservation(
-    `host.${name}`,
+    `turn_executor.${name}`,
     async (observation) => {
       observation.update({
         input: telemetryContent(input),
-        metadata: { hostStep: name, ...redactTelemetryData(metadata) as Record<string, unknown> },
+        metadata: { turnExecutorStep: name, ...redactTelemetryData(metadata) as Record<string, unknown> },
       });
       try {
         const result = await operation();

@@ -1,4 +1,5 @@
 import { DomainError } from "./errors.js";
+import { clarificationKey, normalizeClarificationIntent } from "./clarification.js";
 import type { DialogueOperation, DialogueState, WorkingSet } from "./conversation-types.js";
 
 function requiredText(value: string, code: string): string {
@@ -10,6 +11,7 @@ function requiredText(value: string, code: string): string {
 export function emptyDialogueState(): DialogueState {
   return {
     pendingClarification: null,
+    clarificationHistory: [],
     pendingOps: [],
     focusOfferRef: null,
     comparisonOfferRefs: [],
@@ -17,16 +19,49 @@ export function emptyDialogueState(): DialogueState {
   };
 }
 
-export function clarificationWording(slotId: string): string {
-  const normalized = requiredText(slotId, "INVALID_CLARIFICATION_SLOT").toLocaleLowerCase("en-US");
-  if (normalized === "budget") return "预算大概是多少？";
-  if (normalized === "retrieval_market" || normalized === "market") return "想比较哪些购买市场？目前支持美国和新加坡。";
-  if (normalized === "target_model" || normalized === "model") return "有指定的具体型号吗？";
-  if (normalized === "condition") return "只考虑全新商品，还是也接受翻新或二手？";
-  if (normalized === "delivery_destination") return "商品最终需要送到哪个国家或地区？";
-  if (normalized.startsWith("referent:")) return "你指的是当前候选中的哪一个？";
-  if (normalized === "turn_rephrase") return "请换一种说法告诉我你想继续调整、比较或了解什么。";
-  return "请再补充一个关键选购条件。";
+export function normalizeDialogueState(value: unknown): DialogueState {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new DomainError("INVALID_DIALOGUE_STATE", "Dialogue state must be an object");
+  }
+  const record = value as Record<string, unknown>;
+  const pendingValue = record["pendingClarification"];
+  let pendingClarification: DialogueState["pendingClarification"] = null;
+  if (pendingValue !== null && pendingValue !== undefined) {
+    if (!pendingValue || typeof pendingValue !== "object" || Array.isArray(pendingValue)) {
+      throw new DomainError("INVALID_PENDING_CLARIFICATION", "Pending clarification must be an object");
+    }
+    const pending = pendingValue as Record<string, unknown>;
+    const clarification = normalizeClarificationIntent(pending["clarification"] ?? pending["slotId"]);
+    const askedByMessageId = requiredText(String(pending["askedByMessageId"] ?? ""), "INVALID_MESSAGE_ID");
+    pendingClarification = {
+      clarificationId: typeof pending["clarificationId"] === "string" && pending["clarificationId"].trim()
+        ? pending["clarificationId"].trim()
+        : `legacy:${askedByMessageId}:${clarificationKey(clarification)}`,
+      clarification,
+      askedByMessageId,
+    };
+  }
+  return {
+    pendingClarification,
+    clarificationHistory: Array.isArray(record["clarificationHistory"])
+      ? record["clarificationHistory"].flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const history = item as Record<string, unknown>;
+        if (!(["ANSWERED", "SKIPPED", "ASSUMED"] as const).includes(history["outcome"] as "ANSWERED" | "SKIPPED" | "ASSUMED")) return [];
+        return [{
+          clarification: normalizeClarificationIntent(history["clarification"] ?? history["slotId"]),
+          outcome: history["outcome"] as "ANSWERED" | "SKIPPED" | "ASSUMED",
+          recordedAtGoalVersion: Number.isSafeInteger(history["recordedAtGoalVersion"]) ? Number(history["recordedAtGoalVersion"]) : null,
+        }];
+      })
+      : [],
+    pendingOps: Array.isArray(record["pendingOps"]) ? structuredClone(record["pendingOps"] as DialogueState["pendingOps"]) : [],
+    focusOfferRef: typeof record["focusOfferRef"] === "string" ? record["focusOfferRef"] : null,
+    comparisonOfferRefs: Array.isArray(record["comparisonOfferRefs"])
+      ? record["comparisonOfferRefs"].filter((item): item is string => typeof item === "string")
+      : [],
+    lastAssistantMessageId: typeof record["lastAssistantMessageId"] === "string" ? record["lastAssistantMessageId"] : null,
+  };
 }
 
 export function applyDialogueOperations(base: DialogueState, operations: DialogueOperation[]): DialogueState {
@@ -37,14 +72,33 @@ export function applyDialogueOperations(base: DialogueState, operations: Dialogu
         state = {
           ...state,
           pendingClarification: {
-            slotId: requiredText(operation.slotId, "INVALID_CLARIFICATION_SLOT"),
+            clarificationId: requiredText(operation.clarificationId, "INVALID_CLARIFICATION_ID"),
+            clarification: normalizeClarificationIntent(operation.clarification),
             askedByMessageId: requiredText(operation.askedByMessageId, "INVALID_MESSAGE_ID"),
           },
         };
         break;
       case "DIALOGUE_CLEAR_CLARIFICATION": {
-        const slotId = requiredText(operation.slotId, "INVALID_CLARIFICATION_SLOT");
-        state = state.pendingClarification?.slotId === slotId ? { ...state, pendingClarification: null } : state;
+        const clarification = normalizeClarificationIntent(operation.clarification);
+        state = state.pendingClarification
+          && clarificationKey(state.pendingClarification.clarification) === clarificationKey(clarification)
+          ? { ...state, pendingClarification: null }
+          : state;
+        break;
+      }
+      case "DIALOGUE_RECORD_CLARIFICATION_OUTCOME": {
+        const clarification = normalizeClarificationIntent(operation.clarification);
+        const key = clarificationKey(clarification);
+        state = {
+          ...state,
+          pendingClarification: state.pendingClarification && clarificationKey(state.pendingClarification.clarification) === key
+            ? null
+            : state.pendingClarification,
+          clarificationHistory: [
+            ...state.clarificationHistory.filter((item) => clarificationKey(item.clarification) !== key),
+            { clarification, outcome: operation.outcome, recordedAtGoalVersion: operation.goalVersion },
+          ],
+        };
         break;
       }
       case "DIALOGUE_SET_PENDING_OPERATIONS": {

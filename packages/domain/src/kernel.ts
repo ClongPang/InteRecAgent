@@ -1,8 +1,10 @@
 import { compareDecimal, convertToCny } from "./money.js";
-import { contractPatternMatches, resolveCategoryContract, resolveMarketContract } from "./catalog-contracts.js";
-import { resolveCategoryRecommendationCapability } from "./category-capability.js";
-import { buildCandidateDiscoveryMetadata, compareCandidateRankVectors } from "./discovery-ranking.js";
-import type { ComparableOffer, ComparisonSet, DiscoveredListing, EvidenceRef, FxSnapshot, Goal, Market, MarketEvidence, ProductCondition, QualificationResult, RankedComparableOffer, ValidatedDecision } from "./types.js";
+import { validationPatternMatches, resolveCategoryValidationPolicy, resolveMarketDefinition } from "./catalog-validation-policies.js";
+import { resolveCategoryValidationCapability } from "./category-validation.js";
+import { buildCandidateRankingMetadata, compareCandidateRankVectors } from "./candidate-ranking.js";
+import { assessQueryProductRelevance, decideCandidateAdmission } from "./query-product-relevance.js";
+import type { SemanticRelevanceSignal } from "./query-product-relevance-types.js";
+import type { ComparableOffer, RankedOfferSet, RetrievedListing, EvidenceRef, FxSnapshot, SearchGoalSnapshot, Market, MarketEvidence, ProductCondition, ListingEligibilityResult, RankedComparableOffer, ValidatedDecision } from "./types.js";
 
 const COUNTRY_TLD = /\.([a-z]{2})$/i;
 
@@ -10,10 +12,10 @@ function countryFromDomain(domain: string): string | null {
   return domain.match(COUNTRY_TLD)?.[1]?.toUpperCase() ?? null;
 }
 
-export function assessMarketEvidence(listing: DiscoveredListing): MarketEvidence {
+export function assessMarketEvidence(listing: RetrievedListing): MarketEvidence {
   const providerCountry = listing.providerCountry.value?.toUpperCase() ?? null;
   const targetDomainCountry = listing.merchantDomain.value ? countryFromDomain(listing.merchantDomain.value) : null;
-  const expected = resolveMarketContract(listing.retrievalMarket)?.countryCode ?? null;
+  const expected = resolveMarketDefinition(listing.retrievalMarket)?.countryCode ?? null;
   const evidence: EvidenceRef[] = [...listing.providerCountry.evidence, ...listing.merchantDomain.evidence];
   if (!expected || (providerCountry && providerCountry !== expected) || (targetDomainCountry && targetDomainCountry !== expected)) {
     return { retrievalMarket: listing.retrievalMarket, providerCountry, targetDomainCountry, level: "CONFLICTED", evidence };
@@ -23,7 +25,7 @@ export function assessMarketEvidence(listing: DiscoveredListing): MarketEvidence
   return { retrievalMarket: listing.retrievalMarket, providerCountry, targetDomainCountry, level: "UNVERIFIED", evidence };
 }
 
-function conditionAllowed(actual: ProductCondition, goal: Goal): boolean {
+function conditionAllowed(actual: ProductCondition, goal: SearchGoalSnapshot): boolean {
   if (goal.target.conditionPreference === "ANY") return true;
   if (goal.target.conditionPreference === "NEW") return actual === "NEW";
   if (goal.target.conditionPreference === "REFURBISHED") return actual === "REFURBISHED";
@@ -31,41 +33,61 @@ function conditionAllowed(actual: ProductCondition, goal: Goal): boolean {
   return actual === "NEW" || actual === "UNKNOWN";
 }
 
-function hardConstraintFailure(listing: DiscoveredListing, goal: Goal): { status: "INELIGIBLE" | "INSUFFICIENT_EVIDENCE"; reasonCode: string } | null {
+function hardConstraintFailure(listing: RetrievedListing, goal: SearchGoalSnapshot): { status: "INELIGIBLE" | "INSUFFICIENT_EVIDENCE"; reasonCode: string } | null {
   const constraints = goal.hardConstraints ?? [];
   if (constraints.length === 0) return null;
-  const contract = resolveCategoryContract(goal.target.categoryId);
+  const policy = resolveCategoryValidationPolicy(goal.target.categoryId);
   const evidenceText = [
     listing.title.value,
     ...(listing.categoryPath.value ?? []),
     listing.providerProductType.value,
   ].filter(Boolean).join(" ");
   for (const constraint of constraints) {
-    const proof = contract?.attributeProofs.find((item) => item.key === constraint.key && item.value === constraint.value);
-    if (!proof || constraint.operator !== "EQ") {
-      return { status: "INSUFFICIENT_EVIDENCE", reasonCode: "HARD_CONSTRAINT_PROOF_UNSUPPORTED" };
+    const validationRule = policy?.attributeValidationRules.find((item) => item.key === constraint.key && item.value === constraint.value);
+    if (!validationRule || constraint.operator !== "EQ") {
+      return { status: "INSUFFICIENT_EVIDENCE", reasonCode: "HARD_CONSTRAINT_VALIDATION_UNSUPPORTED" };
     }
-    if (contractPatternMatches(proof.negativeSignals, evidenceText)) {
+    if (validationPatternMatches(validationRule.negativeSignals, evidenceText)) {
       return { status: "INELIGIBLE", reasonCode: "HARD_CONSTRAINT_CONFLICT" };
     }
-    if (!contractPatternMatches(proof.positiveSignals, evidenceText)) {
+    if (!validationPatternMatches(validationRule.positiveSignals, evidenceText)) {
       return { status: "INSUFFICIENT_EVIDENCE", reasonCode: "HARD_CONSTRAINT_EVIDENCE_REQUIRED" };
     }
   }
   return null;
 }
 
-export function qualifyListing(listing: DiscoveredListing, goal: Goal, fxByCurrency: ReadonlyMap<string, FxSnapshot>): QualificationResult {
-  const reject = (status: QualificationResult["status"], reasonCode: string): QualificationResult => ({ listing, status, reasonCodes: [reasonCode], offer: null });
-  const categoryCapability = resolveCategoryRecommendationCapability(goal.target.categoryId, goal.target.targetText);
-  const verifiedCategory = categoryCapability.supportLevel === "VERIFIED";
+export function evaluateListingEligibility(
+  listing: RetrievedListing,
+  goal: SearchGoalSnapshot,
+  fxByCurrency: ReadonlyMap<string, FxSnapshot>,
+  semanticSignal?: SemanticRelevanceSignal,
+): ListingEligibilityResult {
+  const queryProductRelevance = assessQueryProductRelevance({ listing, goal, ...(semanticSignal ? { semanticSignal } : {}) });
+  const candidateAdmission = decideCandidateAdmission(queryProductRelevance);
+  const reject = (status: ListingEligibilityResult["status"], reasonCode: string): ListingEligibilityResult => ({
+    listing,
+    status,
+    reasonCodes: [reasonCode],
+    queryProductRelevance,
+    candidateAdmission,
+    offer: null,
+  });
+  if (!candidateAdmission.eligibleForMainRanking) {
+    return reject(
+      queryProductRelevance.label === "UNRESOLVED" ? "INSUFFICIENT_EVIDENCE" : "INELIGIBLE",
+      `QUERY_PRODUCT_${queryProductRelevance.label}`,
+    );
+  }
+  const categoryCapability = resolveCategoryValidationCapability(goal.target.categoryId, goal.target.targetText);
+  const ruleValidatedCategory = categoryCapability.validationMode === "RULE_VALIDATED";
   if (goal.excludedOfferRefs.includes(listing.listingRef)) return reject("INELIGIBLE", "USER_EXCLUDED");
   if (!goal.markets.includes(listing.retrievalMarket)) return reject("INELIGIBLE", "MARKET_NOT_REQUESTED");
-  if (verifiedCategory && listing.identity.status === "CONFLICTED") return reject("INELIGIBLE", "PRODUCT_IDENTITY_CONFLICT");
-  if (verifiedCategory && (listing.identity.status !== "RESOLVED" || !listing.identity.comparisonKey)) {
+  if (ruleValidatedCategory && listing.identity.status === "CONFLICTED") return reject("INELIGIBLE", "PRODUCT_IDENTITY_CONFLICT");
+  if (ruleValidatedCategory && (listing.identity.status !== "RESOLVED" || !listing.identity.comparisonKey)) {
     return reject("INSUFFICIENT_EVIDENCE", "PRODUCT_IDENTITY_UNRESOLVED");
   }
-  if (verifiedCategory) {
+  if (ruleValidatedCategory) {
     const constraintFailure = hardConstraintFailure(listing, goal);
     if (constraintFailure) return reject(constraintFailure.status, constraintFailure.reasonCode);
   }
@@ -73,7 +95,7 @@ export function qualifyListing(listing: DiscoveredListing, goal: Goal, fxByCurre
   if (!conditionAllowed(condition, goal)) return reject("INELIGIBLE", "CONDITION_MISMATCH");
   const marketEvidence = assessMarketEvidence(listing);
   if (marketEvidence.level === "CONFLICTED") return reject("INELIGIBLE", "MARKET_EVIDENCE_CONFLICT");
-  if (verifiedCategory && marketEvidence.level === "UNVERIFIED") return reject("INSUFFICIENT_EVIDENCE", "MARKET_EVIDENCE_REQUIRED");
+  if (ruleValidatedCategory && marketEvidence.level === "UNVERIFIED") return reject("INSUFFICIENT_EVIDENCE", "MARKET_EVIDENCE_REQUIRED");
   if (listing.stock.value === "OUT_OF_STOCK" && goal.stockPreference === "KNOWN_IN_STOCK") return reject("INELIGIBLE", "CONFIRMED_OUT_OF_STOCK");
   const money = listing.originalMoney.value;
   const title = listing.title.value;
@@ -85,25 +107,25 @@ export function qualifyListing(listing: DiscoveredListing, goal: Goal, fxByCurre
   if (!fx) return reject("INSUFFICIENT_EVIDENCE", "FX_EVIDENCE_REQUIRED");
   const cnyAmount = convertToCny(money, fx);
   if (goal.budgetCny !== null && compareDecimal(cnyAmount, goal.budgetCny) > 0) return reject("INELIGIBLE", "OVER_BUDGET");
-  const supportLevel = categoryCapability.supportLevel;
-  const productIdentity = verifiedCategory
+  const validationMode = categoryCapability.validationMode;
+  const productIdentity = ruleValidatedCategory
     ? listing.identity
     : { ...listing.identity, status: "UNRESOLVED" as const, comparisonKey: null };
-  const discovery = buildCandidateDiscoveryMetadata({
+  const ranking = buildCandidateRankingMetadata({
     listing,
     goal,
-    supportLevel,
+    validationMode,
     marketEvidence,
     stock: listing.stock.value ?? "UNKNOWN",
     cnyAmount,
-    hasUnverifiedHardConstraints: !verifiedCategory && (goal.hardConstraints?.length ?? 0) > 0,
+    hasUnverifiedHardConstraints: !ruleValidatedCategory && (goal.hardConstraints?.length ?? 0) > 0,
   });
-  const qualificationStatus = verifiedCategory ? "COMPARABLE" as const : "DISCOVERABLE" as const;
+  const eligibilityStatus = ruleValidatedCategory ? "COMPARABLE" as const : "DISCOVERABLE" as const;
   const reasonCodes = [
-    verifiedCategory ? "PRODUCT_IDENTITY_RESOLVED" : "OFFER_IDENTITY_ONLY",
-    supportLevel,
+    ruleValidatedCategory ? "PRODUCT_IDENTITY_RESOLVED" : "OFFER_IDENTITY_ONLY",
+    validationMode,
     marketEvidence.level,
-    ...(!verifiedCategory && (goal.hardConstraints?.length ?? 0) > 0 ? ["HARD_CONSTRAINTS_UNVERIFIED"] : []),
+    ...(!ruleValidatedCategory && (goal.hardConstraints?.length ?? 0) > 0 ? ["HARD_CONSTRAINTS_UNVERIFIED"] : []),
     ...(goal.budgetCny !== null ? ["WITHIN_BUDGET"] : []),
     ...(listing.stock.value === "UNKNOWN" ? ["STOCK_UNKNOWN"] : []),
     ...(condition === "UNKNOWN" ? ["CONDITION_UNKNOWN"] : []),
@@ -126,16 +148,25 @@ export function qualifyListing(listing: DiscoveredListing, goal: Goal, fxByCurre
     stock: listing.stock.value ?? "UNKNOWN",
     condition,
     observedAt: listing.observedAt,
-    supportLevel,
-    discovery,
+    validationMode,
+    ranking,
+    queryProductRelevance,
+    candidateAdmission,
     evidenceRefs,
-    qualification: { status: qualificationStatus, policyVersion: "proof-carrying-v2", reasonCodes },
+    eligibility: { status: eligibilityStatus, policyVersion: "source-grounding-v3", reasonCodes },
   };
-  return { listing, status: qualificationStatus, reasonCodes, offer };
+  return {
+    listing,
+    status: eligibilityStatus,
+    reasonCodes,
+    queryProductRelevance,
+    candidateAdmission,
+    offer,
+  };
 }
 
 function compareComparableOffers(left: ComparableOffer, right: ComparableOffer): number {
-    const vectorOrder = compareCandidateRankVectors(left.discovery.rankVector, right.discovery.rankVector);
+    const vectorOrder = compareCandidateRankVectors(left.ranking.rankVector, right.ranking.rankVector);
     if (vectorOrder !== 0) return vectorOrder;
     const freshnessOrder = right.observedAt.localeCompare(left.observedAt);
     return freshnessOrder !== 0 ? freshnessOrder : left.offerRef.localeCompare(right.offerRef);
@@ -149,9 +180,9 @@ function merchantProductKey(offer: ComparableOffer): string {
   return [offer.productIdentity.comparisonKey ?? `OFFER:${offer.offerRef}`, offer.retrievalMarket, normalizedMerchantDomain(offer.merchantDomain)].join("|");
 }
 
-function deduplicateMerchantProductOffers(qualifications: QualificationResult[]): QualificationResult[] {
-  const comparable = qualifications.filter((result): result is QualificationResult & { offer: ComparableOffer } => result.offer !== null);
-  const winnerByKey = new Map<string, QualificationResult & { offer: ComparableOffer }>();
+function deduplicateMerchantProductOffers(eligibilityResults: ListingEligibilityResult[]): ListingEligibilityResult[] {
+  const comparable = eligibilityResults.filter((result): result is ListingEligibilityResult & { offer: ComparableOffer } => result.offer !== null);
+  const winnerByKey = new Map<string, ListingEligibilityResult & { offer: ComparableOffer }>();
   for (const result of comparable) {
     const key = merchantProductKey(result.offer);
     const current = winnerByKey.get(key);
@@ -161,9 +192,9 @@ function deduplicateMerchantProductOffers(qualifications: QualificationResult[])
     }
     if (compareComparableOffers(result.offer, current.offer) < 0) winnerByKey.set(key, result);
   }
-  return qualifications.map((result): QualificationResult => {
+  return eligibilityResults.map((result): ListingEligibilityResult => {
     if (!result.offer || winnerByKey.get(merchantProductKey(result.offer)) === result) return result;
-    return { listing: result.listing, status: "INELIGIBLE", reasonCodes: ["DUPLICATE_MERCHANT_PRODUCT_OFFER"], offer: null };
+    return { ...result, status: "INELIGIBLE", reasonCodes: ["DUPLICATE_MERCHANT_PRODUCT_OFFER"], offer: null };
   });
 }
 
@@ -172,19 +203,25 @@ function rankComparableOffers(offers: ComparableOffer[]): RankedComparableOffer[
   return sorted.map((offer, index) => ({
     offer,
     rank: index + 1,
-    rankVector: offer.discovery.rankVector,
+    rankVector: offer.ranking.rankVector,
     rankingReasonCodes: [
-      offer.supportLevel,
+      offer.validationMode,
       offer.marketEvidence.level,
+      `ESCI_${offer.queryProductRelevance.label}`,
       offer.stock === "IN_STOCK" ? "KNOWN_IN_STOCK" : "STOCK_NOT_CONFIRMED",
       "LEXICOGRAPHIC_RANK_VECTOR_V1",
     ],
   }));
 }
 
-export function buildComparisonSet(listings: DiscoveredListing[], goal: Goal, fxByCurrency: ReadonlyMap<string, FxSnapshot>): ComparisonSet {
-  const qualifications = listings.map((listing) => qualifyListing(listing, goal, fxByCurrency));
-  const comparableKeys = [...new Set(qualifications.flatMap((result) => result.offer?.productIdentity.comparisonKey ? [result.offer.productIdentity.comparisonKey] : []))];
+export function buildRankedOfferSet(
+  listings: RetrievedListing[],
+  goal: SearchGoalSnapshot,
+  fxByCurrency: ReadonlyMap<string, FxSnapshot>,
+  semanticSignals: ReadonlyMap<string, SemanticRelevanceSignal> = new Map(),
+): RankedOfferSet {
+  const eligibilityResults = listings.map((listing) => evaluateListingEligibility(listing, goal, fxByCurrency, semanticSignals.get(listing.listingRef)));
+  const comparableKeys = [...new Set(eligibilityResults.flatMap((result) => result.offer?.productIdentity.comparisonKey ? [result.offer.productIdentity.comparisonKey] : []))];
   const conditionPriority = goal.target.conditionPreference === "NEW_OR_UNSPECIFIED"
     ? ["NEW", "UNKNOWN"]
     : goal.target.conditionPreference === "ANY"
@@ -193,28 +230,28 @@ export function buildComparisonSet(listings: DiscoveredListing[], goal: Goal, fx
   const selectedKey = conditionPriority
     .flatMap((condition) => comparableKeys.filter((key) => key.endsWith(`:${condition}`)).sort())
     [0] ?? comparableKeys.sort()[0] ?? null;
-  const homogeneousQualifications = goal.target.canonicalModel === null
-    ? qualifications
-    : qualifications.map((result): QualificationResult => {
+  const homogeneousEligibilityResults = goal.target.canonicalModel === null
+    ? eligibilityResults
+    : eligibilityResults.map((result): ListingEligibilityResult => {
       if (!result.offer || result.offer.productIdentity.comparisonKey === selectedKey) return result;
-      return { listing: result.listing, status: "INELIGIBLE", reasonCodes: ["COMPARISON_KEY_MISMATCH"], offer: null };
+      return { ...result, status: "INELIGIBLE", reasonCodes: ["COMPARISON_KEY_MISMATCH"], offer: null };
     });
-  const normalizedQualifications = deduplicateMerchantProductOffers(homogeneousQualifications);
+  const normalizedEligibilityResults = deduplicateMerchantProductOffers(homogeneousEligibilityResults);
   return {
-    policyVersion: "proof-carrying-v2",
-    qualifications: normalizedQualifications,
-    rankedOffers: rankComparableOffers(normalizedQualifications.flatMap((result) => result.offer ? [result.offer] : [])),
+    policyVersion: "source-grounding-v3",
+    eligibilityResults: normalizedEligibilityResults,
+    rankedOffers: rankComparableOffers(normalizedEligibilityResults.flatMap((result) => result.offer ? [result.offer] : [])),
   };
 }
 
-export function decideComparisonSet(comparisonSet: ComparisonSet, clarificationRequired = false): ValidatedDecision {
+export function decideRankedOfferSet(rankedOfferSet: RankedOfferSet, clarificationRequired = false): ValidatedDecision {
   if (clarificationRequired) {
     return { mode: "CLARIFICATION", primaryOffer: null, alternatives: [], comparedOffers: [], reasonCodes: ["PRODUCT_TARGET_REQUIRED"], disclosureCodes: [], clarificationCode: "PRODUCT_TARGET_REQUIRED" };
   }
-  if (comparisonSet.rankedOffers.length === 0) {
-    return { mode: "NO_MATCH", primaryOffer: null, alternatives: [], comparedOffers: [], reasonCodes: ["NO_PROOF_CARRYING_OFFERS"], disclosureCodes: ["UNVERIFIED_RESULTS_NOT_RECOMMENDED"], clarificationCode: null };
+  if (rankedOfferSet.rankedOffers.length === 0) {
+    return { mode: "NO_MATCH", primaryOffer: null, alternatives: [], comparedOffers: [], reasonCodes: ["NO_GROUNDED_OFFERS"], disclosureCodes: ["UNVERIFIED_RESULTS_NOT_RECOMMENDED"], clarificationCode: null };
   }
-  const selected = comparisonSet.rankedOffers.slice(0, 3);
+  const selected = rankedOfferSet.rankedOffers.slice(0, 3);
   const disclosures = new Set(["FX_ESTIMATE", "EXCLUDES_TAX_SHIPPING_PAYMENT", "MERCHANT_CHECKOUT_FINAL"]);
   if (selected.some((item) => item.offer.marketEvidence.level === "PROVIDER_ATTESTED")) disclosures.add("INDEX_MARKET_NOT_DELIVERY_VERIFIED");
   if (selected.some((item) => item.offer.stock === "UNKNOWN")) disclosures.add("STOCK_UNKNOWN");
@@ -224,7 +261,7 @@ export function decideComparisonSet(comparisonSet: ComparisonSet, clarificationR
     primaryOffer: selected[0]!,
     alternatives: selected.slice(1),
     comparedOffers: selected,
-    reasonCodes: ["PROOF_CARRYING_COMPARISON_V1", "DETERMINISTIC_RANKING"],
+    reasonCodes: ["SOURCE_GROUNDED_COMPARISON_V1", "DETERMINISTIC_RANKING"],
     disclosureCodes: [...disclosures],
     clarificationCode: null,
   };

@@ -1,59 +1,60 @@
-import { createHash } from "node:crypto";
+﻿import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { LangfuseClient } from "@langfuse/client";
 import {
-  fingerprintGoldBlueprint,
-  parseGoldBlueprint,
-  parseInternalQualificationCases,
-  validateInternalQualificationCases,
+  fingerprintEvaluationAuthoringPlan,
+  parseEvaluationAuthoringPlan,
+  parseDevelopmentEvaluationCases,
+  validateDevelopmentEvaluationCases,
 } from "../packages/agent/src/index.js";
 import {
-  INTERNAL_QUALIFICATION_DATASET_NAME,
-  buildInternalQualificationDatasetItems,
-  qualificationArtifactFingerprint,
+  DEVELOPMENT_EVALUATION_DATASET_NAME,
+  buildDevelopmentEvaluationDatasetItems,
+  evaluationArtifactFingerprint,
+  retryLangfuseControlPlaneRead,
   resolveTelemetryConfig,
 } from "../packages/runtime/src/index.js";
 
-const blueprintPath = resolve(process.env["INTEREC_GOLD_BLUEPRINT_PATH"] ?? "spec/evaluation/gold-v1/authoring-blueprint.json");
-const casesPath = resolve(process.env["INTEREC_INTERNAL_QUALIFICATION_CASES_PATH"] ?? "spec/evaluation/gold-v1/internal-qualification-cases.json");
+const planPath = resolve(process.env["INTEREC_EVALUATION_PLAN_PATH"] ?? "spec/evaluation/gold-v1/evaluation-authoring-plan.json");
+const casesPath = resolve(process.env["INTEREC_DEVELOPMENT_EVALUATION_CASES_PATH"] ?? "spec/evaluation/gold-v1/development-evaluation-cases.json");
 const fixturePath = resolve(process.env["INTEREC_INTERNAL_CAPTURE_PATH"] ?? ".artifacts/evaluation/internal-provider-capture-v1.json");
 const manifestPath = resolve(process.env["INTEREC_LANGFUSE_DATASET_MANIFEST"] ?? ".artifacts/evaluation/langfuse-dataset-sync-v1.json");
-const datasetName = process.env["INTEREC_LANGFUSE_DATASET_NAME"]?.trim() || INTERNAL_QUALIFICATION_DATASET_NAME;
+const datasetName = process.env["INTEREC_LANGFUSE_DATASET_NAME"]?.trim() || DEVELOPMENT_EVALUATION_DATASET_NAME;
 
-const blueprint = parseGoldBlueprint(JSON.parse(readFileSync(blueprintPath, "utf8")));
-const blueprintSemanticSha256 = fingerprintGoldBlueprint(blueprint);
+const evaluationPlan = parseEvaluationAuthoringPlan(JSON.parse(readFileSync(planPath, "utf8")));
+const planSemanticSha256 = fingerprintEvaluationAuthoringPlan(evaluationPlan);
 const casesRaw = readFileSync(casesPath);
 const casesSha256 = `sha256:${createHash("sha256").update(casesRaw).digest("hex")}`;
-const cases = parseInternalQualificationCases(JSON.parse(casesRaw.toString("utf8")));
-validateInternalQualificationCases(cases, blueprint, blueprintSemanticSha256);
+const cases = parseDevelopmentEvaluationCases(JSON.parse(casesRaw.toString("utf8")));
+validateDevelopmentEvaluationCases(cases, evaluationPlan, planSemanticSha256);
 const fixtureRaw = readFileSync(fixturePath);
 const fixtureValue = JSON.parse(fixtureRaw.toString("utf8")) as Record<string, unknown>;
 const fixtureVersion = String(fixtureValue["fixtureVersion"] ?? "");
 if (!fixtureVersion) throw new Error("LANGFUSE_DATASET_FIXTURE_VERSION_MISSING");
 const fixtureSha256 = `sha256:${createHash("sha256").update(fixtureRaw).digest("hex")}`;
-const items = buildInternalQualificationDatasetItems(blueprint, cases, {
+const items = buildDevelopmentEvaluationDatasetItems(evaluationPlan, cases, {
   datasetName,
   casesSha256,
   fixtureVersion,
   fixtureSha256,
 });
-const plan = {
+const syncPlan = {
   schemaVersion: "interec-langfuse-dataset-sync-v1",
   datasetName,
-  blueprintVersion: blueprint.blueprintVersion,
-  blueprintSemanticSha256,
+  planVersion: evaluationPlan.planVersion,
+  planSemanticSha256,
   casesSha256,
   fixtureVersion,
   fixtureSha256,
   itemCount: items.length,
   itemIds: items.map((item) => item.id),
-  itemPlanSha256: qualificationArtifactFingerprint(items),
+  itemPlanSha256: evaluationArtifactFingerprint(items),
 };
 
 if (process.env["INTEREC_LANGFUSE_DATASET_SYNC_CONFIRM"] !== "authorized-internal-evaluation-dataset") {
-  process.stdout.write(`${JSON.stringify({ mode: "DRY_RUN", ...plan }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ mode: "DRY_RUN", ...syncPlan }, null, 2)}\n`);
   process.exit(0);
 }
 
@@ -74,11 +75,11 @@ try {
     if (statusCode !== 404) throw error;
     await langfuse.api.datasets.create({
       name: datasetName,
-      description: "Versioned multi-turn internal qualification tasks for InteRecAgent. Synthetic evaluation data; not resume evidence.",
+      description: "Versioned multi-turn development evaluation tasks for InteRecAgent. Synthetic evaluation data; not resume evidence.",
       metadata: {
-        blueprintVersion: blueprint.blueprintVersion,
-        blueprintSemanticSha256,
-        qualificationLevel: "INTERNAL_QUALIFICATION",
+        planVersion: evaluationPlan.planVersion,
+        planSemanticSha256,
+        evaluationScope: "DEVELOPMENT_EVALUATION",
         eligibleForResumeMetrics: false,
         privacyClass: "SYNTHETIC_EVALUATION",
       },
@@ -88,7 +89,22 @@ try {
     await langfuse.dataset.createItem({ ...item, status: "ACTIVE" });
   }
   await langfuse.flush();
-  const manifest = { ...plan, mode: "SYNCED", syncedAt: new Date().toISOString() };
+  const remoteDataset = await retryLangfuseControlPlaneRead(() => langfuse.dataset.get(datasetName), { attempts: 5 });
+  const expectedItemIds = new Set(items.map((item) => item.id));
+  const remoteItemIds = new Set(remoteDataset.items.map((item) => item.id));
+  const missingItemIds = [...expectedItemIds].filter((id) => !remoteItemIds.has(id));
+  const unexpectedItemIds = [...remoteItemIds].filter((id) => !expectedItemIds.has(id));
+  if (missingItemIds.length > 0 || unexpectedItemIds.length > 0 || remoteDataset.items.length !== items.length) {
+    throw new Error(`LANGFUSE_DATASET_READBACK_MISMATCH:missing=${missingItemIds.length}:unexpected=${unexpectedItemIds.length}:count=${remoteDataset.items.length}`);
+  }
+  const manifest = {
+    ...syncPlan,
+    mode: "SYNCED",
+    syncedAt: new Date().toISOString(),
+    remoteDatasetId: remoteDataset.id,
+    remoteItemCount: remoteDataset.items.length,
+    readbackVerified: true,
+  };
   mkdirSync(dirname(manifestPath), { recursive: true });
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   process.stdout.write(`${JSON.stringify({ manifestPath, ...manifest }, null, 2)}\n`);

@@ -14,7 +14,7 @@ import {
   emptyDialogueState,
   renderAssistantEnvelope,
   type AssistantEnvelope,
-  type ClaimLedger,
+  type GroundedClaimSet,
   type ConversationState,
   type TurnPlan,
 } from "@interec/domain";
@@ -22,12 +22,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   ConversationRepositoryError,
-  ConversationResearchWorld,
+  ConversationOfferSearchService,
   ConversationWorker,
   PostgresConversationRepository,
-  PostgresConversationResearchRepository,
+  PostgresConversationSearchRepository,
   PostgresOutboxPublisher,
-  PostgresProviderGovernor,
+  PostgresProviderCallController,
   createRepositoryTurnSession,
   runConversationMigrations,
   type ClaimedConversationTurn,
@@ -39,7 +39,7 @@ const suite = enabled ? describe : describe.skip;
 const databaseUrl = process.env["INTEREC_DATABASE_URL"] ?? "postgresql://interec:interec@127.0.0.1:5432/interec";
 
 const plan: TurnPlan = {
-  userIntentSummary: "continue the conversation without external research",
+  userIntentSummary: "continue the conversation without external search",
   ops: [{ opId: "focus", kind: "SET_FOCUS", referent: null }],
   leftover: [],
 };
@@ -49,7 +49,7 @@ const envelope: AssistantEnvelope = {
   blocks: [{ type: "TRANSITION", text: "我保留了当前上下文，可以继续比较或调整条件。" }],
   nextMoves: [],
 };
-const ledger: ClaimLedger = { claims: [] };
+const ledger: GroundedClaimSet = { claims: [] };
 
 function initialPublication(): ConversationState {
   return { revision: 1, status: "OPEN", goalRevision: null, dialogue: emptyDialogueState(), workingSet: null };
@@ -75,7 +75,7 @@ async function stageChat(repository: PostgresConversationRepository, claimed: Cl
     dialogue: state.dialogue,
     workingSet: state.workingSet,
     envelope,
-    claimLedger: ledger,
+    groundedClaims: ledger,
     evidenceKeys: [],
   })).toBe(true);
 }
@@ -122,6 +122,61 @@ suite("PostgreSQL conversation repository", () => {
     expect(claimed).toMatchObject({ telemetryTraceId, telemetryRootObservationId });
     expect(await first.markTurnRunning(claimed!.id, claimed!.attempt, claimed!.fenceToken)).toBe(true);
     expect(await first.failTurn(claimed!.id, claimed!.attempt, claimed!.fenceToken, "TEST_COMPLETED")).toBe(true);
+  });
+
+  it("persists each plan proposal review as an append-only attempt ledger", async () => {
+    const conversation = await first.createConversation(owner);
+    const claimed = await start(first, conversation.id, owner, randomUUID(), "review and repair this plan");
+    const repairReview = {
+      decision: "REPAIR_REQUIRED" as const,
+      policyVersion: "test-policy-v1",
+      violations: [{
+        code: "SEARCH_MARKETS_REQUIRED",
+        operationId: "search",
+        path: "ops[0]",
+        observed: { kind: "SEARCH_OFFERS" },
+        admissibleAlternatives: ["Request PURCHASE_MARKET clarification."],
+      }],
+    };
+    expect(await first.recordPlanReview({
+      turnId: claimed.id,
+      attempt: claimed.attempt,
+      fenceToken: claimed.fenceToken,
+      proposalNumber: 1,
+      proposal: { userIntentSummary: "search without a market", ops: [{ kind: "SEARCH_OFFERS" }] },
+      reviewedPlan: plan,
+      review: repairReview,
+      approvedPlan: null,
+    })).toBe(true);
+    expect(await first.recordPlanReview({
+      turnId: claimed.id,
+      attempt: claimed.attempt,
+      fenceToken: claimed.fenceToken,
+      proposalNumber: 1,
+      proposal: {},
+      reviewedPlan: plan,
+      review: repairReview,
+      approvedPlan: null,
+    })).toBe(false);
+    expect(await first.recordPlanReview({
+      turnId: claimed.id,
+      attempt: claimed.attempt,
+      fenceToken: claimed.fenceToken,
+      proposalNumber: 2,
+      proposal: plan,
+      reviewedPlan: plan,
+      review: { decision: "APPROVED", policyVersion: "test-policy-v1" },
+      approvedPlan: plan,
+    })).toBe(true);
+    const persisted = await first.pool.query<Record<string, unknown>>(
+      "SELECT proposal_number, decision, violations_json, approved_plan_json FROM interec_agent.turn_plan_reviews WHERE turn_id = $1 ORDER BY proposal_number",
+      [claimed.id],
+    );
+    expect(persisted.rows).toMatchObject([
+      { proposal_number: 1, decision: "REPAIR_REQUIRED", violations_json: [{ path: "ops[0]" }], approved_plan_json: null },
+      { proposal_number: 2, decision: "APPROVED", violations_json: [], approved_plan_json: plan },
+    ]);
+    expect(await first.failTurn(claimed.id, claimed.attempt, claimed.fenceToken, "TEST_COMPLETED")).toBe(true);
   });
 
   it("retries a failed Turn from the same unconsumed USER batch without adding a duplicate message", async () => {
@@ -201,8 +256,8 @@ suite("PostgreSQL conversation repository", () => {
   it("serializes concurrent migration runners with the advisory lock", async () => {
     const results = await Promise.all([runConversationMigrations(first.pool), runConversationMigrations(second.pool)]);
     expect(results).toEqual([
-      { applied: [], verifiedTables: 32 },
-      { applied: [], verifiedTables: 32 },
+      { applied: [], verifiedTables: 33 },
+      { applied: [], verifiedTables: 33 },
     ]);
   });
 
@@ -239,9 +294,9 @@ suite("PostgreSQL conversation repository", () => {
       state,
       plan,
       envelope,
-      claimLedger: ledger,
+      groundedClaims: ledger,
       renderedText,
-      allowedQuestionSlotIds: new Set(),
+      allowedClarificationIds: new Set(),
       allowedDisclosureCodes: new Set(),
     });
     expect(committed).toMatchObject({ committed: true, conversationRevision: 1 });
@@ -252,9 +307,9 @@ suite("PostgreSQL conversation repository", () => {
       state,
       plan,
       envelope,
-      claimLedger: ledger,
+      groundedClaims: ledger,
       renderedText,
-      allowedQuestionSlotIds: new Set(),
+      allowedClarificationIds: new Set(),
       allowedDisclosureCodes: new Set(),
     });
     expect(replay).toMatchObject({ committed: false, responseId: committed!.responseId });
@@ -279,6 +334,50 @@ suite("PostgreSQL conversation repository", () => {
     )).rejects.toThrow(/append-only/);
   });
 
+  it("commits a system-owned degraded response when planning produced no executable plan", async () => {
+    const conversation = await first.createConversation(owner);
+    const claimed = await start(first, conversation.id, owner, randomUUID(), "trigger a pre-plan system failure");
+    const state = initialPublication();
+    const noPlan: TurnPlan = {
+      userIntentSummary: "system-owned degraded publication after planning failure",
+      ops: [],
+      leftover: [],
+    };
+    const degraded: AssistantEnvelope = {
+      outcome: "DEGRADED",
+      addressedOpIds: [],
+      blocks: [{ type: "TRANSITION", text: "这轮请求因系统处理失败未能完成，不是你的表达问题。你可以稍后重试。" }],
+      nextMoves: [],
+    };
+    expect(await first.stageAttemptDraft(claimed.id, claimed.attempt, claimed.fenceToken, {
+      plan: noPlan,
+      goal: state.goalRevision,
+      dialogue: state.dialogue,
+      workingSet: state.workingSet,
+      envelope: degraded,
+      groundedClaims: ledger,
+      evidenceKeys: [],
+      fallbackReasonCode: "PLAN_REVIEW_REJECTED",
+    })).toBe(true);
+    const committed = await first.commitTurn({
+      turnId: claimed.id,
+      attempt: claimed.attempt,
+      fenceToken: claimed.fenceToken,
+      state,
+      plan: noPlan,
+      envelope: degraded,
+      groundedClaims: ledger,
+      renderedText: renderAssistantEnvelope(degraded, ledger),
+      allowedClarificationIds: new Set(),
+      allowedDisclosureCodes: new Set(),
+    });
+    expect(committed).toMatchObject({ committed: true, conversationRevision: 1 });
+    await expect(first.stageAttemptDraft(claimed.id, claimed.attempt, claimed.fenceToken, {
+      plan: noPlan,
+      envelope: { ...degraded, outcome: "CHAT" },
+    })).rejects.toMatchObject({ code: "EMPTY_PLAN_REQUIRES_SYSTEM_DEGRADATION" });
+  });
+
   it("rejects final publication after the database lease expires", async () => {
     const conversation = await first.createConversation(owner);
     const claimed = await start(first, conversation.id, owner);
@@ -292,9 +391,9 @@ suite("PostgreSQL conversation repository", () => {
       state,
       plan,
       envelope,
-      claimLedger: ledger,
+      groundedClaims: ledger,
       renderedText: renderAssistantEnvelope(envelope, ledger),
-      allowedQuestionSlotIds: new Set(),
+      allowedClarificationIds: new Set(),
       allowedDisclosureCodes: new Set(),
     })).toBeNull();
     expect((await first.getSnapshot(conversation.id, owner))?.revision).toBe(0);
@@ -321,9 +420,9 @@ suite("PostgreSQL conversation repository", () => {
       state: initialPublication(),
       plan,
       envelope,
-      claimLedger: ledger,
+      groundedClaims: ledger,
       renderedText: renderAssistantEnvelope(envelope, ledger),
-      allowedQuestionSlotIds: new Set(),
+      allowedClarificationIds: new Set(),
       allowedDisclosureCodes: new Set(),
     })).toBeNull();
     expect(await first.listMessages(cancelledConversation.id, owner, 0)).toHaveLength(1);
@@ -353,9 +452,9 @@ suite("PostgreSQL conversation repository", () => {
       state,
       plan,
       envelope,
-      claimLedger: ledger,
+      groundedClaims: ledger,
       renderedText: renderAssistantEnvelope(envelope, ledger),
-      allowedQuestionSlotIds: new Set(),
+      allowedClarificationIds: new Set(),
       allowedDisclosureCodes: new Set(),
     })).toBeNull();
     expect(await first.commitTurn({
@@ -365,9 +464,9 @@ suite("PostgreSQL conversation repository", () => {
       state,
       plan,
       envelope,
-      claimLedger: ledger,
+      groundedClaims: ledger,
       renderedText: renderAssistantEnvelope(envelope, ledger),
-      allowedQuestionSlotIds: new Set(),
+      allowedClarificationIds: new Set(),
       allowedDisclosureCodes: new Set(),
     })).toMatchObject({ committed: true });
     const userMessages = (await first.listMessages(conversation.id, owner, 0)).filter((message) => message.role === "USER");
@@ -386,9 +485,9 @@ suite("PostgreSQL conversation repository", () => {
       state,
       plan,
       envelope,
-      claimLedger: ledger,
+      groundedClaims: ledger,
       renderedText: renderAssistantEnvelope(envelope, ledger),
-      allowedQuestionSlotIds: new Set(),
+      allowedClarificationIds: new Set(),
       allowedDisclosureCodes: new Set(),
       decision: { invalidForChat: true },
     })).rejects.toMatchObject({ code: "DECISION_OUTCOME_MISMATCH" });
@@ -404,26 +503,26 @@ suite("PostgreSQL conversation repository", () => {
     expect((await first.getSnapshot(conversation.id, owner))?.revision).toBe(0);
 
     const request = { market: "US", query: "WH-1000XM5" };
-    const firstReservation = await first.reserveToolExecution(claimed.id, claimed.attempt, claimed.fenceToken, "research:US:1", request);
+    const firstReservation = await first.reserveToolExecution(claimed.id, claimed.attempt, claimed.fenceToken, "search:US:1", request);
     expect(firstReservation?.action).toBe("CALL");
-    expect((await first.reserveToolExecution(claimed.id, claimed.attempt, claimed.fenceToken, "research:US:1", request))?.action).toBe("WAIT");
+    expect((await first.reserveToolExecution(claimed.id, claimed.attempt, claimed.fenceToken, "search:US:1", request))?.action).toBe("WAIT");
     await first.pool.query("UPDATE interec_agent.turns SET lease_expires_at = clock_timestamp() - interval '1 second' WHERE id = $1", [claimed.id]);
 
     const recovered = await first.claimTurn("worker-recovered", 30, claimed.id);
     expect(recovered?.attempt).toBe(2);
-    expect(await first.completeToolExecution(claimed.id, claimed.attempt, claimed.fenceToken, "research:US:1", firstReservation!.execution.requestHash, { stale: true })).toBe(false);
+    expect(await first.completeToolExecution(claimed.id, claimed.attempt, claimed.fenceToken, "search:US:1", firstReservation!.execution.requestHash, { stale: true })).toBe(false);
     expect(await first.markTurnRunning(recovered!.id, recovered!.attempt, recovered!.fenceToken)).toBe(true);
-    const retryReservation = await first.reserveToolExecution(recovered!.id, recovered!.attempt, recovered!.fenceToken, "research:US:1", request);
+    const retryReservation = await first.reserveToolExecution(recovered!.id, recovered!.attempt, recovered!.fenceToken, "search:US:1", request);
     expect(retryReservation?.action).toBe("CALL");
-    expect(await first.completeToolExecution(recovered!.id, recovered!.attempt, recovered!.fenceToken, "research:US:1", retryReservation!.execution.requestHash, { offers: ["o1"] })).toBe(true);
+    expect(await first.completeToolExecution(recovered!.id, recovered!.attempt, recovered!.fenceToken, "search:US:1", retryReservation!.execution.requestHash, { offers: ["o1"] })).toBe(true);
     await first.pool.query("UPDATE interec_agent.turns SET lease_expires_at = clock_timestamp() - interval '1 second' WHERE id = $1", [recovered!.id]);
 
     const third = await first.claimTurn("worker-third", 30, recovered!.id);
     expect(third?.attempt).toBe(3);
     expect(await first.markTurnRunning(third!.id, third!.attempt, third!.fenceToken)).toBe(true);
-    const reused = await first.reserveToolExecution(third!.id, third!.attempt, third!.fenceToken, "research:US:1", request);
+    const reused = await first.reserveToolExecution(third!.id, third!.attempt, third!.fenceToken, "search:US:1", request);
     expect(reused).toMatchObject({ action: "REUSE", execution: { result: { offers: ["o1"] } } });
-    await expect(first.reserveToolExecution(third!.id, third!.attempt, third!.fenceToken, "research:US:1", { ...request, market: "SG" })).rejects.toMatchObject({ code: "TOOL_STEP_REQUEST_CONFLICT" });
+    await expect(first.reserveToolExecution(third!.id, third!.attempt, third!.fenceToken, "search:US:1", { ...request, market: "SG" })).rejects.toMatchObject({ code: "TOOL_STEP_REQUEST_CONFLICT" });
     expect(await first.heartbeatTurn(third!.id, recovered!.attempt, recovered!.fenceToken, 30)).toBe(false);
     expect(await first.heartbeatTurn(third!.id, third!.attempt, third!.fenceToken, 30)).toBe(true);
 
@@ -465,48 +564,48 @@ suite("PostgreSQL conversation repository", () => {
       version: 1,
       boundGoalVersion: 1,
       pool: [{
-        offerRef: "offer-proof",
+        offerRef: "offer-source",
         title: "Sony WH-1000XM5",
         canonicalModel: "WH-1000XM5",
         categoryId: "headphones",
         itemRole: "PRIMARY_PRODUCT",
         condition: "NEW",
         retrievalMarket: "US",
-        merchant: "Merchant Proof",
+        merchant: "Merchant Source",
         cnyAmount: "2100",
         stock: "IN_STOCK",
-        claimIds: ["price-proof"],
+        claimIds: ["price-source"],
       }],
     });
     const proofPlan: TurnPlan = {
       userIntentSummary: "inspect a verified price",
-      ops: [{ opId: "inspect", kind: "INSPECT_WORKING_SET", referents: [{ kind: "OFFER_REF", offerRef: "offer-proof" }], fields: ["PRICE"] }],
+      ops: [{ opId: "inspect", kind: "INSPECT_WORKING_SET", referents: [{ kind: "OFFER_REF", offerRef: "offer-source" }], fields: ["PRICE"] }],
       leftover: [],
     };
     const evidence = {
-      artifactRef: "artifact-proof",
+      artifactRef: "artifact-source",
       jsonPath: "$.price.amount",
       source: "buywhere",
       observedAt: "2026-08-26T00:00:00.000Z",
-      sourceFactRef: "fact-proof",
+      sourceFactRef: "fact-source",
       canonicalValue: { amount: "300", currency: "USD" },
       providerSchemaVersion: "buywhere-v1",
-      policyVersion: "proof-carrying-v1",
+      policyVersion: "source-grounding-v1",
       derivation: "DERIVED" as const,
-      fxSnapshotId: "fx-proof",
+      fxSnapshotId: "fx-source",
     };
-    const proofLedger: ClaimLedger = { claims: [{
-      claimId: "price-proof",
+    const proofLedger: GroundedClaimSet = { claims: [{
+      claimId: "price-source",
       kind: "PRICE",
-      canonicalValue: { amount: "2100", currency: "CNY", basis: "FX_ESTIMATE", fxSnapshotId: "fx-proof" },
+      canonicalValue: { amount: "2100", currency: "CNY", basis: "FX_ESTIMATE", fxSnapshotId: "fx-source" },
       renderedText: "按已记录汇率估算约为人民币 2100 元。",
       evidenceRefs: [evidence],
-      offerRefs: ["offer-proof"],
+      offerRefs: ["offer-source"],
     }] };
     const proofEnvelope: AssistantEnvelope = {
       outcome: "CHAT",
       addressedOpIds: ["inspect"],
-      blocks: [{ type: "CLAIM", claimId: "price-proof" }],
+      blocks: [{ type: "CLAIM", claimId: "price-source" }],
       nextMoves: [],
     };
     const state: ConversationState = { revision: 1, status: "OPEN", goalRevision, dialogue: emptyDialogueState(), workingSet };
@@ -516,7 +615,7 @@ suite("PostgreSQL conversation repository", () => {
       dialogue: state.dialogue,
       workingSet,
       envelope: proofEnvelope,
-      claimLedger: proofLedger,
+      groundedClaims: proofLedger,
       evidenceKeys: [claimEvidenceKey(evidence)],
     })).toBe(true);
     await first.pool.query("UPDATE interec_agent.turns SET lease_expires_at = clock_timestamp() - interval '1 second' WHERE id = $1", [claimed.id]);
@@ -528,7 +627,7 @@ suite("PostgreSQL conversation repository", () => {
       dialogue: state.dialogue,
       workingSet,
       envelope: proofEnvelope,
-      claimLedger: proofLedger,
+      groundedClaims: proofLedger,
       evidenceKeys: [],
     })).toBe(true);
     await expect(first.commitTurn({
@@ -538,9 +637,9 @@ suite("PostgreSQL conversation repository", () => {
       state,
       plan: proofPlan,
       envelope: proofEnvelope,
-      claimLedger: proofLedger,
+      groundedClaims: proofLedger,
       renderedText: renderAssistantEnvelope(proofEnvelope, proofLedger),
-      allowedQuestionSlotIds: new Set(),
+      allowedClarificationIds: new Set(),
       allowedDisclosureCodes: new Set(),
     })).rejects.toMatchObject({ code: "EVIDENCE_OUTSIDE_ATTEMPT" });
     expect((await first.getSnapshot(conversation.id, owner))?.revision).toBe(0);
@@ -558,9 +657,9 @@ suite("PostgreSQL conversation repository", () => {
       state: firstState,
       plan,
       envelope,
-      claimLedger: ledger,
+      groundedClaims: ledger,
       renderedText: renderAssistantEnvelope(envelope, ledger),
-      allowedQuestionSlotIds: new Set(),
+      allowedClarificationIds: new Set(),
       allowedDisclosureCodes: new Set(),
     })).toMatchObject({ conversationRevision: 1 });
 
@@ -587,7 +686,7 @@ suite("PostgreSQL conversation repository", () => {
       dialogue: undoState.dialogue,
       workingSet: null,
       envelope: undoEnvelope,
-      claimLedger: ledger,
+      groundedClaims: ledger,
       evidenceKeys: [],
     })).toBe(true);
     const committed = await first.commitTurn({
@@ -597,9 +696,9 @@ suite("PostgreSQL conversation repository", () => {
       state: undoState,
       plan: undoPlan,
       envelope: undoEnvelope,
-      claimLedger: ledger,
+      groundedClaims: ledger,
       renderedText: renderAssistantEnvelope(undoEnvelope, ledger),
-      allowedQuestionSlotIds: new Set(),
+      allowedClarificationIds: new Set(),
       allowedDisclosureCodes: new Set(),
     });
     expect(committed).toMatchObject({ committed: true, conversationRevision: 2 });
@@ -614,15 +713,15 @@ suite("PostgreSQL conversation repository", () => {
       conversationId: conversation.id,
       owner,
       clientTurnId: randomUUID(),
-      input: { type: "MESSAGE", content: "想买个通勤耳机" },
+      input: { type: "MESSAGE", content: "我还没决定具体买什么" },
     });
     const claimed = await first.claimTurn("worker-agent-vertical", 30, accepted.id);
     expect(await first.markTurnRunning(claimed!.id, claimed!.attempt, claimed!.fenceToken)).toBe(true);
     const session = createRepositoryTurnSession(first, claimed!, {
-      researchNeed: "NOT_NEEDED",
-      world: {
+      searchNeed: "NOT_NEEDED",
+      shoppingData: {
         inspect: async () => { throw new Error("INSPECT_NOT_EXPECTED"); },
-        research: async () => { throw new Error("PROVIDER_CALL_NOT_ALLOWED"); },
+        search: async () => { throw new Error("PROVIDER_CALL_NOT_ALLOWED"); },
       },
     });
     const faux = fauxProvider();
@@ -631,19 +730,19 @@ suite("PostgreSQL conversation repository", () => {
     faux.setResponses([
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
         userIntentSummary: "ask one high-impact clarification",
-        ops: [{ opId: "ask-product", kind: "REQUEST_CLARIFICATION", slotId: "target_product", reasonCode: "HIGH_IMPACT_GAP" }],
+        ops: [{ opId: "ask-product", kind: "REQUEST_CLARIFICATION", clarification: { kind: "TARGET_PRODUCT" }, uncertainty: { type: "MISSING_USER_INFORMATION", userResolvable: true }, reasonCode: "HIGH_IMPACT_GAP" }],
         leftover: [],
       })),
       fauxAssistantMessage(fauxToolCall("publish_reply", {
         outcome: "CLARIFICATION",
-        blocks: [{ type: "QUESTION", slotId: "target_product" }],
+        blocks: [{ type: "QUESTION", clarification: { kind: "TARGET_PRODUCT" } }],
         nextMoves: [],
       })),
     ]);
     const agentResult = await executeConversationTurn({
       model: faux.getModel(),
       streamFn: models.streamSimple.bind(models),
-      host: session.host,
+      controller: session.controller,
       context: {
         state: claimed!.snapshot,
         currentUserMessages: claimed!.inputMessages.map((message) => String(message.payload["content"] ?? "")),
@@ -657,8 +756,30 @@ suite("PostgreSQL conversation repository", () => {
     expect(agentResult).toMatchObject({ modelInferences: 2, toolCalls: 2, usedFallback: false, envelope: { outcome: "CLARIFICATION" } });
     expect(session.getCommitResult()).toMatchObject({ committed: true, conversationRevision: 1 });
     const snapshot = await first.getSnapshot(conversation.id, owner);
-    expect(snapshot).toMatchObject({ revision: 1, status: "OPEN", dialogue: { pendingClarification: { slotId: "target_product" } } });
+    expect(snapshot).toMatchObject({ revision: 1, status: "OPEN", dialogue: { pendingClarification: { clarification: { kind: "TARGET_PRODUCT" } } } });
     expect((await first.listMessages(conversation.id, owner, 0)).map((message) => message.role)).toEqual(["USER", "ASSISTANT"]);
+    const clarificationId = snapshot!.dialogue.pendingClarification!.clarificationId;
+    await expect(first.acceptTurn({
+      conversationId: conversation.id,
+      owner,
+      clientTurnId: randomUUID(),
+      expectedRevision: 1,
+      input: { type: "ANSWER_CLARIFICATION", clarificationId: "expired-question", answer: { type: "TEXT", text: "头戴式耳机" } },
+    })).rejects.toMatchObject({ code: "STALE_CLARIFICATION_ID" });
+    await expect(first.acceptTurn({
+      conversationId: conversation.id,
+      owner,
+      clientTurnId: randomUUID(),
+      expectedRevision: 1,
+      input: { type: "ANSWER_CLARIFICATION", clarificationId, answer: { type: "OPTION", optionId: "MODEL_INVENTED" } },
+    })).rejects.toMatchObject({ code: "INVALID_CLARIFICATION_OPTION" });
+    await expect(first.acceptTurn({
+      conversationId: conversation.id,
+      owner,
+      clientTurnId: randomUUID(),
+      expectedRevision: 1,
+      input: { type: "ANSWER_CLARIFICATION", clarificationId, answer: { type: "TEXT", text: "头戴式耳机" } },
+    })).resolves.toMatchObject({ status: "ACCEPTED" });
   });
 
   it("runs typed goal controls through the Conversation worker without model or Provider calls", async () => {
@@ -680,8 +801,8 @@ suite("PostgreSQL conversation repository", () => {
     models.setProvider(faux.provider);
     const worker = new ConversationWorker(
       first,
-      new PostgresConversationResearchRepository(first.pool),
-      new PostgresProviderGovernor(first.pool),
+      new PostgresConversationSearchRepository(first.pool),
+      new PostgresProviderCallController(first.pool),
       { search: async () => { throw new Error("PROVIDER_CALL_NOT_ALLOWED"); } },
       { getRate: async () => { throw new Error("FX_CALL_NOT_ALLOWED"); } },
       { model: faux.getModel(), streamFn: models.streamSimple.bind(models), apiKey: "test" },
@@ -695,8 +816,8 @@ suite("PostgreSQL conversation repository", () => {
     expect((await first.listMessages(conversation.id, owner, 0)).map((message) => message.role)).toEqual(["USER", "ASSISTANT"]);
   });
 
-  it("promotes only a proof-qualified research campaign with partial-provider evidence", async () => {
-    // This test exercises proof persistence, not a circuit that may have been
+  it("promotes only a source-grounded search batch with partial-provider evidence", async () => {
+    // This test exercises source-evidence persistence, not a circuit that may have been
     // opened by a previous local run. Freeze the shared provider precondition
     // so the result does not depend on historical database state.
     await first.pool.query(
@@ -736,27 +857,27 @@ suite("PostgreSQL conversation repository", () => {
         observedAt: "2026-08-26T00:00:00.000Z", expiresAt: "2026-08-27T00:00:00.000Z",
       }),
     };
-    const researchRepository = new PostgresConversationResearchRepository(first.pool);
-    const world = new ConversationResearchWorld(
+    const searchRepository = new PostgresConversationSearchRepository(first.pool);
+    const shoppingData = new ConversationOfferSearchService(
       claimed,
       first,
-      researchRepository,
-      new PostgresProviderGovernor(first.pool),
+      searchRepository,
+      new PostgresProviderCallController(first.pool),
       productSource,
       fxSource,
     );
-    const session = createRepositoryTurnSession(first, claimed, { researchNeed: "INSUFFICIENT_COVERAGE", world });
-    const committed = await session.host.commitPlan({
-      userIntentSummary: "set the target and research two markets",
+    const session = createRepositoryTurnSession(first, claimed, { searchNeed: "INSUFFICIENT_COVERAGE", shoppingData });
+    const committed = await session.controller.commitPlan({
+      userIntentSummary: "set the target and search two markets",
       ops: [
         { opId: "target", kind: "GOAL_SET_TARGET", sourceMessageOrdinal: 0, target: { categoryId: "headphones", canonicalModel: "WH-1000XM5", itemRole: "PRIMARY_PRODUCT", condition: "NEW" } },
         { opId: "markets", kind: "GOAL_SET_RETRIEVAL_MARKETS", sourceMessageOrdinal: 0, markets: ["US", "SG"] },
-        { opId: "research", kind: "RESEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE", queryVariant: "Sony WH-1000XM5 headphones" },
+        { opId: "search", kind: "SEARCH_OFFERS", reasonCode: "INSUFFICIENT_COVERAGE", queryVariant: "Sony WH-1000XM5 headphones" },
       ],
       leftover: [],
     });
     const receipts = [];
-    for (const operation of committed.plan.ops) receipts.push(await session.host.executeOperation(operation));
+    for (const operation of committed.plan.ops) receipts.push(await session.controller.executeOperation(operation));
     const researchReceipt = receipts.at(-1)!;
     const priceClaim = (researchReceipt.publicResult["claims"] as Array<{ claimId: string; kind: string }>).find((claim) => claim.kind === "PRICE")!;
     const observationPrecision = await first.pool.query<{ artifact_observed_at: string; fact_observed_at: string; listing_observed_at: string; fact_kind: string; fact_path: string }>(
@@ -777,7 +898,7 @@ suite("PostgreSQL conversation repository", () => {
       listing_observed_at: "2026-08-01T00:00:00.123Z",
     })]));
     expect(new Set(observationPrecision.rows.map((row) => new Date(row.fact_observed_at).toISOString()))).toEqual(new Set(["2026-08-01T00:00:00.123Z"]));
-    await session.host.publishReply({
+    await session.controller.publishReply({
       outcome: "RECOMMENDATION",
       blocks: [
         { type: "CLAIM", claimId: priceClaim.claimId },
@@ -788,7 +909,23 @@ suite("PostgreSQL conversation repository", () => {
     expect(session.getCommitResult()).toMatchObject({ committed: true, conversationRevision: 1 });
     const snapshot = await first.getSnapshot(conversation.id, owner);
     expect(snapshot?.workingSet?.pool).toHaveLength(3);
-    const proof = await first.pool.query<{ status: string; promoted_revision: string; failed_markets: number; published_evidence: number }>(
+    expect(snapshot?.workingSet?.pool.every((candidate) =>
+      candidate.queryProductRelevance?.label === "EXACT"
+      && candidate.candidateAdmission?.cohort === "MAIN_RECOMMENDATION"
+    )).toBe(true);
+    const relevanceLedger = await first.pool.query<Record<string, unknown>>(
+      `SELECT relevance_label, admission_cohort, relevance_policy_version, relevance_json
+       FROM interec_agent.offer_qualifications WHERE turn_id = $1 ORDER BY source_listing_id`,
+      [claimed.id],
+    );
+    expect(relevanceLedger.rows).toHaveLength(3);
+    expect(relevanceLedger.rows.every((row) =>
+      row["relevance_label"] === "EXACT"
+      && row["admission_cohort"] === "MAIN_RECOMMENDATION"
+      && row["relevance_policy_version"] === "esci-admission-v2"
+      && (row["relevance_json"] as Record<string, unknown>)["label"] === "EXACT"
+    )).toBe(true);
+    const provenance = await first.pool.query<{ status: string; promoted_revision: string; failed_markets: number; published_evidence: number }>(
       `SELECT cs.status, cs.promoted_revision,
               (SELECT count(*) FROM interec_agent.market_searches ms
                JOIN interec_agent.research_waves rw ON rw.id = ms.research_wave_id
@@ -800,19 +937,19 @@ suite("PostgreSQL conversation repository", () => {
        FROM interec_agent.comparison_sets cs WHERE cs.turn_id = $1`,
       [claimed.id],
     );
-    expect(proof.rows[0]).toMatchObject({ status: "PROMOTED", promoted_revision: "1", failed_markets: 1 });
-    expect(proof.rows[0]!.published_evidence).toBeGreaterThan(0);
-    await expect(researchRepository.loadLatestPromotedResearchCoverage(owner, conversation.id)).resolves.toMatchObject({
-      waveNo: 1,
+    expect(provenance.rows[0]).toMatchObject({ status: "PROMOTED", promoted_revision: "1", failed_markets: 1 });
+    expect(provenance.rows[0]!.published_evidence).toBeGreaterThan(0);
+    await expect(searchRepository.loadLatestPublishedSearchCoverage(owner, conversation.id)).resolves.toMatchObject({
+      attemptNo: 1,
       status: "PARTIAL",
-      promotedRevision: 1,
+      publishedRevision: 1,
       coverage: { completedMarkets: ["US"], failedMarkets: ["SG"] },
       marketOutcomes: expect.arrayContaining([
         { market: "SG", status: "FAILED", resultCount: 0 },
         { market: "US", status: "COMPLETED", resultCount: 3 },
       ]),
     });
-    await expect(researchRepository.loadLatestPromotedResearchCoverage(
+    await expect(searchRepository.loadLatestPublishedSearchCoverage(
       { tenantId: owner.tenantId, ownerId: randomUUID() },
       conversation.id,
     )).resolves.toBeNull();
@@ -820,7 +957,7 @@ suite("PostgreSQL conversation repository", () => {
       `UPDATE interec_agent.source_facts SET canonical_value = '"tampered"'::jsonb WHERE turn_id = $1`,
       [claimed.id],
     )).rejects.toThrow(/PROMOTED_PROOF_IMMUTABLE/);
-    const cleaned = await researchRepository.cleanExpiredArtifacts();
+    const cleaned = await searchRepository.cleanExpiredArtifacts();
     expect(cleaned.purged).toBeGreaterThan(0);
     const retainedProof = await first.pool.query<{ payload_json: unknown; facts: number }>(
       `SELECT pa.payload_json,
@@ -835,8 +972,8 @@ suite("PostgreSQL conversation repository", () => {
   it("enforces provider bulkhead, retry budget, tenant quota and circuit state atomically", async () => {
     const conversation = await first.createConversation(owner);
     const claimed = await start(first, conversation.id, owner);
-    const provider = `governor-${randomUUID()}`;
-    const governor = new PostgresProviderGovernor(first.pool, {
+    const provider = `callController-${randomUUID()}`;
+    const callController = new PostgresProviderCallController(first.pool, {
       clusterConcurrency: 1,
       tenantConcurrency: 1,
       tenantRequestsPerMinute: 10,
@@ -854,12 +991,12 @@ suite("PostgreSQL conversation repository", () => {
       provider,
       isRetry,
     });
-    const firstPermit = await governor.acquire(context("first"));
-    await expect(governor.acquire(context("bulkhead"))).rejects.toMatchObject({ code: "PROVIDER_BULKHEAD_FULL" });
-    await governor.release(firstPermit, { success: false, errorCode: "UPSTREAM_503" });
-    const retryPermit = await governor.acquire(context("retry-one", true));
-    await governor.release(retryPermit, { success: false, errorCode: "UPSTREAM_503" });
-    await expect(governor.acquire(context("retry-two", true))).rejects.toMatchObject({ code: "PROVIDER_CIRCUIT_OPEN" });
+    const firstPermit = await callController.acquire(context("first"));
+    await expect(callController.acquire(context("bulkhead"))).rejects.toMatchObject({ code: "PROVIDER_BULKHEAD_FULL" });
+    await callController.release(firstPermit, { success: false, errorCode: "UPSTREAM_503" });
+    const retryPermit = await callController.acquire(context("retry-one", true));
+    await callController.release(retryPermit, { success: false, errorCode: "UPSTREAM_503" });
+    await expect(callController.acquire(context("retry-two", true))).rejects.toMatchObject({ code: "PROVIDER_CIRCUIT_OPEN" });
     const circuit = await first.pool.query<{ consecutive_failures: number; open: boolean }>(
       `SELECT consecutive_failures, open_until > clock_timestamp() AS open
        FROM interec_agent.provider_circuits WHERE provider = $1`,
@@ -868,16 +1005,16 @@ suite("PostgreSQL conversation repository", () => {
     expect(circuit.rows[0]).toMatchObject({ consecutive_failures: 2, open: true });
 
     const retryProvider = `retry-${randomUUID()}`;
-    const retryGovernor = new PostgresProviderGovernor(first.pool, { retryBudgetPerTurn: 1, circuitFailureThreshold: 10 });
-    const allowedRetry = await retryGovernor.acquire({ ...context("allowed-retry", true), provider: retryProvider });
-    await retryGovernor.release(allowedRetry, { success: true });
-    await expect(retryGovernor.acquire({ ...context("extra-retry", true), provider: retryProvider })).rejects.toMatchObject({ code: "PROVIDER_RETRY_BUDGET_EXHAUSTED" });
+    const retryCallController = new PostgresProviderCallController(first.pool, { retryBudgetPerTurn: 1, circuitFailureThreshold: 10 });
+    const allowedRetry = await retryCallController.acquire({ ...context("allowed-retry", true), provider: retryProvider });
+    await retryCallController.release(allowedRetry, { success: true });
+    await expect(retryCallController.acquire({ ...context("extra-retry", true), provider: retryProvider })).rejects.toMatchObject({ code: "PROVIDER_RETRY_BUDGET_EXHAUSTED" });
 
     const quotaProvider = `quota-${randomUUID()}`;
-    const quotaGovernor = new PostgresProviderGovernor(first.pool, { tenantRequestsPerMinute: 1, tenantRequestsPerDay: 5 });
-    const quotaPermit = await quotaGovernor.acquire({ ...context("quota-first"), provider: quotaProvider });
-    await quotaGovernor.release(quotaPermit, { success: true });
-    await expect(quotaGovernor.acquire({ ...context("quota-second"), provider: quotaProvider })).rejects.toMatchObject({ code: "TENANT_PROVIDER_RPM_EXCEEDED" });
+    const quotaCallController = new PostgresProviderCallController(first.pool, { tenantRequestsPerMinute: 1, tenantRequestsPerDay: 5 });
+    const quotaPermit = await quotaCallController.acquire({ ...context("quota-first"), provider: quotaProvider });
+    await quotaCallController.release(quotaPermit, { success: true });
+    await expect(quotaCallController.acquire({ ...context("quota-second"), provider: quotaProvider })).rejects.toMatchObject({ code: "TENANT_PROVIDER_RPM_EXCEEDED" });
   });
 
   it("detects immutable migration checksum drift", async () => {

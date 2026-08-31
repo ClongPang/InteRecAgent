@@ -2,16 +2,16 @@
 
 基于 pi-agent、TypeScript 和 PostgreSQL 的多轮对话式购物推荐 Agent。
 
-LLM 负责理解自然语言、生成有序 `TurnPlan` 和组织回复；确定性 Host 负责购物目标、候选世界、指代绑定、Provider 授权、商品事实、证据、金额、排序与最终原子提交。模型不能绕过 Host 直接修改状态或陈述未经验证的商品事实。
+LLM 负责理解自然语言、生成有序 `TurnPlan` 和组织回复；受策略约束的话轮执行器负责购物目标、会话候选状态、指代绑定、Provider 调用授权、来源字段、金额、规则排序与最终原子提交。模型不能绕过执行器直接修改状态或陈述没有来源依据的商品信息。
 
 ## 当前状态
 
-仓库已经完成从旧 Python 单轮 Research Workflow 到 TypeScript Conversation Runtime 的切换：
+仓库已经完成从旧 Python 单轮报价检索流程到 TypeScript Conversation Runtime 的切换：
 
 - `Conversation` 是长期购物任务，`Turn` 是可租约、重试、取消和审计的持久执行边界。
-- Goal、Dialogue、WorkingSet、Candidate Feedback、Provider Artifact、Source Fact、Claim 与 AssistantMessage 均持久化在 PostgreSQL。
+- Goal、Dialogue、WorkingSet、Candidate Feedback、Provider Artifact、规范化来源字段（内部类型 `Source Fact`）、回复声明（内部类型 `Claim`）与 AssistantMessage 均持久化在 PostgreSQL。
 - 普通对话、条件修改、市场过滤、偏好重排、比较、解释、拒绝、恢复和 undo 在现有证据充分时保持零 Provider 调用。
-- API 使用服务端验证的 Bearer JWT，支持 owner 隔离、PostgreSQL RLS、SSE cursor 恢复和 durable worker。
+- API 使用服务端验证的 Bearer JWT，支持 owner 隔离、PostgreSQL RLS、SSE cursor 恢复和基于数据库租约的可恢复 Worker。
 - 前端直接消费 `ConversationProjection`，展示运行进度、Goal、候选、比较、证据级别和失败重试。
 - 已删除旧 Python、Mission/Run/Decision 和旧前端实现；当前只有一条正式执行链。
 
@@ -19,10 +19,10 @@ LLM 负责理解自然语言、生成有序 `TurnPlan` 和组织回复；确定�
 
 | 通道 | 范围 | 保证 |
 | --- | --- | --- |
-| `VERIFIED` | 当前增强品类：`headphones`、`smartphone` | 执行型号、主商品/配件、成色和品类资格校验，可形成已验证候选 |
-| `DISCOVERY` | 其他开放品类 | 可以检索、排序、比较和接收多轮反馈；身份不足时保持 `OFFER_ONLY`，不会冒充已验证 Item |
+| `VERIFIED`（内部枚举） | 当前增强品类：`headphones`、`smartphone` | 表示已配置品类规则并通过型号、主商品/配件、成色和市场校验，不表示现实世界商品已获第三方认证 |
+| `DISCOVERY`（内部枚举） | 其他开放品类 | 仅提供搜索、规则排序、比较和多轮反馈；身份不足时保持 `OFFER_ONLY`，即只确认到具体报价记录，不能合并为统一商品 |
 
-真实 DeepSeek、BuyWhere、FX 与 PostgreSQL 验收已覆盖耳机、手机和未注册的洗衣机品类；完整结果见[对话式推荐 Agent 调研与演进建议](docs/conversational-recommendation-agent-industry-research.md)。
+真实 DeepSeek、BuyWhere、FX 与 PostgreSQL 验收已覆盖耳机、手机和未注册的洗衣机品类；当前能力边界与面试口径见[项目架构定位与面试说明](docs/project-architecture-interview-guide.md)。
 
 ## 架构
 
@@ -33,15 +33,15 @@ Conversation UI
 Conversation API ───────────────► PostgreSQL authoritative state
                                          │
                                          ▼
-                                durable Turn worker
+                              recoverable Turn worker
                                          │ bounded snapshot
                                          ▼
                                   fresh pi-agent
                                          │
-             Observe → commit_turn_plan → ordered WorldOps → publish_reply
+ Observe → commit_turn_plan → ordered turn actions (`TurnAction`) → publish_reply
                                          │
                                          ▼
-                  deterministic Goal / WorkingSet / proof / feedback Host
+              policy-enforced Goal / candidate-state / provenance executor
                                          │
                    local candidate reuse ─┴─ governed BuyWhere / FX calls
 ```
@@ -49,13 +49,13 @@ Conversation API ───────────────► PostgreSQL aut
 关键边界：
 
 - pi-agent 只负责开放语言理解、计划和回复结构，不拥有商品世界。
-- Host 对模型提案执行原文归一化、schema 校验、policy 校验和顺序执行。
-- 一轮最多获得一次逻辑研究授权；研究内部可能按检索波次和市场展开为多次物理 Provider 调用。
-- WorkingSet 是跨轮可指代的候选总线；拒绝候选不会删除 proof pool。
+- 话轮执行器对模型提案执行原文依据检查、schema 校验、policy 校验和顺序执行。
+- 一轮最多获得一次逻辑商品搜索授权；一次搜索可按查询变体和市场展开为多次物理 Provider 调用。
+- `WorkingSet` 是项目内的版本化会话候选状态；拒绝候选不会删除已保存的来源记录。
 - 失败、取消、过期或被 supersede 的 attempt draft 不会晋级正式 Conversation revision。
-- 所有商品事实必须通过 Claim 引用不可变 EvidenceRef；无证据内容不会进入 AssistantMessage。
+- 所有商品信息声明必须通过 `Claim` 引用不可变 `EvidenceRef`；没有来源记录的内容不会进入 `AssistantMessage`。
 
-详细决策见 [ADR-0004](docs/adr/0004-conversational-turn-runtime.md)、[proof-carrying offers](docs/adr/0003-proof-carrying-offers.md) 和 [`docs/stage-reviews/`](docs/stage-reviews/)。
+详细决策见 [ADR-0004](docs/adr/0004-conversational-turn-runtime.md) 和[报价来源追踪与声明校验](docs/adr/0003-source-grounded-offers.md)。
 
 ## 环境要求
 
@@ -117,7 +117,7 @@ npm run dev --workspace frontend
 - BuyWhere、模型和 FX 都属于外部运行资源，应配置超时、租户配额、并发限制、熔断和成本监控。
 - Langfuse 与 OTLP 指标是可选项；默认不采集 prompt、query、output 或工具参数原文。
 
-完整运维说明见[运行手册](docs/conversation-runtime-operations-runbook.md)和[可观测性配置](ops/observability/README.md)。
+当前可观测性与运行配置见[可观测性配置](ops/observability/README.md)。
 
 ## 验证与质量门禁
 
@@ -165,25 +165,25 @@ npm run acceptance:live:cases
 
 脚本只输出 conversation/turn ID、能力等级、候选计数和数据库证据计数，不输出密钥或原始 Provider payload。一次真实验收已证明：
 
-- 耳机：4 个 `VERIFIED` 候选，后续过滤、偏好和拒绝均为零 Provider 调用。
-- 手机：2 个 `VERIFIED` 候选，输出 `RECOMMENDATION`。
+- 耳机：4 个通过品类规则校验的候选（内部枚举 `VERIFIED`），后续过滤、偏好和拒绝均为零 Provider 调用。
+- 手机：2 个通过品类规则校验的候选（内部枚举 `VERIFIED`），输出 `RECOMMENDATION`。
 - 洗衣机：1 个 `DISCOVERY / OFFER_ONLY` 候选，后续通用偏好重排为零 Provider 调用。
 
 ## 商品事实边界
 
-- 只陈述带 EvidenceRef 的价格、币种、汇率、市场、商户、库存、型号和成色。
+- 只陈述带来源引用（内部类型 `EvidenceRef`）的价格、币种、汇率、市场、商户、库存、型号和成色。
 - Provider 检索市场不等于配送资格；配送目的地是独立 Goal 字段。
 - 不补写缺失的规格、评分、评论、运费、税费、保修和真伪。
 - 库存只有 `IN_STOCK / OUT_OF_STOCK / UNKNOWN`，未知不会被描述为有货。
-- 人民币金额是带 source fact 与 FX snapshot 的估算，不含税费、运费和支付成本。
-- Discovery 中的未知身份不是事实冲突，但也不会提升为 Verified Item。
+- 人民币金额是带规范化来源字段与 FX snapshot 的估算，不含税费、运费和支付成本。
+- 开放品类搜索中的未知身份不等于已发现冲突，但也不会被表述为已统一识别的商品；它只保留为具体报价记录。
 
 ## 项目结构
 
 ```text
-packages/domain/      确定性领域模型、Goal、WorkingSet、资格与排序
-packages/agent/       pi-agent 上下文、工具协议、proposal schema 与 Host
-packages/runtime/     PostgreSQL repository、worker、research/proof、Provider 治理
+packages/domain/      确定性领域模型、Goal、WorkingSet、候选规则校验与排序
+packages/agent/       pi-agent 上下文、工具协议、proposal schema 与话轮执行器
+packages/runtime/     PostgreSQL repository、worker、商品搜索/来源追踪与 Provider 调用控制
 packages/api/         JWT Conversation API、projection 与 SSE
 frontend/             React Conversation 工作台
 packages/runtime/conversation-migrations/
@@ -191,12 +191,12 @@ packages/runtime/conversation-migrations/
 spec/                 产品、可观测性和验收机器契约
 ops/                  Grafana、Prometheus 与运维配置
 docs/                 ADR、阶段评审、验收记录和研究文档
-scripts/              漂移检查、smoke 与显式授权的 live 工具
+scripts/              指标回归检查、smoke 与显式授权的 live 工具
 ```
 
 ## 架构与面试说明
 
-面向项目答辩和技术面试的完整架构说明见[项目架构定位与面试说明](docs/project-architecture-interview-guide.md)。该文档覆盖 Worker、pi-agent、Intent Compiler、Host、模型工具暴露、证据链、PostgreSQL 一致性边界及常见追问。
+面向项目答辩和技术面试的完整架构说明见[项目架构定位与面试说明](docs/project-architecture-interview-guide.md)。该文档覆盖 Worker、pi-agent、计划规范化器、话轮执行器、模型工具暴露、来源追踪链路、PostgreSQL 一致性边界及常见追问。
 
 ## 下一步资源边界
 
@@ -208,4 +208,4 @@ scripts/              漂移检查、smoke 与显式授权的 live 工具
 4. 收集曝光、点击、接受、拒绝和购买反馈，建立离线评测。
 5. 有足够真实标签后再训练 Ranker、建立长期画像与线上 A/B 平台。
 
-不要在数据和流量证明必要之前拆分独立向量数据库、推荐模型服务或逐品类 Agent。完整分析见[对话式推荐 Agent：本质问题、业界架构与 InteRecAgent 演进建议](docs/conversational-recommendation-agent-industry-research.md)。
+不要在数据和流量证明必要之前拆分独立向量数据库、推荐模型服务或逐品类 Agent。当前实现与目标架构的边界见[项目架构定位与面试说明](docs/project-architecture-interview-guide.md)。

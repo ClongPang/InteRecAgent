@@ -5,8 +5,8 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import {
   ConversationWorker,
   PostgresConversationRepository,
-  PostgresConversationResearchRepository,
-  PostgresProviderGovernor,
+  PostgresConversationSearchRepository,
+  PostgresProviderCallController,
   runConversationMigrations,
   type OwnerClaims,
 } from "@interec/runtime";
@@ -48,7 +48,7 @@ suite("PostgreSQL Conversation API vertical slice", () => {
       method: "POST",
       url: `/api/conversations/${conversationId}/turns`,
       headers,
-      payload: { clientTurnId: "api-turn-1", expectedRevision: 0, input: { type: "MESSAGE", content: "想买降噪耳机" } },
+      payload: { clientTurnId: "api-turn-1", expectedRevision: 0, input: { type: "MESSAGE", content: "我还没决定具体买什么" } },
     });
     expect(accepted.statusCode).toBe(202);
     const turnId = accepted.json().turn.id as string;
@@ -59,32 +59,33 @@ suite("PostgreSQL Conversation API vertical slice", () => {
     faux.setResponses([
       fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
         userIntentSummary: "ask the highest-impact target clarification",
-        ops: [{ opId: "ask-product", kind: "REQUEST_CLARIFICATION", slotId: "target_product", reasonCode: "HIGH_IMPACT_GAP" }],
+        ops: [{ opId: "ask-product", kind: "REQUEST_CLARIFICATION", clarification: { kind: "TARGET_PRODUCT" }, uncertainty: { type: "MISSING_USER_INFORMATION", userResolvable: true }, reasonCode: "HIGH_IMPACT_GAP" }],
         leftover: [],
       })),
       fauxAssistantMessage(fauxToolCall("publish_reply", {
         outcome: "CLARIFICATION",
-        blocks: [{ type: "QUESTION", slotId: "target_product" }],
+        blocks: [{ type: "QUESTION", clarification: { kind: "TARGET_PRODUCT" } }],
         nextMoves: [],
       })),
     ]);
     const worker = new ConversationWorker(
       repository,
-      new PostgresConversationResearchRepository(repository.pool),
-      new PostgresProviderGovernor(repository.pool),
+      new PostgresConversationSearchRepository(repository.pool),
+      new PostgresProviderCallController(repository.pool),
       { search: async () => { throw new Error("PROVIDER_CALL_NOT_ALLOWED"); } },
       { getRate: async () => { throw new Error("FX_CALL_NOT_ALLOWED"); } },
       { model: faux.getModel(), streamFn: models.streamSimple.bind(models), apiKey: "test" },
       { workerId: "api-vertical-worker" },
     );
     expect(await worker.runOnce(turnId)).toBe(true);
+    expect(await repository.getTurn(turnId, owner)).toMatchObject({ status: "COMPLETED", errorCode: null });
 
     const projection = await app.inject({ method: "GET", url: `/api/conversations/${conversationId}`, headers });
     expect(projection.statusCode).toBe(200);
     expect(projection.json().projection).toMatchObject({
       conversation: { id: conversationId, currentRevision: 1 },
       activeTurn: null,
-      state: { revision: 1, dialogue: { pendingClarification: { slotId: "target_product" } } },
+      state: { revision: 1, dialogue: { pendingClarification: { clarification: { kind: "TARGET_PRODUCT" } } } },
       latestAssistantMessage: { role: "ASSISTANT", payload: { outcome: "CLARIFICATION", envelope: { outcome: "CLARIFICATION" } } },
     });
     const hidden = await app.inject({ method: "GET", url: `/api/conversations/${conversationId}`, headers: { authorization: "Bearer other" } });

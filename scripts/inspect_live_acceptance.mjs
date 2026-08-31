@@ -71,7 +71,7 @@ try {
              WHERE conversation_id = $1
              GROUP BY fact_kind, evidence_status
              ORDER BY fact_kind, evidence_status`,
-    qualifications: `SELECT status, reason_codes, count(*)::integer AS qualification_count
+    eligibilityResults: `SELECT status, reason_codes, count(*)::integer AS eligibility_count
                        FROM interec_agent.offer_qualifications
                       WHERE conversation_id = $1
                       GROUP BY status, reason_codes

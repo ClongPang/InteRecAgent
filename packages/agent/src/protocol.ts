@@ -1,5 +1,15 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { AssistantBlock, AssistantEnvelope, ConversationRoute, OperationSource, TurnOperation, TurnPlan } from "@interec/domain";
+import type {
+  ApprovedPlanReview,
+  AssistantBlock,
+  AssistantEnvelope,
+  ClarificationIntent,
+  ConversationRoute,
+  OperationSource,
+  TurnOperation,
+  TurnPlan,
+  UnapprovedPlanReview,
+} from "@interec/domain";
 
 import { assistantEnvelopeSchema, turnPlanSchema } from "./schemas.js";
 
@@ -28,8 +38,9 @@ export interface OperationReceipt {
   toolName: string;
   status: "APPLIED" | "BLOCKED" | "FAILED";
   claimIds: string[];
-  questionSlotIds: string[];
+  questionClarifications: ClarificationIntent[];
   disclosureCodes: string[];
+  uncertaintyType?: "INTENT_AMBIGUITY" | "MISSING_USER_INFORMATION";
   publicResult: Record<string, unknown>;
 }
 
@@ -37,6 +48,17 @@ export interface CommittedTurnPlan {
   plan: TurnPlan;
   route: ConversationRoute;
   maxModelInferences: 2 | 4;
+  review: ApprovedPlanReview;
+}
+
+export class PlanReviewError extends Error {
+  public readonly code: string;
+
+  public constructor(public readonly review: UnapprovedPlanReview) {
+    super(review.violations[0]?.code ?? review.decision);
+    this.name = "PlanReviewError";
+    this.code = review.violations[0]?.code ?? review.decision;
+  }
 }
 
 type ModelOperation<T> = T extends { source: OperationSource }
@@ -51,11 +73,11 @@ export interface TurnPlanProposal {
   userIntentSummary: string;
 }
 
-export type TransitionCode = "STATE_UPDATED" | "EVIDENCE_SUMMARY" | "EVIDENCE_COMPARISON" | "RESEARCH_COMPLETED" | "CHECKED_PREMISE";
+export type TransitionCode = "STATE_UPDATED" | "EVIDENCE_SUMMARY" | "EVIDENCE_COMPARISON" | "SEARCH_COMPLETED" | "CHECKED_PREMISE";
 
 type AssistantBlockProposal =
   | Exclude<AssistantBlock, { type: "QUESTION" | "TRANSITION" }>
-  | { type: "QUESTION"; slotId: string }
+  | { type: "QUESTION"; clarification: ClarificationIntent }
   | { type: "TRANSITION"; transitionCode: TransitionCode };
 
 export type AssistantEnvelopeProposal = Omit<AssistantEnvelope, "addressedOpIds" | "blocks" | "nextMoves"> & {
@@ -63,7 +85,7 @@ export type AssistantEnvelopeProposal = Omit<AssistantEnvelope, "addressedOpIds"
   nextMoves: Array<{ id: string; label: string; operation: ProposedTurnOperation }>;
 };
 
-export interface TurnHostOperations {
+export interface TurnExecutionController {
   commitPlan(plan: TurnPlanProposal, signal?: AbortSignal): Promise<CommittedTurnPlan>;
   executeOperation(operation: TurnOperation, signal?: AbortSignal): Promise<OperationReceipt>;
   publishReply(envelope: AssistantEnvelopeProposal, signal?: AbortSignal): Promise<AssistantEnvelope>;
@@ -79,11 +101,12 @@ export function toolNameForOperation(operation: TurnOperation): string {
     case "SET_COMPARISON": return "set_comparison";
     case "SET_FOCUS": return "set_focus";
     case "INSPECT_WORKING_SET": return "inspect_working_set";
-    case "INSPECT_RESEARCH_COVERAGE": return "inspect_research_coverage";
+    case "INSPECT_SEARCH_COVERAGE": return "inspect_search_coverage";
     case "REFILTER_WORKING_SET": return "refilter_working_set";
-    case "RERANK_WORKING_SET": return "rerank_working_set";
-    case "RESEARCH_OFFERS": return "research_offers";
+    case "SORT_WORKING_SET_BY_PRICE": return "rerank_working_set";
+    case "SEARCH_OFFERS": return "search_offers";
     case "REQUEST_CLARIFICATION": return "request_clarification";
+    case "RESOLVE_CLARIFICATION": return "resolve_clarification";
   }
   throw new Error(`UNSUPPORTED_TURN_OPERATION:${(operation as TurnOperation).kind}`);
 }
@@ -108,7 +131,7 @@ export class ConversationToolProtocol {
   public lastErrorCode: string | null = null;
 
   public constructor(
-    private readonly host: TurnHostOperations,
+    private readonly controller: TurnExecutionController,
     private readonly options: ConversationToolProtocolOptions = {},
   ) {}
 
@@ -132,7 +155,7 @@ export class ConversationToolProtocol {
   public async fallback(errorCode: string): Promise<AssistantEnvelope> {
     this.phase = "FALLBACK";
     this.lastErrorCode = errorCode;
-    const envelope = await this.host.fallbackReply(errorCode, this.plan, this.receipts);
+    const envelope = await this.controller.fallbackReply(errorCode, this.plan, this.receipts);
     this.envelope = envelope;
     this.phase = "COMPLETED";
     return envelope;
@@ -146,21 +169,21 @@ export class ConversationToolProtocol {
     return {
       name: "commit_turn_plan",
       label: "Commit turn plan",
-      description: "Submit one ordered TurnPlan. The deterministic host validates it and executes each authorized operation in order.",
+      description: "Submit one ordered TurnPlan. The turn executor validates it and executes each authorized operation in order.",
       parameters: turnPlanSchema,
       executionMode: "sequential",
       execute: async (toolCallId, params, signal) => this.observe(toolCallId, "commit_turn_plan", params, async () => {
         this.phase = "EXECUTING_PLAN";
         try {
           const proposal = params as Omit<TurnPlanProposal, "leftover"> & { leftover?: TurnPlanProposal["leftover"] };
-          const committed = await this.host.commitPlan({ ...proposal, leftover: proposal.leftover ?? [] }, signal);
+          const committed = await this.controller.commitPlan({ ...proposal, leftover: proposal.leftover ?? [] }, signal);
           this.lastErrorCode = null;
           this.plan = committed.plan;
           this.route = committed.route;
           this.maxModelInferences = this.maxModelInferences === 4 ? 4 : committed.maxModelInferences;
           for (const operation of committed.plan.ops) {
             if (signal?.aborted) throw new Error("TURN_ABORTED");
-            const receipt = await this.host.executeOperation(operation, signal);
+            const receipt = await this.controller.executeOperation(operation, signal);
             if (receipt.opId !== operation.opId || receipt.toolName !== toolNameForOperation(operation)) {
               throw new Error(`OPERATION_RECEIPT_MISMATCH:${operation.opId}`);
             }
@@ -168,11 +191,28 @@ export class ConversationToolProtocol {
           }
           this.phase = "ANSWER_REQUIRED";
           return textResult({
+            planReview: committed.review,
             acceptedPlan: { userIntentSummary: committed.plan.userIntentSummary, opIds: committed.plan.ops.map((operation) => operation.opId) },
             operationReceipts: this.receipts.map(({ publicResult, ...receipt }) => ({ ...receipt, publicResult })),
             instruction: "Call publish_reply using only allowed claim/question/disclosure IDs from these receipts.",
           });
         } catch (error) {
+          if (error instanceof PlanReviewError) {
+            this.lastErrorCode = error.review.violations[0]?.code ?? error.review.decision;
+            if (error.review.decision === "REPAIR_REQUIRED") {
+              this.phase = "CONTEXT_READY";
+              this.allowProtocolRepair();
+              return textResult({
+                planReview: error.review,
+                instruction: "Repair the proposed TurnPlan using the structured violations and call commit_turn_plan again.",
+              });
+            }
+            this.phase = "FALLBACK";
+            return textResult({
+              planReview: error.review,
+              instruction: "The plan proposal budget is exhausted. Do not attempt another plan.",
+            }, true);
+          }
           if (this.plan) {
             this.phase = "FALLBACK";
           } else {
@@ -190,7 +230,7 @@ export class ConversationToolProtocol {
     return {
       name: "publish_reply",
       label: "Publish verified reply",
-      description: "Submit the conversational reply body. Facts must be referenced only through claim blocks returned by the host; operation provenance is attached by the host.",
+      description: "Submit the conversational reply body. Facts must be referenced only through claim blocks returned by the turn executor; operation provenance is attached by the turn executor.",
       parameters: assistantEnvelopeSchema,
       executionMode: "sequential",
       execute: async (toolCallId, params, signal) => this.observe(toolCallId, "publish_reply", params, async () => {
@@ -216,7 +256,7 @@ export class ConversationToolProtocol {
             blocks: normalizedBlocks,
             nextMoves: [],
           };
-          const envelope = await this.host.publishReply(proposal, signal);
+          const envelope = await this.controller.publishReply(proposal, signal);
           this.lastErrorCode = null;
           this.envelope = envelope;
           this.phase = "COMPLETED";

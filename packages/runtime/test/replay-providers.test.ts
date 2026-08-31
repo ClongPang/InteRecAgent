@@ -6,10 +6,10 @@ import {
   parseReplayProviderFixture,
   ReplayFxPort,
   ReplayProductSearchPort,
-  researchOffers,
+  searchOffers,
   type ReplayProviderFixture,
 } from "../src/index.js";
-import { resolveProductTarget, type Goal } from "@interec/domain";
+import { resolveProductTarget, type SearchGoalSnapshot } from "@interec/domain";
 
 let fixture: ReplayProviderFixture;
 
@@ -34,10 +34,10 @@ describe("frozen provider replay", () => {
     expect(() => products.assertComplete()).toThrow("REPLAY_CALL_BUDGET_UNSATISFIED");
   });
 
-  it("runs the research pipeline against frozen products and FX", async () => {
+  it("runs the offer-search pipeline against frozen products and FX", async () => {
     const products = new ReplayProductSearchPort(fixture.productSearch);
     const fx = new ReplayFxPort(fixture.fx);
-    const goal: Goal = {
+    const goal: SearchGoalSnapshot = {
       query: "lightweight laptop",
       target: resolveProductTarget("lightweight laptop"),
       markets: ["US"],
@@ -45,7 +45,7 @@ describe("frozen provider replay", () => {
       stockPreference: "ANY",
       excludedOfferRefs: [],
     };
-    const result = await researchOffers(goal, goal.query, products, fx);
+    const result = await searchOffers(goal, goal.query, products, fx);
     expect(result).toMatchObject({ availability: "AVAILABLE", markets: [{ market: "US", status: "COMPLETED", resultCount: 1 }] });
     expect(result.listings[0]).toMatchObject({ title: { value: "Lightweight Laptop 14" } });
     products.assertComplete();

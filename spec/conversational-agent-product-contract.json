@@ -7,18 +7,19 @@
   "invariants": [
     { "id": "conversation_outlives_turn", "statement": "A completed turn never closes the shopping conversation by itself." },
     { "id": "pi_agent_orchestrates_turn", "statement": "Pi-agent plans every natural-language turn and may invoke only phase-allowed world operations." },
-    { "id": "research_is_not_default", "statement": "Talk, clarification, comparison, explanation, rejection, rerank, refilter, and undo do not call providers when current evidence is sufficient." },
+    { "id": "offer_search_is_not_default", "statement": "Talk, clarification, comparison, explanation, rejection, rerank, refilter, and undo do not call providers when current evidence is sufficient." },
     { "id": "compound_turn_is_ordered", "statement": "A single utterance may produce multiple ordered operations and every accepted operation is addressed." },
-    { "id": "working_set_is_world", "statement": "References bind against the current working set; unresolved references never fall back to rank one." },
+    { "id": "working_set_tracks_candidate_state", "statement": "References bind against the current working set; unresolved references never fall back to rank one." },
     { "id": "clarification_continues", "statement": "Clarification is an assistant message with pending state, not a conversation terminal." },
-    { "id": "facts_are_proven", "statement": "Product, price, FX, merchant, market, stock, and condition claims require verified evidence references." },
+    { "id": "known_fields_survive_clarification", "statement": "Explicitly stated shopping-goal fields remain unchanged while another user-resolvable field is clarified and after that clarification is resolved." },
+    { "id": "claims_are_source_grounded", "statement": "Product, price, FX, merchant, market, stock, and condition claims require verified evidence references." },
     { "id": "unknown_stays_unknown", "statement": "Missing stock, shipping, warranty, tax, authenticity, rating, or review facts remain unknown." },
     { "id": "state_publication_is_atomic", "statement": "Goal, dialogue state, working set, assistant message, optional decision, turn status, and events publish atomically." },
     { "id": "stale_attempt_cannot_publish", "statement": "A stale revision, attempt, fence, or lease cannot publish conversation state." },
     { "id": "thread_and_workspace_persist", "statement": "Messages, conditions, candidates, focus, comparison, and active progress survive refresh and worker restart." },
     { "id": "single_active_implementation", "statement": "The product has one TypeScript/pi-agent implementation without legacy compatibility, dual write, or old-engine fallback." }
   ],
-  "requiredRoutes": ["talk", "clarify", "refilter", "rerank", "research"],
+  "requiredRoutes": ["talk", "clarify", "refilter", "sort", "search"],
   "requiredCapabilities": [
     "clarification_resume",
     "compound_operations",
@@ -54,8 +55,8 @@
         {
           "user": "2500 元，看看美国和新加坡。",
           "expected": {
-            "route": "research",
-            "operations": ["answer_pending_clarification", "set_budget", "set_retrieval_scope", "research_offers"],
+            "route": "search",
+            "operations": ["answer_pending_clarification", "set_budget", "set_retrieval_scope", "search_offers"],
             "providerCalls": 2,
             "outcome": "RECOMMENDATION",
             "assertions": ["same conversation", "pending clarification cleared", "assistant message and working set committed atomically"]
@@ -71,11 +72,11 @@
         {
           "user": "帮我找 Sony WH-1000XM5，美国和新加坡都看看。",
           "expected": {
-            "route": "research",
-            "operations": ["set_target", "set_retrieval_scope", "research_offers"],
+            "route": "search",
+            "operations": ["set_target", "set_retrieval_scope", "search_offers"],
             "providerCalls": 2,
             "outcome": "RECOMMENDATION",
-            "assertions": ["working set has proof-qualified offers"]
+            "assertions": ["working set has source-grounded offers"]
           }
         },
         {
@@ -98,8 +99,8 @@
         {
           "user": "比较三款 2500 元内的降噪耳机。",
           "expected": {
-            "route": "research",
-            "operations": ["set_target", "set_budget", "research_offers"],
+            "route": "search",
+            "operations": ["set_target", "set_budget", "search_offers"],
             "providerCalls": 2,
             "outcome": "RECOMMENDATION",
             "assertions": ["three or fewer offers are displayed"]
@@ -125,11 +126,11 @@
         {
           "user": "比较 XM5 在美国和新加坡的报价。",
           "expected": {
-            "route": "research",
-            "operations": ["set_target", "set_retrieval_scope", "research_offers"],
+            "route": "search",
+            "operations": ["set_target", "set_retrieval_scope", "search_offers"],
             "providerCalls": 2,
             "outcome": "RECOMMENDATION",
-            "assertions": ["both markets were researched"]
+            "assertions": ["both markets were searchResult"]
           }
         },
         {
@@ -152,8 +153,8 @@
         {
           "user": "看看 Sony WH-1000XM5。",
           "expected": {
-            "route": "research",
-            "operations": ["set_target:WH-1000XM5", "research_offers"],
+            "route": "search",
+            "operations": ["set_target:WH-1000XM5", "search_offers"],
             "providerCalls": 2,
             "outcome": "RECOMMENDATION",
             "assertions": ["goal target is WH-1000XM5"]
@@ -162,8 +163,8 @@
         {
           "user": "不是 XM5，是 XM4。",
           "expected": {
-            "route": "research",
-            "operations": ["correct_target:WH-1000XM4", "invalidate_incompatible_working_set", "research_offers"],
+            "route": "search",
+            "operations": ["correct_target:WH-1000XM4", "invalidate_incompatible_working_set", "search_offers"],
             "providerCalls": 2,
             "outcome": "RECOMMENDATION",
             "assertions": ["XM5 is not converted into an exclusion", "XM5 offers do not enter the XM4 comparison set"]
@@ -179,8 +180,8 @@
         {
           "user": "预算 2500，比较美国和新加坡的 XM5。",
           "expected": {
-            "route": "research",
-            "operations": ["set_target", "set_budget:2500", "set_retrieval_scope", "research_offers"],
+            "route": "search",
+            "operations": ["set_target", "set_budget:2500", "set_retrieval_scope", "search_offers"],
             "providerCalls": 2,
             "outcome": "RECOMMENDATION",
             "assertions": ["revision A committed"]
@@ -216,8 +217,8 @@
         {
           "user": "给我几款 2500 元内的 XM5 报价。",
           "expected": {
-            "route": "research",
-            "operations": ["set_target", "set_budget", "research_offers"],
+            "route": "search",
+            "operations": ["set_target", "set_budget", "search_offers"],
             "providerCalls": 2,
             "outcome": "RECOMMENDATION",
             "assertions": ["display offers have stable refs"]
@@ -244,8 +245,8 @@
         {
           "user": "预算 2500，推荐一款 XM5。",
           "expected": {
-            "route": "research",
-            "operations": ["set_target", "set_budget", "research_offers"],
+            "route": "search",
+            "operations": ["set_target", "set_budget", "search_offers"],
             "providerCalls": 2,
             "outcome": "RECOMMENDATION",
             "assertions": ["recommendation claims are grounded"]
@@ -271,8 +272,8 @@
         {
           "user": "比较三款美国和新加坡的 XM5。",
           "expected": {
-            "route": "research",
-            "operations": ["set_target", "set_retrieval_scope", "research_offers"],
+            "route": "search",
+            "operations": ["set_target", "set_retrieval_scope", "search_offers"],
             "providerCalls": 2,
             "outcome": "RECOMMENDATION",
             "assertions": ["thread and working set committed"]
@@ -299,8 +300,8 @@
         {
           "user": "帮我找 XM5，预算 2500。",
           "expected": {
-            "route": "research",
-            "operations": ["set_target:WH-1000XM5", "set_budget", "research_offers"],
+            "route": "search",
+            "operations": ["set_target:WH-1000XM5", "set_budget", "search_offers"],
             "providerCalls": 2,
             "outcome": "SUPERSEDED",
             "assertions": ["old turn loses publication fence"]
@@ -309,8 +310,8 @@
         {
           "user": "不是它，是 XM4，而且只看美国。",
           "expected": {
-            "route": "research",
-            "operations": ["consume_unanswered_user_batch", "correct_target:WH-1000XM4", "set_retrieval_scope:US", "research_offers"],
+            "route": "search",
+            "operations": ["consume_unanswered_user_batch", "correct_target:WH-1000XM4", "set_retrieval_scope:US", "search_offers"],
             "providerCalls": 1,
             "outcome": "RECOMMENDATION",
             "assertions": ["the correction retains its referential base", "the superseded attempt cannot publish goal, working set, or assistant message"]
@@ -327,11 +328,11 @@
           "user": "比较美国和新加坡的 XM5。",
           "environment": ["US_PROVIDER_OK", "SG_PROVIDER_UNAVAILABLE"],
           "expected": {
-            "route": "research",
-            "operations": ["set_target", "set_retrieval_scope", "research_offers"],
+            "route": "search",
+            "operations": ["set_target", "set_retrieval_scope", "search_offers"],
             "providerCalls": 2,
             "outcome": "RECOMMENDATION",
-            "assertions": ["US proof-qualified offers may be shown", "SG failure is disclosed", "provider unavailable is not reported as NO_MATCH"]
+            "assertions": ["US source-grounded offers may be shown", "SG failure is disclosed", "provider unavailable is not reported as NO_MATCH"]
           }
         },
         {
@@ -354,8 +355,8 @@
         {
           "user": "比较美国和新加坡的 XM5，预算 2500。",
           "expected": {
-            "route": "research",
-            "operations": ["set_target", "set_budget:2500", "set_retrieval_scope", "research_offers"],
+            "route": "search",
+            "operations": ["set_target", "set_budget:2500", "set_retrieval_scope", "search_offers"],
             "providerCalls": 2,
             "outcome": "RECOMMENDATION",
             "assertions": ["working set committed"]
@@ -381,8 +382,8 @@
         {
           "user": "找几款 3000 元内的降噪耳机。",
           "expected": {
-            "route": "research",
-            "operations": ["set_target", "set_budget:3000", "research_offers"],
+            "route": "search",
+            "operations": ["set_target", "set_budget:3000", "search_offers"],
             "providerCalls": 2,
             "outcome": "RECOMMENDATION",
             "assertions": ["working set committed"]
@@ -391,7 +392,7 @@
         {
           "user": "还是有点贵，便宜一点。",
           "expected": {
-            "route": "rerank",
+            "route": "sort",
             "operations": ["set_price_stance:cheaper", "rerank_working_set"],
             "providerCalls": 0,
             "outcome": "RECOMMENDATION",

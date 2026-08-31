@@ -3,7 +3,7 @@ import net from "node:net";
 
 import { canonicalDecimal } from "./money.js";
 import { resolveProductIdentity } from "./product-identity.js";
-import type { BuyWhereRawProduct, DiscoveredListing, EvidenceRef, EvidenceStatus, Fact, ListingIngestionContext, Money, StockStatus } from "./types.js";
+import type { BuyWhereRawProduct, RetrievedListing, EvidenceRef, SourceValueStatus, SourcedValue, ListingIngestionContext, Money, StockStatus } from "./types.js";
 
 const SUPPORTED_CURRENCIES = new Set(["USD", "SGD", "CNY"]);
 const STOCK_TRUE = new Set(["in_stock", "available", "in stock", "yes"]);
@@ -25,7 +25,7 @@ function evidence(context: ListingIngestionContext, jsonPath: string): EvidenceR
   return { artifactRef: context.rawArtifactRef, jsonPath: qualifiedPath, source: "buywhere", observedAt: context.observedAt };
 }
 
-function fact<T>(value: T | null, status: EvidenceStatus, refs: EvidenceRef[]): Fact<T> {
+function sourcedValue<T>(value: T | null, status: SourceValueStatus, refs: EvidenceRef[]): SourcedValue<T> {
   return { value, status: value === null ? "UNKNOWN" : status, evidence: refs };
 }
 
@@ -75,29 +75,29 @@ function stockSignal(value: unknown): StockStatus | null {
   return null;
 }
 
-function normalizeStock(raw: BuyWhereRawProduct, context: ListingIngestionContext): Fact<StockStatus> {
+function normalizeStock(raw: BuyWhereRawProduct, context: ListingIngestionContext): SourcedValue<StockStatus> {
   const top = stockSignal(raw.availability);
   const metadata = raw.metadata && typeof raw.metadata === "object" ? raw.metadata as Record<string, unknown> : null;
   const meta = metadata ? stockSignal(metadata["availability"]) ?? stockSignal(metadata["in_stock"]) : null;
   const refs = [evidence(context, "$.availability"), evidence(context, "$.metadata.availability")];
-  if (top && meta && top !== meta) return fact("UNKNOWN", "CONFLICTED", refs);
+  if (top && meta && top !== meta) return sourcedValue("UNKNOWN", "CONFLICTED", refs);
   const resolved = top ?? meta;
-  return resolved ? fact(resolved, "OBSERVED", refs) : fact("UNKNOWN", "UNKNOWN", refs);
+  return resolved ? sourcedValue(resolved, "OBSERVED", refs) : sourcedValue("UNKNOWN", "UNKNOWN", refs);
 }
 
-function normalizeMoney(raw: BuyWhereRawProduct, context: ListingIngestionContext): Fact<Money> | null {
+function normalizeMoney(raw: BuyWhereRawProduct, context: ListingIngestionContext): SourcedValue<Money> | null {
   if (!raw.price || typeof raw.price !== "object") return null;
   const currency = safeString(raw.price.currency)?.toUpperCase() ?? null;
   const rawAmount = raw.price.amount;
   if (!currency || !SUPPORTED_CURRENCIES.has(currency) || (typeof rawAmount !== "string" && typeof rawAmount !== "number")) return null;
   try {
-    return fact({ amount: canonicalDecimal(String(rawAmount)), currency }, "OBSERVED", [evidence(context, "$.price.amount"), evidence(context, "$.price.currency")]);
+    return sourcedValue({ amount: canonicalDecimal(String(rawAmount)), currency }, "OBSERVED", [evidence(context, "$.price.amount"), evidence(context, "$.price.currency")]);
   } catch {
     return null;
   }
 }
 
-export function ingestBuyWhereListing(raw: BuyWhereRawProduct, context: ListingIngestionContext): DiscoveredListing | null {
+export function ingestBuyWhereListing(raw: BuyWhereRawProduct, context: ListingIngestionContext): RetrievedListing | null {
   const providerListingId = safeString(raw.id);
   const title = safeString(raw.title);
   const merchant = safeString(raw.merchant);
@@ -116,19 +116,19 @@ export function ingestBuyWhereListing(raw: BuyWhereRawProduct, context: ListingI
     provider: "buywhere",
     providerListingId,
     retrievalMarket: context.retrievalMarket,
-    title: fact(title, "OBSERVED", [evidence(context, "$.title")]),
+    title: sourcedValue(title, "OBSERVED", [evidence(context, "$.title")]),
     originalMoney: money,
-    merchantLabel: fact(merchant, "OBSERVED", [evidence(context, "$.merchant")]),
-    merchantTargetUrl: fact(urls.target.toString(), urls.targetStatus, [targetEvidence]),
-    merchantDomain: fact(urls.target.hostname.toLocaleLowerCase("en-US"), urls.targetStatus, [targetEvidence]),
-    outboundUrl: fact(urls.outbound.toString(), "OBSERVED", [evidence(context, raw.click_url ? "$.click_url" : "$.url")]),
-    providerCountry: fact(safeString(raw.country_code), "OBSERVED", [evidence(context, "$.country_code")]),
-    categoryPath: fact(categoryPath, "OBSERVED", [evidence(context, "$.category_path")]),
-    providerProductType: fact(productType, "OBSERVED", [evidence(context, "$.metadata.product_type")]),
+    merchantLabel: sourcedValue(merchant, "OBSERVED", [evidence(context, "$.merchant")]),
+    merchantTargetUrl: sourcedValue(urls.target.toString(), urls.targetStatus, [targetEvidence]),
+    merchantDomain: sourcedValue(urls.target.hostname.toLocaleLowerCase("en-US"), urls.targetStatus, [targetEvidence]),
+    outboundUrl: sourcedValue(urls.outbound.toString(), "OBSERVED", [evidence(context, raw.click_url ? "$.click_url" : "$.url")]),
+    providerCountry: sourcedValue(safeString(raw.country_code), "OBSERVED", [evidence(context, "$.country_code")]),
+    categoryPath: sourcedValue(categoryPath, "OBSERVED", [evidence(context, "$.category_path")]),
+    providerProductType: sourcedValue(productType, "OBSERVED", [evidence(context, "$.metadata.product_type")]),
     stock: normalizeStock(raw, context),
     identity,
-    imageUrl: fact(safeString(raw.image_url), "OBSERVED", [evidence(context, "$.image_url")]),
-    sourceUpdatedAt: fact(safeString(raw.updated_at), "OBSERVED", [evidence(context, "$.updated_at")]),
+    imageUrl: sourcedValue(safeString(raw.image_url), "OBSERVED", [evidence(context, "$.image_url")]),
+    sourceUpdatedAt: sourcedValue(safeString(raw.updated_at), "OBSERVED", [evidence(context, "$.updated_at")]),
     observedAt: context.observedAt,
     rawArtifactRef: context.rawArtifactRef,
   };

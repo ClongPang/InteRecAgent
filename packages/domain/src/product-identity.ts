@@ -1,15 +1,15 @@
 import {
   canonicalModels,
   canonicalProductModel,
-  contractPatternMatches,
-  inferCategoryContract,
-  resolveCategoryContract,
-  type CategoryContract,
-} from "./catalog-contracts.js";
-import type { EvidenceRef, Fact, ItemRole, ProductCondition, ProductIdentity, ProductTarget } from "./types.js";
+  validationPatternMatches,
+  inferCategoryValidationPolicy,
+  resolveCategoryValidationPolicy,
+  type CategoryValidationPolicy,
+} from "./catalog-validation-policies.js";
+import type { EvidenceRef, SourcedValue, ItemRole, ProductCondition, ProductIdentity, SearchTargetSnapshot } from "./types.js";
 
 const STOP_TOKENS = new Set(["帮我", "比较", "推荐", "价格", "哪里", "购买", "buy", "price", "compare"]);
-const ACCESSORY_RELATION = /\b(?:for|fits?|compatible\s+with)\b|适用于|兼容/iu;
+const ACCESSORY_RELATION = /\b(?:fits?|compatible\s+with|designed\s+for)\b|适用于|兼容/iu;
 const REPLACEMENT_RELATION = /\b(?:replacement|repair|spare\s+part)\b|替换|维修|零件/iu;
 const ACCESSORY_CLASSIFICATION = /\b(?:accessories|parts|cases|cables)\b|配件|零件/iu;
 const ACCESSORY_PRODUCT = /\b(?:case|cover|protector|charger|charging\s+cable|phone\s+holder|mount|skin|bumper)\b/iu;
@@ -34,18 +34,18 @@ export function isDiscriminativeQuery(query: string): boolean {
   return modelTokens(query).length > 0 || tokens.length >= 2 || normalizeText(query).length >= 8;
 }
 
-function conditionPreference(query: string): ProductTarget["conditionPreference"] {
+function conditionPreference(query: string): SearchTargetSnapshot["conditionPreference"] {
   if (REFURBISHED.test(query)) return "REFURBISHED";
   if (USED.test(query)) return "USED";
   return "NEW_OR_UNSPECIFIED";
 }
 
-export function resolveProductTarget(query: string): ProductTarget {
-  const contract = inferCategoryContract(query);
+export function resolveProductTarget(query: string): SearchTargetSnapshot {
+  const contract = inferCategoryValidationPolicy(query);
   const models = canonicalModels(query, contract?.categoryId);
   const itemRole: ItemRole = REPLACEMENT_RELATION.test(query)
     ? "REPLACEMENT_PART"
-    : ACCESSORY_RELATION.test(query) || Boolean(contract && contractPatternMatches(contract.accessorySignals, query))
+    : ACCESSORY_RELATION.test(query) || Boolean(contract && validationPatternMatches(contract.accessorySignals, query))
       ? "ACCESSORY"
       : "PRIMARY_PRODUCT";
   return {
@@ -56,18 +56,18 @@ export function resolveProductTarget(query: string): ProductTarget {
   };
 }
 
-function derivedFact<T>(value: T | null, evidence: EvidenceRef[]): Fact<T> {
+function derivedSourcedValue<T>(value: T | null, evidence: EvidenceRef[]): SourcedValue<T> {
   return { value, status: value === null ? "UNKNOWN" : "DERIVED", evidence };
 }
 
-function classifyItemRole(title: string, classification: string, contract: CategoryContract | null): ItemRole {
+function classifyItemRole(title: string, classification: string, contract: CategoryValidationPolicy | null): ItemRole {
   const combined = `${title} ${classification}`;
   if (REPLACEMENT_RELATION.test(combined)) return "REPLACEMENT_PART";
-  if (ACCESSORY_RELATION.test(title) || ACCESSORY_PRODUCT.test(title) || Boolean(contract && contractPatternMatches(contract.accessorySignals, title))) {
+  if (ACCESSORY_RELATION.test(title) || ACCESSORY_PRODUCT.test(title) || Boolean(contract && validationPatternMatches(contract.accessorySignals, title))) {
     return "ACCESSORY";
   }
-  if (contract && (contractPatternMatches(contract.primarySignals, title) || canonicalModels(title, contract.categoryId).length > 0)) return "PRIMARY_PRODUCT";
-  if (contract && contractPatternMatches(contract.primarySignals, classification)) return "PRIMARY_PRODUCT";
+  if (contract && (validationPatternMatches(contract.primarySignals, title) || canonicalModels(title, contract.categoryId).length > 0)) return "PRIMARY_PRODUCT";
+  if (contract && validationPatternMatches(contract.primarySignals, classification)) return "PRIMARY_PRODUCT";
   if (ACCESSORY_CLASSIFICATION.test(classification)) return "ACCESSORY";
   return "UNKNOWN";
 }
@@ -79,9 +79,9 @@ function classifyCondition(title: string): ProductCondition {
   return "UNKNOWN";
 }
 
-export function resolveProductIdentity(title: string, classification: string, target: ProductTarget, evidence: EvidenceRef[]): ProductIdentity {
-  const targetContract = resolveCategoryContract(target.categoryId);
-  const observedContract = inferCategoryContract(`${title} ${classification}`);
+export function resolveProductIdentity(title: string, classification: string, target: SearchTargetSnapshot, evidence: EvidenceRef[]): ProductIdentity {
+  const targetContract = resolveCategoryValidationPolicy(target.categoryId);
+  const observedContract = inferCategoryValidationPolicy(`${title} ${classification}`);
   const titleModels = canonicalModels(title, targetContract?.categoryId);
   const targetModel = target.canonicalModel
     ? canonicalProductModel(target.canonicalModel, targetContract?.categoryId) ?? target.canonicalModel.normalize("NFKC").trim().toUpperCase()
@@ -115,10 +115,10 @@ export function resolveProductIdentity(title: string, classification: string, ta
     : identityMatches ? "RESOLVED" as const : "UNRESOLVED" as const;
   const comparisonIdentity = model ?? `TITLE:${normalizeText(title).toUpperCase()}`;
   return {
-    categoryId: derivedFact(categoryId, evidence),
-    canonicalModel: derivedFact(model, evidence),
-    itemRole: derivedFact(itemRole === "UNKNOWN" ? null : itemRole, evidence),
-    condition: derivedFact(condition === "UNKNOWN" ? null : condition, evidence),
+    categoryId: derivedSourcedValue(categoryId, evidence),
+    canonicalModel: derivedSourcedValue(model, evidence),
+    itemRole: derivedSourcedValue(itemRole === "UNKNOWN" ? null : itemRole, evidence),
+    condition: derivedSourcedValue(condition === "UNKNOWN" ? null : condition, evidence),
     comparisonKey: status === "RESOLVED" ? [categoryId, comparisonIdentity, itemRole, condition].join(":") : null,
     status,
   };

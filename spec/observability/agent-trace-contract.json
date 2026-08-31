@@ -58,7 +58,7 @@
     "host-authorization-unchanged",
     "state-publication-unchanged",
     "provider-governance-unchanged",
-    "gold-blueprint-semantic-hash-unchanged",
+    "evaluation-authoring-plan-semantic-hash-unchanged",
     "qualification-cases-hash-unchanged"
   ]
 }

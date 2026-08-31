@@ -1,4 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { renderDisclosureCode } from '@interec/domain/assistant-envelope'
 
 import {
   ApiError,
@@ -18,6 +19,7 @@ import type {
   Message,
   TurnInput,
 } from './conversation/types'
+import { renderGoalAttribute } from './goal-presentation'
 
 const CONVERSATION_KEY = 'interec-conversation-id'
 const TOKEN_KEY = 'interec-auth-token'
@@ -28,8 +30,8 @@ const EVENT_LABELS: Record<string, string> = {
   'turn.claimed': 'Agent 已接手',
   'turn.started': '正在理解并规划',
   'turn.plan_committed': '计划已确认',
-  'research.started': '正在检索报价',
-  'research.completed': '证据已整理',
+  'search.started': '正在检索报价',
+  'search.completed': '来源信息已整理',
   'assistant.message.committed': '回复已发布',
   'turn.completed': '回复已发布',
   'turn.failed': '本轮执行失败',
@@ -45,8 +47,12 @@ function displayError(error: unknown): string {
     REVISION_CONFLICT: '会话刚刚发生了更新，请刷新后重试。',
     CONVERSATION_TURN_ACTIVE: '上一轮仍在处理，请等待或先取消。',
     TURN_NOT_RETRYABLE: '这一轮当前不能重试。',
+    NO_PENDING_CLARIFICATION: '这个问题已经不再等待回答，请按当前对话继续。',
+    STALE_CLARIFICATION_ID: '这个问题已经更新或失效，请回答最新的问题。',
+    INVALID_CLARIFICATION_OPTION: '这个选项不属于当前问题，请选择最新提供的选项。',
+    CLARIFICATION_SKIP_NOT_ALLOWED: '这个问题是继续处理所必需的，暂时不能跳过。',
   }
-  return labels[code] ?? `暂时无法完成：${code}`
+  return labels[code] ?? '暂时无法完成这次操作，请重试或换一种说法继续。'
 }
 
 function formatMoney(amount: string): string {
@@ -61,33 +67,26 @@ function messageText(message: Message): string {
     if (message.payload.type === 'MESSAGE') return String(message.payload.content ?? '')
     if (message.payload.type === 'SET_COMPARISON') return '更新了对比清单'
     if (message.payload.type === 'UNDO') return `恢复到第 ${String(message.payload.revision)} 版目标`
+    if (message.payload.type === 'ANSWER_CLARIFICATION') {
+      const answer = message.payload.answer as { type?: string; optionId?: string; text?: string } | undefined
+      if (answer?.type === 'SKIP') return '暂时跳过这个条件'
+      if (answer?.type === 'OPTION') return `选择了：${String(answer.optionId ?? '')}`
+      return String(answer?.text ?? '')
+    }
     return '更新了选购条件'
   }
   return String(message.payload.text ?? '')
 }
 
-function disclosureText(code: string): string {
-  const known: Record<string, string> = {
-    PRICE_AND_FX_ESTIMATE: '人民币金额来自有时间戳的汇率快照，税费、运费和支付成本以商家结算页为准。',
-    PROVIDER_COVERAGE_LIMITED: '结果只覆盖本轮已检索并通过证据校验的来源，不代表全网最低价。',
-    PARTIAL_PROVIDER_COVERAGE: '部分市场暂时无法完成检索，当前结果只覆盖成功返回的市场。',
-    PROVIDER_UNAVAILABLE: '本轮没有市场成功返回可验证结果。',
-    FX_ESTIMATE: '人民币金额按有时间戳的汇率快照估算。',
-    EXCLUDES_TAX_SHIPPING_PAYMENT: '估算金额不包含税费、运费和支付环节可能产生的费用。',
-    MERCHANT_CHECKOUT_FINAL: '最终价格与可购买状态以商家结算页为准。',
-    STOCK_UNKNOWN: '部分候选的库存状态尚未得到可靠证明。',
-    CONDITION_UNKNOWN: '部分候选的成色尚未得到可靠证明。',
-    DETERMINISTIC_OFFER_ORDER_NOT_PRODUCT_QUALITY: '候选顺序只按市场证据、库存证据和同层价格确定，不代表产品质量、口碑或综合体验排名。',
-    UNVERIFIED_RESULTS_NOT_RECOMMENDED: '检索到了商品，但没有结果通过完整的身份与市场证据校验，因此本轮不做推荐。',
-    DISCOVERY_OFFER_IDENTITY_ONLY: '这些结果用于发现和缩小范围；当前只确认了报价，尚未建立可跨商家合并的商品身份。',
-    LOCAL_CANDIDATE_CACHE: '本轮优先复用了仍在有效期内的本地候选与原始证据。',
-  }
-  return known[code] ?? code.split('_').join(' ').toLowerCase()
-}
-
-function AssistantContent({ message, onOffer }: { message: Message; onOffer: (offerRef: string) => void }) {
+function AssistantContent({ message, onOffer, activeClarificationId, disabled, onClarificationAnswer }: {
+  message: Message
+  onOffer: (offerRef: string) => void
+  activeClarificationId: string | null
+  disabled: boolean
+  onClarificationAnswer: (clarificationId: string, answer: { type: 'OPTION'; optionId: string } | { type: 'SKIP' }) => void
+}) {
   const envelope = message.payload.envelope as AssistantEnvelope | undefined
-  const claims = (message.payload.claimLedger as { claims?: Claim[] } | undefined)?.claims ?? []
+  const claims = (message.payload.groundedClaims as { claims?: Claim[] } | undefined)?.claims ?? []
   const claimById = new Map(claims.map((claim) => [claim.claimId, claim]))
   const citedRefs = new Set<string>()
   claims.forEach((claim) => claim.offerRefs.forEach((ref) => citedRefs.add(ref)))
@@ -98,8 +97,23 @@ function AssistantContent({ message, onOffer }: { message: Message; onOffer: (of
       <div className="message-blocks">
         {envelope.blocks.map((block, index) => {
           if (block.type === 'TRANSITION') return <p key={index}>{block.text}</p>
-          if (block.type === 'QUESTION') return <p className="assistant-question" key={index}>{block.wording}</p>
-          if (block.type === 'DISCLOSURE') return <p className="assistant-disclosure" key={index}>{disclosureText(block.disclosureCode)}</p>
+          if (block.type === 'QUESTION') {
+            const active = block.clarificationId === activeClarificationId
+            return (
+              <section className="assistant-question" key={index} aria-label="需要补充的信息">
+                <p>{block.wording}</p>
+                <small>{block.rationale}</small>
+                {active && block.responseSpec.options.length > 0 && (
+                  <div className="clarification-options">
+                    {block.responseSpec.options.map((option) => <button key={option.id} disabled={disabled} onClick={() => onClarificationAnswer(block.clarificationId, { type: 'OPTION', optionId: option.id })}>{option.label}</button>)}
+                  </div>
+                )}
+                {active && block.responseSpec.allowSkip && <button className="clarification-skip" disabled={disabled} onClick={() => onClarificationAnswer(block.clarificationId, { type: 'SKIP' })}>暂时跳过</button>}
+                {active && block.responseSpec.examples.length > 0 && <span className="clarification-examples">也可以直接回答，例如：{block.responseSpec.examples.join('、')}</span>}
+              </section>
+            )
+          }
+          if (block.type === 'DISCLOSURE') return <p className="assistant-disclosure" key={index}>{renderDisclosureCode(block.disclosureCode)}</p>
           if (block.type === 'CLAIM') return <p key={index}>{claimById.get(block.claimId)?.renderedText}</p>
           return <p key={index}>{block.claimIds.map((id) => claimById.get(id)?.renderedText).filter(Boolean).join('；')}</p>
         })}
@@ -127,7 +141,8 @@ function GoalBar({ projection, onClearBudget, disabled }: {
       {goal.budget && <span className="condition-chip removable">预算 {goal.budget.amount} {goal.budget.currency}<button aria-label="移除预算" disabled={disabled} onClick={onClearBudget}>×</button></span>}
       {goal.retrievalMarkets.map((market) => <span className="condition-chip" key={market}>{market} 市场</span>)}
       {goal.stockPreference === 'KNOWN_IN_STOCK' && <span className="condition-chip">仅看有货</span>}
-      {goal.hardConstraints.map((item) => <span className="condition-chip" key={item.key}>{item.key}</span>)}
+      {goal.hardConstraints.map((item) => <span className="condition-chip" key={`constraint:${item.key}`}>{renderGoalAttribute(item)}</span>)}
+      {goal.preferences.map((item) => <span className="condition-chip" key={`preference:${item.key}`}>偏好：{renderGoalAttribute(item)}</span>)}
       {goal.unresolved.length > 0 && <span className="condition-chip pending">还需确认 {goal.unresolved.length} 项</span>}
     </div>
   )
@@ -145,7 +160,7 @@ function CandidateCard({ candidate, rank, focused, selected, rejected, onFocus, 
   return (
     <article id={`offer-${candidate.offerRef}`} className={`candidate-card${focused ? ' focused' : ''}${rejected ? ' rejected' : ''}`}>
       <button className="candidate-main" onClick={onFocus} aria-label={`和 Agent 聊聊 ${candidate.title}`}>
-        <div className="candidate-kicker"><span>{rank ? `候选 ${rank}` : rejected ? '已排除' : '候选池'}</span><span>{candidate.retrievalMarket}</span><span className={`support-badge ${candidate.discovery?.supportLevel === 'DISCOVERY' ? 'discovery' : candidate.discovery?.supportLevel === 'VERIFIED' ? 'verified' : 'unknown'}`}>{candidate.discovery?.supportLevel === 'DISCOVERY' ? '发现级' : candidate.discovery?.supportLevel === 'VERIFIED' ? '已验证' : '级别未知'}</span></div>
+        <div className="candidate-kicker"><span>{rank ? `候选 ${rank}` : rejected ? '已排除' : '候选池'}</span><span>{candidate.retrievalMarket}</span><span className={`support-badge ${candidate.ranking?.validationMode === 'SEARCH_ONLY' ? 'search-only' : candidate.ranking?.validationMode === 'RULE_VALIDATED' ? 'rule-validated' : 'unknown'}`}>{candidate.ranking?.validationMode === 'SEARCH_ONLY' ? '仅搜索' : candidate.ranking?.validationMode === 'RULE_VALIDATED' ? '规则校验通过' : '校验级别未知'}</span></div>
         <h3>{candidate.title}</h3>
         <strong>{formatMoney(candidate.cnyAmount)}</strong>
         <dl>
@@ -158,7 +173,7 @@ function CandidateCard({ candidate, rank, focused, selected, rejected, onFocus, 
             排序：市场证据 → 库存证据 → 同层价格；{candidate.marketEvidenceLevel === 'TARGET_DOMAIN_MARKET_CONSISTENT' ? '目标站点域名与市场一致' : '仅有 Provider 市场标注'}
           </p>
         )}
-        {candidate.discovery?.identityLevel === 'OFFER_ONLY' && <p className="discovery-note">报价级候选：不会在缺少 GTIN/MPN 等证据时合并为同一商品。</p>}
+        {candidate.ranking?.identityResolution === 'LISTING_LEVEL' && <p className="listing-level-note">报价级候选：不会在缺少 GTIN/MPN 等证据时合并为同一商品。</p>}
       </button>
       {!rejected && <button className={`compare-toggle${selected ? ' selected' : ''}`} onClick={onToggleCompare} aria-pressed={selected}>{selected ? '已加入对比' : '加入对比'}</button>}
     </article>
@@ -243,6 +258,7 @@ export default function App() {
   const focusedCandidate = focusedRef ? candidateByRef.get(focusedRef) ?? null : null
   const running = Boolean(projection?.activeTurn)
   const failedTurn = projection?.latestTurn && TERMINAL_FAILURES.has(projection.latestTurn.status) ? projection.latestTurn : null
+  const pendingClarification = projection?.state.dialogue.pendingClarification ?? null
 
   const ensureConversation = async (): Promise<{ id: string; revision: number }> => {
     if (conversationId && projection) return { id: conversationId, revision: projection.conversation.currentRevision }
@@ -270,7 +286,9 @@ export default function App() {
     const text = composer.trim()
     if (!text || running) return
     setComposer('')
-    await sendInput({ type: 'MESSAGE', content: text, ...(focusedCandidate ? { focusOfferRef: focusedCandidate.offerRef } : {}) })
+    await sendInput(pendingClarification
+      ? { type: 'ANSWER_CLARIFICATION', clarificationId: pendingClarification.clarificationId, answer: { type: 'TEXT', text } }
+      : { type: 'MESSAGE', content: text, ...(focusedCandidate ? { focusOfferRef: focusedCandidate.offerRef } : {}) })
   }
 
   const connect = (event: FormEvent) => {
@@ -359,14 +377,20 @@ export default function App() {
               <article className={`message ${message.role.toLowerCase()}`} key={message.id}>
                 <div className="message-meta"><span>{message.role === 'USER' ? '你' : 'Agent'}</span><time>{new Date(message.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</time></div>
                 {message.role === 'ASSISTANT'
-                  ? <AssistantContent message={message} onOffer={focusOffer} />
+                  ? <AssistantContent
+                      message={message}
+                      onOffer={focusOffer}
+                      activeClarificationId={pendingClarification?.clarificationId ?? null}
+                      disabled={running}
+                      onClarificationAnswer={(clarificationId, answer) => void sendInput({ type: 'ANSWER_CLARIFICATION', clarificationId, answer })}
+                    />
                   : <p>{messageText(message)}</p>}
               </article>
             ))}
             {running && <div className="agent-working"><span /><span /><span /><b>{events.at(-1) ? EVENT_LABELS[events.at(-1)!.eventType] ?? 'Agent 正在处理' : 'Agent 正在接手这一轮'}</b></div>}
             {failedTurn && !running && (
               <div className="turn-failure" role="alert">
-                <b>这一轮没有完成</b><span>{failedTurn.errorCode ?? failedTurn.status}</span>
+                <b>这一轮没有完成</b><span>系统未能完成本轮执行，当前选购状态没有被更改。可以重试，或换一种说法继续。</span>
                 <button onClick={() => void retryTurn(projection!.conversation.id, failedTurn.id, token, projection!.conversation.currentRevision).then(() => refresh()).catch((failure) => setError(displayError(failure)))}>重试这一轮</button>
               </div>
             )}
@@ -387,7 +411,7 @@ export default function App() {
             <label className="sr-only" htmlFor="message-composer">给推荐 Agent 发消息</label>
             <textarea id="message-composer" rows={3} value={composer} disabled={running} onChange={(event) => setComposer(event.target.value)} onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit() }
-            }} placeholder={focusedCandidate ? '继续问这个候选，例如“它的库存证据可靠吗？”' : '例如：想买降噪耳机，预算 2500 元，对比美国和新加坡'} />
+            }} placeholder={pendingClarification ? '也可以用自然语言回答上面的问题' : focusedCandidate ? '继续问这个候选，例如“它的库存证据可靠吗？”' : '例如：想买降噪耳机，预算 2500 元，对比美国和新加坡'} />
             <div className="composer-actions">
               <span>Enter 发送 · Shift+Enter 换行</span>
               {running && <button type="button" className="secondary-button" onClick={() => void cancelTurn(projection!.conversation.id, projection!.activeTurn!.id, token).then(() => refresh()).catch((failure) => setError(displayError(failure)))}>取消本轮</button>}
@@ -399,7 +423,7 @@ export default function App() {
         <aside className="candidate-pane" aria-label="候选工作区">
           <div className="candidate-header"><div><p className="eyebrow">WORKING SET</p><h2>候选工作区</h2></div><span>{displayCandidates.length} 个可比较</span></div>
           {!displayCandidates.length ? (
-            <div className="candidate-empty"><div className="empty-orbit">◎</div><b>候选会出现在这里</b><p>Agent 会先理解你的条件，再研究、校验证据并维护一个可继续讨论的候选世界。</p></div>
+            <div className="candidate-empty"><div className="empty-orbit">◎</div><b>候选会出现在这里</b><p>Agent 会先理解你的条件，再搜索商品、核对来源字段并维护可继续讨论的会话候选状态。</p></div>
           ) : (
             <div className="candidate-list">
               {displayCandidates.map((candidate, index) => <CandidateCard key={candidate.offerRef} candidate={candidate} rank={index + 1} focused={focusedRef === candidate.offerRef} selected={compareRefs.includes(candidate.offerRef)} rejected={false} onFocus={() => focusOffer(candidate.offerRef)} onToggleCompare={() => setCompareRefs((current) => current.includes(candidate.offerRef) ? current.filter((ref) => ref !== candidate.offerRef) : current.length < 4 ? [...current, candidate.offerRef] : current)} />)}
@@ -416,7 +440,7 @@ export default function App() {
             <button className="drawer-close" aria-label="关闭候选详情" onClick={() => setDrawerOpen(false)}>×</button>
             <p className="eyebrow">CANDIDATE DETAIL</p><h2 id="drawer-title">{focusedCandidate.title}</h2>
             <strong className="drawer-price">{formatMoney(focusedCandidate.cnyAmount)}</strong>
-            <dl><div><dt>市场</dt><dd>{focusedCandidate.retrievalMarket}</dd></div><div><dt>商家</dt><dd>{focusedCandidate.merchant}</dd></div><div><dt>库存</dt><dd>{focusedCandidate.stock}</dd></div><div><dt>身份</dt><dd>{focusedCandidate.canonicalModel ?? '待确认'}</dd></div><div><dt>证据声明</dt><dd>{focusedCandidate.claimIds.length} 条</dd></div></dl>
+            <dl><div><dt>市场</dt><dd>{focusedCandidate.retrievalMarket}</dd></div><div><dt>商家</dt><dd>{focusedCandidate.merchant}</dd></div><div><dt>库存</dt><dd>{focusedCandidate.stock}</dd></div><div><dt>规则解析型号</dt><dd>{focusedCandidate.canonicalModel ?? '待确认'}</dd></div><div><dt>有来源依据的信息</dt><dd>{focusedCandidate.claimIds.length} 条</dd></div></dl>
             <button className="primary-button" onClick={() => { setComposer('这个候选为什么值得考虑？'); setDrawerOpen(false) }}>问问这个</button>
           </aside>
         </div>

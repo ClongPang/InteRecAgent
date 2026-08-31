@@ -1,4 +1,4 @@
-import type { ConversationState, PendingOperation, TurnOperation } from "@interec/domain";
+import { normalizeDialogueState, type ClarificationIntent, type ConversationState, type PendingOperation, type TurnOperation } from "@interec/domain";
 
 export interface ContextMessage {
   role: "USER" | "ASSISTANT";
@@ -10,6 +10,8 @@ export interface ConversationContextInput {
   currentUserMessages: string[];
   uiFocusOfferRef?: string;
   recentAdjacentPair?: ContextMessage[];
+  /** Evaluation-only ablation input. Production callers should leave this unset. */
+  fullTranscript?: ContextMessage[];
   capabilities: string[];
   now: string;
   modelId: string;
@@ -21,9 +23,10 @@ export interface ConversationContextProjection {
   conversation: { revision: number; status: ConversationState["status"] };
   currentUserMessages: Array<{ ordinal: number; content: string; truncated: boolean }>;
   recentAdjacentPair: Array<{ role: ContextMessage["role"]; content: string; truncated: boolean }>;
+  fullTranscript?: Array<{ role: ContextMessage["role"]; content: string }>;
   goal: Record<string, unknown> | null;
   dialogue: {
-    pendingClarification: { slotId: string } | null;
+    pendingClarification: { clarificationId: string; clarification: ClarificationIntent } | null;
     pendingOps: Array<{ conditionCode: string; operation: Record<string, unknown> }>;
     focusOfferRef: string | null;
     comparisonOfferRefs: string[];
@@ -75,12 +78,20 @@ export function projectConversationContext(input: ConversationContextInput): Con
     throw new Error("INVALID_PROVIDER_CALL_BUDGET");
   }
   if (input.currentUserMessages.length < 1 || input.currentUserMessages.length > 8) throw new Error("INVALID_CURRENT_MESSAGE_BATCH");
+  if (input.fullTranscript && input.fullTranscript.length > 200) throw new Error("FULL_TRANSCRIPT_MESSAGE_LIMIT_EXCEEDED");
   const maxTokens = input.maxInputTokens ?? 8_000;
   const goal = input.state.goalRevision?.goal;
+  const dialogue = normalizeDialogueState(input.state.dialogue);
   const projection: ConversationContextProjection = {
     conversation: { revision: input.state.revision, status: input.state.status },
     currentUserMessages: input.currentUserMessages.map((message, ordinal) => ({ ordinal, ...bounded(message, 2_500) })),
     recentAdjacentPair: (input.recentAdjacentPair ?? []).slice(-2).map((message) => ({ role: message.role, ...bounded(message.content, 2_000) })),
+    ...(input.fullTranscript ? {
+      fullTranscript: input.fullTranscript.map((message) => ({
+        role: message.role,
+        content: message.content.normalize("NFKC").trim(),
+      })),
+    } : {}),
     goal: goal ? {
       target: goal.target,
       budget: goal.budget,
@@ -94,14 +105,17 @@ export function projectConversationContext(input: ConversationContextInput): Con
       version: input.state.goalRevision!.version,
     } : null,
     dialogue: {
-      pendingClarification: input.state.dialogue.pendingClarification?.slotId === "turn_rephrase"
+      pendingClarification: dialogue.pendingClarification?.clarification.kind === "TURN_REPHRASE"
         ? null
-        : input.state.dialogue.pendingClarification
-        ? { slotId: input.state.dialogue.pendingClarification.slotId }
+        : dialogue.pendingClarification
+        ? {
+          clarificationId: dialogue.pendingClarification.clarificationId,
+          clarification: dialogue.pendingClarification.clarification,
+        }
         : null,
-      pendingOps: input.state.dialogue.pendingOps.map(publicPending),
-      focusOfferRef: input.state.dialogue.focusOfferRef,
-      comparisonOfferRefs: [...input.state.dialogue.comparisonOfferRefs],
+      pendingOps: dialogue.pendingOps.map(publicPending),
+      focusOfferRef: dialogue.focusOfferRef,
+      comparisonOfferRefs: [...dialogue.comparisonOfferRefs],
     },
     uiContext: { focusOfferRef: input.uiFocusOfferRef?.trim() || null },
     workingSet: input.state.workingSet ? {

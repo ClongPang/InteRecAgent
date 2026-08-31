@@ -8,13 +8,14 @@ import {
   type AssistantEnvelopeProposal,
   type TurnPlanProposal,
 } from "@interec/agent";
-import type { ConversationState, ResearchNeed } from "@interec/domain";
+import { validateClarificationAnswer, type ConversationState, type SearchNeed } from "@interec/domain";
 
-import { ConversationResearchWorld } from "./conversation-research-world.js";
-import { PostgresConversationResearchRepository } from "./conversation-research-repository.js";
+import { ConversationOfferSearchService } from "./conversation-offer-search-service.js";
+import { PostgresConversationSearchRepository } from "./conversation-search-repository.js";
 import type { ClaimedConversationTurn, ConversationMessageRecord, ConversationRepository, ConversationTurnInput } from "./conversation-repository-types.js";
 import type { PiModelRuntime } from "./model-factory.js";
-import { PostgresProviderGovernor } from "./provider-governor.js";
+import { PiSemanticRelevanceClassifier } from "./semantic-relevance-classifier.js";
+import { PostgresProviderCallController } from "./provider-call-controller.js";
 import type { FxPort, ProductSearchPort } from "./providers.js";
 import { createRepositoryTurnSession } from "./repository-turn-session.js";
 import { createAgentEventObserver, observeConversationTurn, recordSafetyBoundary, runtimeMetrics, telemetryErrorCode, type TurnObservationOutcome } from "./telemetry.js";
@@ -43,22 +44,66 @@ function inputText(input: ConversationTurnInput): string {
   if (input.type === "MESSAGE") return input.content;
   if (input.type === "PATCH_GOAL") return JSON.stringify({ action: "PATCH_GOAL", operations: input.operations });
   if (input.type === "UNDO") return JSON.stringify({ action: "UNDO", revision: input.revision });
-  return JSON.stringify({ action: "SET_COMPARISON", offerRefs: input.offerRefs });
+  if (input.type === "SET_COMPARISON") return JSON.stringify({ action: "SET_COMPARISON", offerRefs: input.offerRefs });
+  if (input.answer.type === "TEXT") return input.answer.text;
+  return JSON.stringify({ action: "ANSWER_CLARIFICATION", clarificationId: input.clarificationId, answer: input.answer });
 }
 
-function directPlan(inputs: Array<Exclude<ConversationTurnInput, { type: "MESSAGE" }>>): TurnPlanProposal {
+export function directPlanForTypedInputs(inputs: Array<Exclude<ConversationTurnInput, { type: "MESSAGE" }>>, state: ConversationState): TurnPlanProposal {
   const ops: TurnPlanProposal["ops"] = [];
+  const canContinueInitialSearch = state.workingSet === null
+    && Boolean(state.goalRevision?.goal.target)
+    && (state.goalRevision?.goal.unresolved.length ?? 0) === 0;
   inputs.forEach((input, sourceMessageOrdinal) => {
     if (input.type === "PATCH_GOAL") {
       for (const operation of input.operations) ops.push({ ...operation, sourceMessageOrdinal } as TurnPlanProposal["ops"][number]);
     } else if (input.type === "UNDO") {
       ops.push({ opId: `typed-undo-${sourceMessageOrdinal}`, kind: "UNDO_REVISION", revision: input.revision });
-    } else {
+    } else if (input.type === "SET_COMPARISON") {
       ops.push({
         opId: `typed-comparison-${sourceMessageOrdinal}`,
         kind: "SET_COMPARISON",
         referents: input.offerRefs.map((offerRef) => ({ kind: "OFFER_REF", offerRef })),
       });
+    } else if (input.type === "ANSWER_CLARIFICATION") {
+      const validated = validateClarificationAnswer(state.dialogue, input.clarificationId, input.answer);
+      if (validated.answer.type === "OPTION" && validated.clarification.kind === "PURCHASE_MARKET") {
+        ops.push({
+          opId: `typed-clarification-market-${sourceMessageOrdinal}`,
+          kind: "GOAL_SET_RETRIEVAL_MARKETS",
+          sourceMessageOrdinal,
+          markets: validated.goalValue as string[],
+        });
+        if (canContinueInitialSearch) {
+          ops.push({
+            opId: `typed-clarification-search-${sourceMessageOrdinal}`,
+            kind: "SEARCH_OFFERS",
+            reasonCode: "GOAL_BECAME_SEARCH_READY",
+          });
+        }
+      } else if (validated.answer.type === "OPTION" && validated.clarification.kind === "CONDITION" && state.goalRevision?.goal.target) {
+        ops.push({
+          opId: `typed-clarification-condition-${sourceMessageOrdinal}`,
+          kind: "GOAL_SET_TARGET",
+          sourceMessageOrdinal,
+          target: { ...state.goalRevision.goal.target, condition: validated.goalValue as "NEW" | "ANY" },
+        });
+        if (canContinueInitialSearch && state.goalRevision.goal.retrievalMarkets.length > 0) {
+          ops.push({
+            opId: `typed-clarification-search-${sourceMessageOrdinal}`,
+            kind: "SEARCH_OFFERS",
+            reasonCode: "GOAL_BECAME_SEARCH_READY",
+          });
+        }
+      } else if (validated.answer.type === "SKIP" && validated.clarification.kind === "PURCHASE_MARKET" && state.goalRevision?.goal.target) {
+        ops.push({
+          opId: `typed-clarification-search-${sourceMessageOrdinal}`,
+          kind: "SEARCH_OFFERS",
+          reasonCode: "INSUFFICIENT_COVERAGE",
+          marketScope: ["US", "SG"],
+          assumptionDisclosureCodes: ["PURCHASE_MARKET_SCOPE_ASSUMED"],
+        });
+      }
     }
   });
   return { userIntentSummary: "apply the complete ordered typed input batch", ops, leftover: [] };
@@ -72,14 +117,14 @@ function directEnvelope(): AssistantEnvelopeProposal {
   };
 }
 
-export function researchNeedForState(state: ConversationState): ResearchNeed {
+export function searchNeedForState(state: ConversationState): SearchNeed {
   if (!state.workingSet || state.workingSet.pool.length === 0) return "INSUFFICIENT_COVERAGE";
   if (state.goalRevision && state.workingSet.boundGoalVersion !== state.goalRevision.version) return "STALE";
   return "NOT_NEEDED";
 }
 
-function researchNeedFor(claimed: ClaimedConversationTurn): ResearchNeed {
-  return researchNeedForState(claimed.snapshot);
+function searchNeedFor(claimed: ClaimedConversationTurn): SearchNeed {
+  return searchNeedForState(claimed.snapshot);
 }
 
 function isDegradedAssistantMessage(message: Awaited<ReturnType<ConversationRepository["listMessages"]>>[number]): boolean {
@@ -88,7 +133,7 @@ function isDegradedAssistantMessage(message: Awaited<ReturnType<ConversationRepo
   return Boolean(envelope && typeof envelope === "object" && (envelope as Record<string, unknown>)["outcome"] === "DEGRADED");
 }
 
-export function recentSuccessfulAdjacentPair(
+export function latestCompletedUserAssistantExchange(
   timeline: ConversationMessageRecord[],
   currentMessageIds: ReadonlySet<string>,
 ): Array<{ role: "USER" | "ASSISTANT"; content: string }> {
@@ -115,8 +160,8 @@ export class ConversationWorker {
 
   public constructor(
     private readonly repository: ConversationRepository,
-    private readonly researchRepository: PostgresConversationResearchRepository,
-    private readonly governor: PostgresProviderGovernor,
+    private readonly searchRepository: PostgresConversationSearchRepository,
+    private readonly callController: PostgresProviderCallController,
     private readonly productSource: ProductSearchPort,
     private readonly fxSource: FxPort,
     private readonly pi: PiModelRuntime,
@@ -182,29 +227,42 @@ export class ConversationWorker {
           }
         }
         try {
-          const researchNeed = researchNeedFor(claimed);
+          const searchNeed = searchNeedFor(claimed);
           const turnInputs = claimed.inputMessages.map((message) => message.payload as ConversationTurnInput);
           const uiFocusOfferRef = turnInputs.flatMap((input) => input.type === "MESSAGE" && input.focusOfferRef ? [input.focusOfferRef] : []).at(-1);
-          const world = new ConversationResearchWorld(
+          const allTyped = turnInputs.length > 0 && turnInputs.every((input) => input.type !== "MESSAGE"
+            && !(input.type === "ANSWER_CLARIFICATION" && input.answer.type === "TEXT"));
+          const shoppingData = new ConversationOfferSearchService(
             claimed,
             this.repository,
-            this.researchRepository,
-            this.governor,
+            this.searchRepository,
+            this.callController,
             this.productSource,
             this.fxSource,
+            undefined,
+            new PiSemanticRelevanceClassifier(this.pi),
           );
-          const session = createRepositoryTurnSession(this.repository, claimed, { researchNeed, world, ...(uiFocusOfferRef ? { requiredFocusOfferRef: uiFocusOfferRef } : {}) });
-          const allTyped = turnInputs.length > 0 && turnInputs.every((input) => input.type !== "MESSAGE");
+          const session = createRepositoryTurnSession(this.repository, claimed, {
+            searchNeed,
+            shoppingData,
+            planAuthority: allTyped ? "STRUCTURED_INPUT" : "PI_AGENT",
+            ...(uiFocusOfferRef ? { requiredFocusOfferRef: uiFocusOfferRef } : {}),
+          });
           if (allTyped) {
-            const proposal = directPlan(turnInputs as Array<Exclude<ConversationTurnInput, { type: "MESSAGE" }>>);
-            const committed = await session.host.commitPlan(proposal);
+            const proposal = directPlanForTypedInputs(turnInputs as Array<Exclude<ConversationTurnInput, { type: "MESSAGE" }>>, claimed.snapshot);
+            const committed = await session.controller.commitPlan(proposal);
             route = committed.route;
-            for (const operation of committed.plan.ops) await session.host.executeOperation(operation, controller.signal);
-            await session.host.publishReply(directEnvelope());
+            const receipts = [];
+            for (const operation of committed.plan.ops) receipts.push(await session.controller.executeOperation(operation, controller.signal));
+            if (committed.plan.ops.some((operation) => operation.kind === "SEARCH_OFFERS")) {
+              await session.controller.fallbackReply("DIRECT_TYPED_PUBLICATION", committed.plan, receipts);
+            } else {
+              await session.controller.publishReply(directEnvelope());
+            }
           } else {
             const timeline = await this.repository.listMessages(claimed.conversationId, claimed.owner, 0);
             const currentIds = new Set(claimed.inputMessages.map((message) => message.id));
-            const adjacent = recentSuccessfulAdjacentPair(timeline, currentIds);
+            const adjacent = latestCompletedUserAssistantExchange(timeline, currentIds);
             const agentStartedAt = performance.now();
             const currentUserMessages = claimed.inputMessages.map((message) => inputText(message.payload as ConversationTurnInput));
             const agentEventObserver = createAgentEventObserver({
@@ -219,13 +277,13 @@ export class ConversationWorker {
                 model: this.pi.model,
                 streamFn: this.pi.streamFn,
                 apiKey: this.pi.apiKey,
-                host: session.host,
+                controller: session.controller,
                 context: {
                   state: claimed.snapshot,
                   currentUserMessages,
                   ...(uiFocusOfferRef ? { uiFocusOfferRef } : {}),
                   recentAdjacentPair: adjacent,
-                  capabilities: ["conversation", "clarification", "goal", "working_set", "comparison", "research", "undo"],
+                  capabilities: ["conversation", "clarification", "goal", "working_set", "comparison", "search", "undo"],
                   now: new Date().toISOString(),
                   modelId: String(this.pi.model.id),
                   providerCallBudget: 1,

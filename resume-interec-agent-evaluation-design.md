@@ -123,7 +123,7 @@ human_review
 ```text
 buywhere:
   allowed_markets
-  min_max_query_waves
+  min_max_query_attempts
   allowed_retries
   min_max_physical_calls
 fx:
@@ -376,7 +376,7 @@ scheduling_seed
 主要命令：
 
 ```text
-npm run acceptance:gold:blueprint
+npm run acceptance:evaluation:plan
 npm run acceptance:tasks
 npm run acceptance:drift
 npm run acceptance:protocol

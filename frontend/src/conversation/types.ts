@@ -16,9 +16,9 @@ export interface Candidate {
   claimIds: string[]
   marketEvidenceLevel?: string
   rankingReasonCodes?: string[]
-  discovery?: {
-    supportLevel: 'DISCOVERY' | 'VERIFIED'
-    identityLevel: 'OFFER_ONLY' | 'VERIFIED_ITEM'
+  ranking?: {
+    validationMode: 'SEARCH_ONLY' | 'RULE_VALIDATED'
+    identityResolution: 'LISTING_LEVEL' | 'MODEL_RESOLVED'
     identityKey: string | null
     matchedPreferenceKeys: string[]
     contradictedPreferenceKeys: string[]
@@ -55,13 +55,35 @@ export interface Claim {
   evidenceRefs: Array<{ artifactRef: string; source: string; observedAt: string; jsonPath: string }>
 }
 
+export type ClarificationKind =
+  | 'BUDGET' | 'PURCHASE_MARKET' | 'TARGET_PRODUCT' | 'TARGET_MODEL' | 'CONDITION'
+  | 'DELIVERY_DESTINATION' | 'QUANTITY' | 'FORM_FACTOR' | 'CANDIDATE_REFERENT' | 'TURN_REPHRASE'
+
+export interface ClarificationIntent {
+  kind: ClarificationKind
+  contextRef?: string
+}
+
 export interface AssistantEnvelope {
-  outcome: 'CHAT' | 'CLARIFICATION' | 'DISCOVERY' | 'RECOMMENDATION' | 'NO_MATCH' | 'DEGRADED'
+  outcome: 'CHAT' | 'CLARIFICATION' | 'SEARCH_RESULTS' | 'RECOMMENDATION' | 'NO_MATCH' | 'DEGRADED'
   blocks: Array<
     | { type: 'TRANSITION'; text: string }
     | { type: 'CLAIM'; claimId: string }
     | { type: 'COMPARISON'; claimIds: string[] }
-    | { type: 'QUESTION'; slotId: string; wording: string }
+    | {
+        type: 'QUESTION'
+        clarificationId: string
+        clarification: ClarificationIntent
+        wording: string
+        rationale: string
+        responseSpec: {
+          inputMode: 'SINGLE_SELECT' | 'FREE_TEXT'
+          allowFreeText: boolean
+          allowSkip: boolean
+          examples: string[]
+          options: Array<{ id: string; label: string }>
+        }
+      }
     | { type: 'DISCLOSURE'; disclosureCode: string }
   >
   nextMoves: Array<{ id: string; label: string; operation: Record<string, unknown> }>
@@ -78,7 +100,7 @@ export interface Message {
     text?: string
     outcome?: string
     envelope?: AssistantEnvelope
-    claimLedger?: { claims: Claim[] }
+    groundedClaims?: { claims: Claim[] }
     [key: string]: unknown
   }
 }
@@ -101,7 +123,7 @@ export interface ConversationProjection {
     revision: number
     goalRevision: { version: number; goal: Goal } | null
     dialogue: {
-      pendingClarification: { slotId: string; askedByMessageId: string } | null
+      pendingClarification: { clarificationId: string; clarification: ClarificationIntent; askedByMessageId: string } | null
       focusOfferRef: string | null
       comparisonOfferRefs: string[]
     }
@@ -123,6 +145,7 @@ export interface ConversationProjection {
 export type TurnInput =
   | { type: 'MESSAGE'; content: string; focusOfferRef?: string }
   | { type: 'PATCH_GOAL'; operations: Record<string, unknown>[] }
+  | { type: 'ANSWER_CLARIFICATION'; clarificationId: string; answer: { type: 'OPTION'; optionId: string } | { type: 'TEXT'; text: string } | { type: 'SKIP' } }
   | { type: 'UNDO'; revision: number }
   | { type: 'SET_COMPARISON'; offerRefs: string[] }
 

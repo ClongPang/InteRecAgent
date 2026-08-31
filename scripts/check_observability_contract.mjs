@@ -14,7 +14,7 @@ const agentRuntime = await readFile(resolve(root, "packages/agent/src/turn-agent
 const repositoryTurnSession = await readFile(resolve(root, "packages/runtime/src/repository-turn-session.ts"), "utf8");
 const runtimePackage = JSON.parse(await readFile(resolve(root, "packages/runtime/package.json"), "utf8"));
 const promptIntegration = await readFile(resolve(root, "packages/runtime/src/langfuse-prompt.ts"), "utf8");
-const experimentPublisher = await readFile(resolve(root, "scripts/publish_langfuse_qualification_experiment.ts"), "utf8");
+const experimentPublisher = await readFile(resolve(root, "scripts/publish_langfuse_development_evaluation.ts"), "utf8");
 const ingestionChecker = await readFile(resolve(root, "scripts/check_langfuse_ingestion.ts"), "utf8");
 const alertsText = await readFile(resolve(root, "ops/prometheus/conversation-alerts.yml"), "utf8");
 const alertsDocument = parseDocument(alertsText);
@@ -61,7 +61,7 @@ for (const generationName of Object.values(agentTraceContract.generationNames ??
 if (agentProtocol.includes("execute: async (_toolCallId") || !agentProtocol.includes("observeToolCall")) {
   throw new Error("OBSERVABILITY_TOOL_CALL_ID_PROPAGATION_MISSING");
 }
-if (!agentRuntime.includes("onModelCall?.({ model, context") || !repositoryTurnSession.includes("observeHostStep")) {
+if (!agentRuntime.includes("onModelCall?.({ model, context") || !repositoryTurnSession.includes("observeTurnExecutorStep")) {
   throw new Error("OBSERVABILITY_PROVIDER_CONTEXT_OR_HOST_HIERARCHY_MISSING");
 }
 for (const token of ["datasetItemId", "experimentWrapperTraceId", "getActiveTraceId"]) {
@@ -89,6 +89,10 @@ for (const sourceName of [
   "rec_agent.queue.wait.duration",
   "rec_agent.turn.duration",
   "rec_agent.turn.terminal",
+  "rec_agent.plan_review.decisions",
+  "rec_agent.goal.retention_checks",
+  "rec_agent.clarification.resolutions",
+  "rec_agent.semantic_relevance.attempts",
 ]) {
   const prometheusName = sourceName.replaceAll(".", "_");
   if (!dashboardText.includes(prometheusName)) throw new Error(`OBSERVABILITY_DASHBOARD_METRIC_MISSING:${sourceName}`);

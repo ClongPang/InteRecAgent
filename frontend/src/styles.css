@@ -65,7 +65,13 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .message-meta { margin-bottom: 8px; display: flex; justify-content: space-between; gap: 24px; opacity: .7; font: 400 9px var(--mono); text-transform: uppercase; }
 .message p { margin: 0; line-height: 1.68; font-size: 14px; white-space: pre-wrap; }
 .message-blocks { display: grid; gap: 10px; }
-.message .assistant-question { padding-left: 11px; border-left: 3px solid var(--orange); font-weight: 600; }
+.message .assistant-question { display: grid; gap: 8px; padding: 10px 0 10px 12px; border-left: 3px solid var(--orange); }
+.assistant-question p { font-weight: 650; }
+.assistant-question small, .clarification-examples { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.clarification-options { display: flex; flex-wrap: wrap; gap: 7px; }
+.clarification-options button, .clarification-skip { width: fit-content; padding: 7px 11px; border: 1px solid #b9c9c1; border-radius: 999px; background: #f7fbf9; color: #245744; }
+.clarification-options button:hover { border-color: var(--orange); background: #fff8f1; }
+.clarification-skip { border-style: dashed; background: transparent; color: var(--muted); }
 .message .assistant-disclosure { color: var(--muted); font-size: 11px; }
 .message-citations { margin-top: 13px; display: flex; flex-wrap: wrap; gap: 6px; }
 .message-citations button { padding: 5px 8px; border-radius: 7px; background: var(--green-soft); color: var(--green); font-size: 10px; font-weight: 600; }
@@ -170,7 +176,7 @@ button:disabled { cursor: not-allowed; opacity: .46; }
   padding: 0.1rem 0.42rem;
 }
 
-.support-badge.discovery { color: #9a6700; background: #fff8c5; }
-.support-badge.verified { color: #116329; background: #dafbe1; }
+.support-badge.search-only { color: #9a6700; background: #fff8c5; }
+.support-badge.rule-validated { color: #116329; background: #dafbe1; }
 .support-badge.unknown { color: #57606a; background: #f6f8fa; }
-.discovery-note { color: #6e5b16; font-size: 0.78rem; margin: 0.55rem 0 0; }
+.listing-level-note { color: #6e5b16; font-size: 0.78rem; margin: 0.55rem 0 0; }

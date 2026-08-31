@@ -25,11 +25,11 @@ function offerRefsFromReferents(referents: readonly unknown[]): string[] {
   }))];
 }
 
-/** Derives append-only behavioral evidence from the already validated durable plan. */
+/** Creates append-only candidate feedback events from an accepted turn plan. */
 export function candidateFeedbackForTurn(plan: TurnPlan, workingSet: WorkingSet | null): CandidateFeedbackDraft[] {
   const events: CandidateFeedbackDraft[] = [];
   for (const operation of plan.ops) {
-    if (operation.kind === "RESEARCH_OFFERS" && workingSet) {
+    if (operation.kind === "SEARCH_OFFERS" && workingSet) {
       events.push({ kind: "IMPRESSION", operationId: operation.opId, offerRefs: [...workingSet.displayOfferRefs], payload: { reasonCode: operation.reasonCode } });
     } else if (operation.kind === "SET_FOCUS") {
       const offerRefs = operation.referent ? offerRefsFromReferents([operation.referent]) : [];

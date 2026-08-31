@@ -1,8 +1,10 @@
 import type {
   AssistantEnvelope,
-  ClaimLedger,
+  GroundedClaimSet,
   ConversationState,
+  ClarificationAnswer,
   GoalOperation,
+  PlanReview,
   TurnPlan,
 } from "@interec/domain";
 
@@ -21,9 +23,10 @@ export type ConversationTurnInput =
   | { type: "MESSAGE"; content: string; focusOfferRef?: string }
   | { type: "PATCH_GOAL"; operations: UnboundGoalOperation[] }
   | { type: "UNDO"; revision: number }
-  | { type: "SET_COMPARISON"; offerRefs: string[] };
+  | { type: "SET_COMPARISON"; offerRefs: string[] }
+  | { type: "ANSWER_CLARIFICATION"; clarificationId: string; answer: ClarificationAnswer };
 
-export interface ConversationRecordV3 {
+export interface ConversationRecord {
   id: string;
   owner: OwnerClaims;
   status: "OPEN" | "CLOSED" | "BLOCKED";
@@ -114,9 +117,20 @@ export interface AttemptDraft {
   dialogue?: ConversationState["dialogue"];
   workingSet?: ConversationState["workingSet"];
   envelope?: AssistantEnvelope;
-  claimLedger?: ClaimLedger;
+  groundedClaims?: GroundedClaimSet;
   evidenceKeys?: string[];
   fallbackReasonCode?: string;
+}
+
+export interface RecordPlanReviewInput {
+  turnId: string;
+  attempt: number;
+  fenceToken: string;
+  proposalNumber: number;
+  proposal: unknown;
+  reviewedPlan: TurnPlan;
+  review: PlanReview;
+  approvedPlan: TurnPlan | null;
 }
 
 export interface CommitConversationTurnInput {
@@ -126,9 +140,9 @@ export interface CommitConversationTurnInput {
   state: ConversationState;
   plan: TurnPlan;
   envelope: AssistantEnvelope;
-  claimLedger: ClaimLedger;
+  groundedClaims: GroundedClaimSet;
   renderedText: string;
-  allowedQuestionSlotIds: ReadonlySet<string>;
+  allowedClarificationIds: ReadonlySet<string>;
   allowedDisclosureCodes: ReadonlySet<string>;
   decision?: Record<string, unknown>;
 }
@@ -144,7 +158,7 @@ export interface ConversationEventRecord {
 }
 
 export interface ConversationProjectionRecord {
-  conversation: ConversationRecordV3;
+  conversation: ConversationRecord;
   state: ConversationState;
   messages: ConversationMessageRecord[];
   activeTurn: ConversationTurnRecord | null;
@@ -183,8 +197,8 @@ export class ConversationRepositoryError extends Error {
 }
 
 export interface ConversationRepository {
-  createConversation(owner: OwnerClaims): Promise<ConversationRecordV3>;
-  getConversation(id: string, owner: OwnerClaims): Promise<ConversationRecordV3 | null>;
+  createConversation(owner: OwnerClaims): Promise<ConversationRecord>;
+  getConversation(id: string, owner: OwnerClaims): Promise<ConversationRecord | null>;
   getProjection(conversationId: string, owner: OwnerClaims): Promise<ConversationProjectionRecord | null>;
   acceptTurn(input: AcceptConversationTurnInput): Promise<AcceptedConversationTurn>;
   retryTurn(input: RetryConversationTurnInput): Promise<AcceptedConversationTurn>;
@@ -193,6 +207,7 @@ export interface ConversationRepository {
   markTurnRunning(turnId: string, attempt: number, fenceToken: string): Promise<boolean>;
   heartbeatTurn(turnId: string, attempt: number, fenceToken: string, leaseSeconds: number): Promise<boolean>;
   stageAttemptDraft(turnId: string, attempt: number, fenceToken: string, draft: AttemptDraft): Promise<boolean>;
+  recordPlanReview(input: RecordPlanReviewInput): Promise<boolean>;
   reserveToolExecution(turnId: string, attempt: number, fenceToken: string, stepKey: string, request: Record<string, unknown>): Promise<ToolReservation | null>;
   completeToolExecution(turnId: string, attempt: number, fenceToken: string, stepKey: string, requestHash: string, result: Record<string, unknown>): Promise<boolean>;
   failToolExecution(turnId: string, attempt: number, fenceToken: string, stepKey: string, requestHash: string, errorCode: string): Promise<boolean>;

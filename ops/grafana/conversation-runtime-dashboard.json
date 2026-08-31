@@ -2,7 +2,7 @@
   "title": "InteRecAgent Conversation Runtime",
   "uid": "interec-conversation-runtime",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": { "from": "now-6h", "to": "now" },
   "panels": [
@@ -16,6 +16,10 @@
     { "id": 8, "title": "Outbox outcomes", "type": "timeseries", "targets": [{ "expr": "sum(rate(rec_agent_outbox_published_total[$__rate_interval]))", "legendFormat": "published" }, { "expr": "sum(rate(rec_agent_outbox_failures_total[$__rate_interval]))", "legendFormat": "retry" }, { "expr": "sum(rate(rec_agent_outbox_dead_letters_total[$__rate_interval]))", "legendFormat": "dead letter" }], "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 } },
     { "id": 9, "title": "Fence rejected writes", "type": "timeseries", "targets": [{ "expr": "sum by (operation) (rate(rec_agent_fence_rejected_writes_total[$__rate_interval]))", "legendFormat": "{{operation}}" }], "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 } },
     { "id": 10, "title": "Pi-agent inference and tool calls per Turn", "type": "timeseries", "targets": [{ "expr": "sum(rate(gen_ai_invoke_agent_inference_calls_sum[$__rate_interval])) / clamp_min(sum(rate(gen_ai_invoke_agent_inference_calls_count[$__rate_interval])), 0.000001)", "legendFormat": "inferences" }, { "expr": "sum(rate(gen_ai_invoke_agent_tool_calls_sum[$__rate_interval])) / clamp_min(sum(rate(gen_ai_invoke_agent_tool_calls_count[$__rate_interval])), 0.000001)", "legendFormat": "tools" }], "gridPos": { "x": 0, "y": 32, "w": 12, "h": 8 } },
-    { "id": 11, "title": "Queue and Outbox backlog", "type": "timeseries", "targets": [{ "expr": "sum by (status) (rec_agent_queue_depth)", "legendFormat": "Turn {{status}}" }, { "expr": "sum by (state) (rec_agent_outbox_backlog)", "legendFormat": "Outbox {{state}}" }], "gridPos": { "x": 12, "y": 32, "w": 12, "h": 8 } }
+    { "id": 11, "title": "Queue and Outbox backlog", "type": "timeseries", "targets": [{ "expr": "sum by (status) (rec_agent_queue_depth)", "legendFormat": "Turn {{status}}" }, { "expr": "sum by (state) (rec_agent_outbox_backlog)", "legendFormat": "Outbox {{state}}" }], "gridPos": { "x": 12, "y": 32, "w": 12, "h": 8 } },
+    { "id": 12, "title": "Plan review decisions by violation", "type": "timeseries", "targets": [{ "expr": "sum by (decision, violation_code) (rate(rec_agent_plan_review_decisions_total[$__rate_interval]))", "legendFormat": "{{decision}} · {{violation_code}}" }], "gridPos": { "x": 0, "y": 40, "w": 12, "h": 8 } },
+    { "id": 13, "title": "Goal-field retention across clarification", "type": "timeseries", "targets": [{ "expr": "sum by (field, outcome) (rate(rec_agent_goal_retention_checks_total[$__rate_interval]))", "legendFormat": "{{field}} · {{outcome}}" }], "gridPos": { "x": 12, "y": 40, "w": 12, "h": 8 } },
+    { "id": 14, "title": "Clarification resolution outcomes", "type": "timeseries", "targets": [{ "expr": "sum by (clarification_kind, outcome) (rate(rec_agent_clarification_resolutions_total[$__rate_interval]))", "legendFormat": "{{clarification_kind}} · {{outcome}}" }], "gridPos": { "x": 0, "y": 48, "w": 24, "h": 8 } }
+    ,{ "id": 15, "title": "Semantic relevance attempts", "type": "timeseries", "targets": [{ "expr": "sum by (outcome, failure_code) (rate(rec_agent_semantic_relevance_attempts_total[$__rate_interval]))", "legendFormat": "{{outcome}} · {{failure_code}}" }], "gridPos": { "x": 0, "y": 56, "w": 24, "h": 8 } }
   ]
 }

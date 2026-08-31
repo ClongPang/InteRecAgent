@@ -1,5 +1,5 @@
 import { DomainError } from "./errors.js";
-import { canonicalDiscoveryCategory } from "./discovery.js";
+import { canonicalCategoryHint } from "./candidate-ranking-types.js";
 import { canonicalDecimal } from "./money.js";
 import type { EntityRef, GoalOperation, GoalRevision, ShoppingGoal } from "./conversation-types.js";
 
@@ -41,7 +41,7 @@ export function applyGoalOperations(base: ShoppingGoal, operations: GoalOperatio
       case "GOAL_SET_TARGET":
         {
           const requestedCategory = requiredText(operation.target.categoryId, "INVALID_CATEGORY_ID");
-          const categoryId = canonicalDiscoveryCategory(requestedCategory);
+          const categoryId = canonicalCategoryHint(requestedCategory);
           const targetText = operation.target.targetText?.normalize("NFKC").trim() || requestedCategory.normalize("NFKC").trim();
         goal = {
           ...goal,
@@ -129,7 +129,7 @@ export function applyGoalOperations(base: ShoppingGoal, operations: GoalOperatio
 
 export function createGoalRevision(base: GoalRevision | null, operations: GoalOperation[], committedByTurnId: string, nextVersion = (base?.version ?? 0) + 1): GoalRevision {
   if (!Number.isSafeInteger(nextVersion) || nextVersion < 1 || nextVersion <= (base?.version ?? 0)) {
-    throw new DomainError("INVALID_GOAL_REVISION", `Goal revision must advance beyond its parent: ${nextVersion}`);
+    throw new DomainError("INVALID_GOAL_REVISION", `shopping goal revision must advance beyond its parent: ${nextVersion}`);
   }
   return {
     version: nextVersion,

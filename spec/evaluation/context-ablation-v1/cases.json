@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "interec-context-ablation-v1",
+  "evaluationScope": "DEVELOPMENT_CONTEXT_ABLATION",
+  "eligibleForResumeMetrics": false,
+  "repeats": 3,
+  "commonHistory": [
+    { "role": "USER", "content": "我想买索尼 WH-1000XM5，必须是主动降噪耳机，先看美国和日本市场，预算暂定 3500 元。" },
+    { "role": "ASSISTANT", "content": "已建立购物目标并记录主动降噪、美国和日本市场以及 3500 元预算。后续报价会保留商家、市场、库存、成色和证据引用，候选展示顺序以当前结果为准。" },
+    { "role": "USER", "content": "只考虑全新商品，配送到中国，库存最好明确有货。" },
+    { "role": "ASSISTANT", "content": "已把全新商品作为目标条件，配送地设为中国，并优先保留库存状态明确的候选；未知库存不会被描述成现货。" },
+    { "role": "USER", "content": "预算先放宽到 4000 元，颜色优先银色，主要是办公室使用。" },
+    { "role": "ASSISTANT", "content": "预算已临时调整为 4000 元，银色和办公室使用作为偏好参与排序，不会覆盖型号、市场、成色和降噪等条件。" },
+    { "role": "USER", "content": "还是改成黑色必须，通勤使用优先，价格低一些更好。" },
+    { "role": "ASSISTANT", "content": "当前要求更新为黑色硬条件，通勤和更低价格作为排序偏好；之前的银色与办公室偏好已不再代表当前目标。" },
+    { "role": "USER", "content": "预算收紧到 3200 元，先比较当前候选，不要因为这句话重新搜索。" },
+    { "role": "ASSISTANT", "content": "已将预算收紧为 3200 元，并复用当前候选。展示列表依次包含美国商家 Alpha、日本商家 Beta、美国商家 Gamma 和日本商家 Delta 的报价。" },
+    { "role": "USER", "content": "第三款先作为焦点，但暂时不要删除其他候选。" },
+    { "role": "ASSISTANT", "content": "已将第三款设为当前焦点，其他候选仍保留在候选池和展示列表中。后续的“这款”将依据当前焦点解析。" },
+    { "role": "USER", "content": "预算最终定为 3000 元，黑色仍然必须，降噪条件也保留。" },
+    { "role": "ASSISTANT", "content": "当前有效状态为：预算 3000 元，美国和日本市场，配送到中国，全新、黑色和主动降噪；通勤与低价为排序偏好。" },
+    { "role": "USER", "content": "先保持现在的条件和候选顺序，等我下一条消息再操作。" },
+    { "role": "ASSISTANT", "content": "好的。当前候选顺序和购物目标保持不变，我会在下一条消息中只处理你新增或修改的要求。" }
+  ],
+  "cases": [
+    {
+      "caseId": "budget_correction",
+      "currentUserMessage": "把最终预算从 3000 元改为 2600 元，其他条件不变，不要重新搜索。",
+      "expectedGoalPatch": { "budget": { "amount": "2600", "currency": "CNY" } },
+      "expectedReferents": []
+    },
+    {
+      "caseId": "remove_one_constraint",
+      "currentUserMessage": "取消黑色必须这个条件，但主动降噪仍然必须，其他条件不变。",
+      "expectedGoalPatch": { "removeHardConstraintKeys": ["color"] },
+      "expectedReferents": []
+    },
+    {
+      "caseId": "market_narrowing",
+      "currentUserMessage": "接下来只看日本市场，其他目标不变，先不要刷新报价。",
+      "expectedGoalPatch": { "retrievalMarkets": ["JP"] },
+      "expectedReferents": []
+    },
+    {
+      "caseId": "clear_budget",
+      "currentUserMessage": "取消预算上限，其他约束和偏好都保留，不要重新搜索。",
+      "expectedGoalPatch": { "budget": null },
+      "expectedReferents": []
+    },
+    {
+      "caseId": "stock_preference_relaxation",
+      "currentUserMessage": "库存未知也可以，不再要求明确有货，其他条件不变。",
+      "expectedGoalPatch": { "stockPreference": "ANY" },
+      "expectedReferents": []
+    },
+    {
+      "caseId": "inspect_second",
+      "currentUserMessage": "第二款现在多少钱，库存状态是什么？不要重新搜索。",
+      "expectedGoalPatch": {},
+      "expectedReferents": [
+        { "operationKind": "INSPECT_WORKING_SET", "offerRefs": ["offer-b"] }
+      ]
+    },
+    {
+      "caseId": "compare_first_third",
+      "currentUserMessage": "比较第一款和第三款的价格与库存，不要重新搜索。",
+      "expectedGoalPatch": {},
+      "expectedReferents": [
+        { "operationKind": "SET_COMPARISON", "offerRefs": ["offer-a", "offer-c"] },
+        { "operationKind": "INSPECT_WORKING_SET", "offerRefs": ["offer-a", "offer-c"] }
+      ]
+    },
+    {
+      "caseId": "focus_and_second",
+      "currentUserMessage": "把这款和第二款放在一起比较价格与库存，不要重新搜索。",
+      "uiFocusOfferRef": "offer-c",
+      "expectedGoalPatch": {},
+      "expectedReferents": [
+        { "operationKind": "SET_COMPARISON", "offerRefs": ["offer-c", "offer-b"] },
+        { "operationKind": "INSPECT_WORKING_SET", "offerRefs": ["offer-c", "offer-b"] }
+      ]
+    },
+    {
+      "caseId": "reject_second",
+      "currentUserMessage": "不要第二款，把它从当前展示中排除，其他候选保留。",
+      "expectedGoalPatch": {},
+      "expectedReferents": [
+        { "operationKind": "REJECT_OFFERS", "offerRefs": ["offer-b"] }
+      ]
+    },
+    {
+      "caseId": "restore_second",
+      "initialRejectedOfferRefs": ["offer-b"],
+      "currentUserMessage": "恢复刚才排除的第二款，其他状态不变。",
+      "expectedGoalPatch": {},
+      "expectedReferents": [
+        { "operationKind": "RESTORE_OFFERS", "offerRefs": ["offer-b"] }
+      ]
+    },
+    {
+      "caseId": "compound_state_and_referents",
+      "currentUserMessage": "预算改成 2800 元，排除第三款，再比较第一款和第二款；不要重新搜索。",
+      "expectedGoalPatch": { "budget": { "amount": "2800", "currency": "CNY" } },
+      "expectedReferents": [
+        { "operationKind": "REJECT_OFFERS", "offerRefs": ["offer-c"] },
+        { "operationKind": "SET_COMPARISON", "offerRefs": ["offer-a", "offer-b"] }
+      ]
+    },
+    {
+      "caseId": "inspect_ranking_anchor",
+      "currentUserMessage": "告诉我第三款为什么比第一款贵，并比较两款价格；不要重新搜索。",
+      "expectedGoalPatch": {},
+      "expectedReferents": [
+        { "operationKind": "INSPECT_WORKING_SET", "offerRefs": ["offer-c", "offer-a"] }
+      ]
+    }
+  ]
+}

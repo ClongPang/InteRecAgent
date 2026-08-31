@@ -1,6 +1,6 @@
 import type {
   ConversationMessageRecord,
-  ConversationRecordV3,
+  ConversationRecord,
   ConversationRepository,
   ConversationTurnRecord,
   OwnerClaims,
@@ -8,7 +8,7 @@ import type {
 import type { ConversationState } from "@interec/domain";
 
 export interface ConversationProjection {
-  conversation: Pick<ConversationRecordV3, "id" | "status" | "currentRevision" | "createdAt" | "updatedAt">;
+  conversation: Pick<ConversationRecord, "id" | "status" | "currentRevision" | "createdAt" | "updatedAt">;
   activeTurn: Pick<ConversationTurnRecord, "id" | "status" | "attempt" | "deadlineAt" | "errorCode" | "createdAt"> | null;
   latestTurn: Pick<ConversationTurnRecord, "id" | "status" | "attempt" | "deadlineAt" | "errorCode" | "createdAt" | "completedAt"> | null;
   state: ConversationState;

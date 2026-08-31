@@ -1,7 +1,7 @@
 import { DomainError } from "./errors.js";
 import { compareDecimal } from "./money.js";
-import { matchDiscoveryTokens, tokenizeDiscoveryText } from "./discovery-tokenizer.js";
-import type { CandidateBinding, CandidateProjection, CandidateReferent, ShoppingGoal, WorkingSet } from "./conversation-types.js";
+import { matchSearchTokens, tokenizeSearchText } from "./search-tokenizer.js";
+import type { CandidateBinding, CandidateView, CandidateReferent, ShoppingGoal, WorkingSet } from "./conversation-types.js";
 
 function normalized(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -11,7 +11,7 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-function universe(set: WorkingSet): Map<string, CandidateProjection> {
+function universe(set: WorkingSet): Map<string, CandidateView> {
   return new Map(set.pool.map((item) => [item.offerRef, item]));
 }
 
@@ -27,42 +27,75 @@ function assertUniqueRefs(refs: string[], field: string): void {
   }
 }
 
+function normalizeLegacyCandidate(candidate: CandidateView): CandidateView {
+  // Read snapshots written before the persisted ranking fields were standardized.
+  const legacy = candidate as CandidateView & {
+    discovery?: CandidateView["ranking"] & {
+      supportLevel?: "DISCOVERY" | "VERIFIED";
+      identityLevel?: "OFFER_ONLY" | "VERIFIED_ITEM";
+    };
+  };
+  const source = candidate.ranking ?? legacy.discovery;
+  if (!source) return structuredClone(candidate);
+  const raw = source as typeof source & {
+    supportLevel?: "DISCOVERY" | "VERIFIED";
+    identityLevel?: "OFFER_ONLY" | "VERIFIED_ITEM";
+  };
+  const validationMode = raw.validationMode
+    ?? (raw.supportLevel === "VERIFIED" ? "RULE_VALIDATED" : "SEARCH_ONLY");
+  const identityResolution = raw.identityResolution
+    ?? (raw.identityLevel === "VERIFIED_ITEM" ? "MODEL_RESOLVED" : "LISTING_LEVEL");
+  const { discovery: _discovery, ...current } = legacy;
+  return {
+    ...structuredClone(current),
+    ranking: {
+      validationMode,
+      identityResolution,
+      identityKey: source.identityKey,
+      matchedPreferenceKeys: [...source.matchedPreferenceKeys],
+      contradictedPreferenceKeys: [...source.contradictedPreferenceKeys],
+      rankVector: structuredClone(source.rankVector),
+    },
+  };
+}
+
 export function validateWorkingSet(set: WorkingSet): WorkingSet {
-  if (!Number.isSafeInteger(set.version) || set.version < 1) throw new DomainError("INVALID_WORKING_SET_VERSION", `Invalid working-set version: ${set.version}`);
-  if (!Number.isSafeInteger(set.boundGoalVersion) || set.boundGoalVersion < 1) throw new DomainError("INVALID_GOAL_VERSION", `Invalid bound goal version: ${set.boundGoalVersion}`);
-  const poolRefs = set.pool.map((item) => item.offerRef);
+  const normalizedSet = { ...structuredClone(set), pool: set.pool.map(normalizeLegacyCandidate) };
+  if (!Number.isSafeInteger(normalizedSet.version) || normalizedSet.version < 1) throw new DomainError("INVALID_WORKING_SET_VERSION", `Invalid working-set version: ${normalizedSet.version}`);
+  if (!Number.isSafeInteger(normalizedSet.boundGoalVersion) || normalizedSet.boundGoalVersion < 1) throw new DomainError("INVALID_GOAL_VERSION", `Invalid bound goal version: ${normalizedSet.boundGoalVersion}`);
+  const poolRefs = normalizedSet.pool.map((item) => item.offerRef);
   assertUniqueRefs(poolRefs, "pool");
   for (const [field, refs] of [
-    ["displayOfferRefs", set.displayOfferRefs],
-    ["mentionedOfferRefs", set.mentionedOfferRefs],
-    ["comparisonOfferRefs", set.comparisonOfferRefs],
-    ["rejectedOfferRefs", set.rejectedOfferRefs],
+    ["displayOfferRefs", normalizedSet.displayOfferRefs],
+    ["mentionedOfferRefs", normalizedSet.mentionedOfferRefs],
+    ["comparisonOfferRefs", normalizedSet.comparisonOfferRefs],
+    ["rejectedOfferRefs", normalizedSet.rejectedOfferRefs],
   ] as const) {
     assertUniqueRefs(refs, field);
-    assertKnownRefs(set, refs);
+    assertKnownRefs(normalizedSet, refs);
   }
-  if (set.comparisonOfferRefs.length === 1 || set.comparisonOfferRefs.length > 4) {
-    throw new DomainError("INVALID_COMPARISON_SIZE", `Comparison set must be empty or contain 2-4 offers: ${set.comparisonOfferRefs.length}`);
+  if (normalizedSet.comparisonOfferRefs.length === 1 || normalizedSet.comparisonOfferRefs.length > 4) {
+    throw new DomainError("INVALID_COMPARISON_SIZE", `Comparison set must be empty or contain 2-4 offers: ${normalizedSet.comparisonOfferRefs.length}`);
   }
-  if (set.displayOfferRefs.some((ref) => set.rejectedOfferRefs.includes(ref))) {
+  if (normalizedSet.displayOfferRefs.some((ref) => normalizedSet.rejectedOfferRefs.includes(ref))) {
     throw new DomainError("REJECTED_OFFER_DISPLAYED", "Rejected offers cannot remain in the displayed working set");
   }
-  if (set.comparisonOfferRefs.some((ref) => set.rejectedOfferRefs.includes(ref))) {
+  if (normalizedSet.comparisonOfferRefs.some((ref) => normalizedSet.rejectedOfferRefs.includes(ref))) {
     throw new DomainError("REJECTED_OFFER_CANNOT_BE_COMPARED", "Rejected offers cannot remain in the comparison set");
   }
-  if (set.focusOfferRef !== null) {
-    assertKnownRefs(set, [set.focusOfferRef]);
-    if (set.rejectedOfferRefs.includes(set.focusOfferRef)) {
-      throw new DomainError("REJECTED_OFFER_CANNOT_BE_FOCUSED", `Rejected offer cannot remain focused: ${set.focusOfferRef}`);
+  if (normalizedSet.focusOfferRef !== null) {
+    assertKnownRefs(normalizedSet, [normalizedSet.focusOfferRef]);
+    if (normalizedSet.rejectedOfferRefs.includes(normalizedSet.focusOfferRef)) {
+      throw new DomainError("REJECTED_OFFER_CANNOT_BE_FOCUSED", `Rejected offer cannot remain focused: ${normalizedSet.focusOfferRef}`);
     }
   }
-  return structuredClone(set);
+  return normalizedSet;
 }
 
 export function createWorkingSet(input: {
   version: number;
   boundGoalVersion: number;
-  pool: CandidateProjection[];
+  pool: CandidateView[];
   displayOfferRefs?: string[];
 }): WorkingSet {
   const offerRefs = input.pool.map((item) => item.offerRef);
@@ -176,14 +209,14 @@ export function refilterWorkingSetByMarkets(set: WorkingSet, markets: string[]):
   };
 }
 
-function candidateMatchesGoalView(candidate: CandidateProjection, goal: ShoppingGoal): boolean {
+function candidateMatchesGoalView(candidate: CandidateView, goal: ShoppingGoal): boolean {
   if (goal.retrievalMarkets.length > 0 && !goal.retrievalMarkets.some((market) => market.toUpperCase() === candidate.retrievalMarket.toUpperCase())) return false;
   if (goal.budget?.currency.toUpperCase() === "CNY" && compareDecimal(candidate.cnyAmount, goal.budget.amount) > 0) return false;
   if (goal.stockPreference === "KNOWN_IN_STOCK" && candidate.stock !== "IN_STOCK") return false;
   if (goal.target) {
     if (candidate.categoryId !== goal.target.categoryId) return false;
-    // Discovery candidates intentionally retain UNKNOWN identity fields. Lack
-    // of proof is not a contradiction; only a known, conflicting role should
+    // Search-only candidates intentionally retain UNKNOWN identity fields. Lack
+    // Missing source support is not a contradiction; only a known, conflicting role should
     // remove a candidate from the conversational view.
     if (candidate.itemRole !== "UNKNOWN" && candidate.itemRole !== goal.target.itemRole) return false;
     if (goal.target.canonicalModel && candidate.canonicalModel?.toUpperCase() !== goal.target.canonicalModel.toUpperCase()) return false;
@@ -204,12 +237,12 @@ export function reprojectWorkingSetForGoal(set: WorkingSet, goal: ShoppingGoal):
   const comparison = set.comparisonOfferRefs.filter((offerRef) => visible.has(offerRef));
   const poolOrder = new Map(set.pool.map((candidate, index) => [candidate.offerRef, index]));
   const candidateByRef = universe(set);
-  const preferenceScore = (candidate: CandidateProjection): number => {
-    const candidateTokens = tokenizeDiscoveryText([candidate.title, candidate.canonicalModel, candidate.categoryId, candidate.merchant].filter(Boolean).join(" "));
+  const preferenceScore = (candidate: CandidateView): number => {
+    const candidateTokens = tokenizeSearchText([candidate.title, candidate.canonicalModel, candidate.categoryId, candidate.merchant].filter(Boolean).join(" "));
     return goal.preferences.reduce((score, preference) => {
       const value = Array.isArray(preference.value) ? preference.value.join(" ") : String(preference.value);
-      const queryTokens = tokenizeDiscoveryText(value);
-      return queryTokens.length > 0 && matchDiscoveryTokens(candidateTokens, queryTokens).coverage === 1
+      const queryTokens = tokenizeSearchText(value);
+      return queryTokens.length > 0 && matchSearchTokens(candidateTokens, queryTokens).coverage === 1
         ? score + preference.weight
         : score;
     }, 0);
@@ -228,7 +261,7 @@ export function reprojectWorkingSetForGoal(set: WorkingSet, goal: ShoppingGoal):
   });
 }
 
-export function rerankWorkingSetByPrice(set: WorkingSet): WorkingSet {
+export function sortWorkingSetByPrice(set: WorkingSet): WorkingSet {
   const known = universe(set);
   return {
     ...set,

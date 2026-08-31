@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "requiredDashboardPanelIds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  "requiredDashboardPanelIds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
   "requiredAlertNames": [
     "InteRecApiEnqueueP95High",
     "InteRecProjectionP95High",
@@ -13,7 +13,11 @@
     "InteRecTurnTimeoutRateHigh",
     "InteRecClaimValidationFailureRateHigh",
     "InteRecSafetyBlockRateHigh",
-    "InteRecOutboxDeadLetter"
+    "InteRecOutboxDeadLetter",
+    "InteRecGoalFieldRetentionFailure",
+    "InteRecPlanRepairExhausted",
+    "InteRecRepeatedClarificationRateHigh",
+    "InteRecSemanticRelevanceFailureRateHigh"
   ],
   "requiredIntegrityChecks": ["schemaChecksum", "conversationRevision", "messageLedger", "evidenceChain", "ownerIsolation"],
   "maxRestoreSeconds": 1800,
