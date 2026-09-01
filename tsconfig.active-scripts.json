@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "noEmit": true
+  },
+  "include": [
+    "scripts/probe_quote_provider.ts",
+    "scripts/quote_live_acceptance_controlled.ts",
+    "scripts/quote_live_acceptance_history.ts",
+    "scripts/quote_live_acceptance_support.ts",
+    "scripts/run_quote_live_acceptance.ts"
+  ]
+}

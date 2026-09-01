@@ -6,7 +6,9 @@ const result = spawnSync(process.execPath, [
   "run",
   "--maxWorkers=1",
   "--no-file-parallelism",
-  "packages/runtime/test/postgres-conversation-repository.integration.test.ts",
+  "packages/runtime/test/quote-conversation-repository.integration.test.ts",
+  "packages/runtime/test/quote-lookup-repository.integration.test.ts",
+  "packages/runtime/test/quote-turn-commit.integration.test.ts",
   "packages/api/test/postgres-api.integration.test.ts",
 ], {
   cwd: process.cwd(),

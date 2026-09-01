@@ -1,7 +1,7 @@
 import { Decimal } from "decimal.js";
 
 import { DomainError } from "./errors.js";
-import type { FxSnapshot, Money } from "./types.js";
+import type { FxSnapshot, Money } from "./quote-base-types.js";
 
 Decimal.set({ precision: 32, rounding: Decimal.ROUND_HALF_UP });
 
@@ -24,7 +24,7 @@ export function convertToCny(money: Money, fx: FxSnapshot): string {
   }
   const amount = new Decimal(canonicalDecimal(money.amount));
   const rate = new Decimal(canonicalDecimal(fx.rate));
-  if (!amount.isPositive() || !rate.isPositive()) {
+  if (amount.lte(0) || rate.lte(0)) {
     throw new DomainError("NON_POSITIVE_MONEY", "Money and FX rate must be positive");
   }
   return amount.mul(rate).toDecimalPlaces(2).toFixed(2);

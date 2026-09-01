@@ -1,12 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import {
-  emptyDialogueState,
-  normalizeDialogueState,
-  validateWorkingSet,
+  emptyQuoteConversationState,
+  QUOTE_LEAD_CONTRACT_VERSION,
+  validateQuoteConversationState,
   type ConversationState,
-  type GoalRevision,
-  type WorkingSet,
 } from "@interec/domain";
 import pg from "pg";
 
@@ -21,6 +19,18 @@ import type {
 import { ConversationRepositoryError } from "./conversation-repository-types.js";
 
 export type Queryable = Pick<pg.PoolClient, "query">;
+
+export const ACTIVE_TURN_STATUSES = ["ACCEPTED", "CLAIMED", "RUNNING", "COMMITTING"] as const;
+
+/** Required only because the durable schema predates the quote-only cutover. */
+export const EMPTY_COMPAT_DIALOGUE_STATE = {
+  pendingClarification: null,
+  clarificationHistory: [],
+  pendingOps: [],
+  focusOfferRef: null,
+  comparisonOfferRefs: [],
+  lastAssistantMessageId: null,
+} as const;
 
 export function requiredText(value: string, code: string): string {
   const result = value.trim();
@@ -57,10 +67,17 @@ export function nullableString(value: unknown): string | null {
 }
 
 export function mapConversation(row: Record<string, unknown>): ConversationRecord {
+  if (row["contract_version"] !== QUOTE_LEAD_CONTRACT_VERSION) {
+    throw new ConversationRepositoryError(
+      "LEGACY_CONVERSATION_RETIRED",
+      "This conversation belongs to the retired recommendation contract and is read-only",
+    );
+  }
   return {
     id: String(row["id"]),
     owner: { tenantId: String(row["tenant_id"]), ownerId: String(row["owner_id"]) },
     status: String(row["status"]) as ConversationRecord["status"],
+    contractVersion: String(row["contract_version"]) as ConversationRecord["contractVersion"],
     currentRevision: Number(row["current_revision"]),
     messageCursor: Number(row["next_message_seq"]),
     eventCursor: Number(row["next_event_seq"]),
@@ -169,47 +186,44 @@ export async function inputMessageIds(client: Queryable, turnId: string): Promis
 
 export async function hydrateSnapshot(client: Queryable, conversationId: string, requestedRevision?: number): Promise<ConversationState | null> {
   const conversation = await client.query<Record<string, unknown>>(
-    "SELECT current_revision, status FROM interec_agent.conversations WHERE id = $1",
+    "SELECT current_revision, status, contract_version FROM interec_agent.conversations WHERE id = $1",
     [conversationId],
   );
   const current = conversation.rows[0];
   if (!current) throw new ConversationRepositoryError("CONVERSATION_NOT_FOUND", `Conversation not found: ${conversationId}`);
+  if (current["contract_version"] !== QUOTE_LEAD_CONTRACT_VERSION) {
+    throw new ConversationRepositoryError(
+      "LEGACY_CONVERSATION_RETIRED",
+      "This conversation belongs to the retired recommendation contract and cannot be executed",
+    );
+  }
   const currentRevision = Number(current["current_revision"]);
   const revision = requestedRevision ?? currentRevision;
   if (!Number.isSafeInteger(revision) || revision < 0 || revision > currentRevision) return null;
   if (revision === 0) {
-    return { revision: 0, status: String(current["status"]) as ConversationState["status"], goalRevision: null, dialogue: emptyDialogueState(), workingSet: null };
+    return {
+      revision: 0,
+      status: String(current["status"]) as ConversationState["status"],
+      quote: emptyQuoteConversationState(),
+    };
   }
   const result = await client.query<Record<string, unknown>>(
-    `SELECT cr.revision,
-            gv.revision AS goal_revision, gv.goal_json, gv.operations_json, gv.committed_by_turn_id AS goal_turn_id,
-            pgv.revision AS goal_parent_revision,
-            dv.state_json AS dialogue_json,
-            ws.state_json AS working_set_json
+    `SELECT cr.revision, qsv.state_json AS quote_state_json
      FROM interec_agent.conversation_revisions cr
-     LEFT JOIN interec_agent.goal_versions gv ON gv.id = cr.goal_version_id
-     LEFT JOIN interec_agent.goal_versions pgv ON pgv.id = gv.parent_id
-     JOIN interec_agent.dialogue_state_versions dv ON dv.id = cr.dialogue_state_version_id
-     LEFT JOIN interec_agent.working_sets ws ON ws.id = cr.working_set_id
+     JOIN interec_agent.quote_state_versions qsv ON qsv.id = cr.quote_state_version_id
      WHERE cr.conversation_id = $1 AND cr.revision = $2`,
     [conversationId, revision],
   );
   const row = result.rows[0];
   if (!row) return null;
-  const goalRevision: GoalRevision | null = row["goal_revision"] === null ? null : {
-    version: Number(row["goal_revision"]),
-    parentVersion: row["goal_parent_revision"] === null ? null : Number(row["goal_parent_revision"]),
-    goal: row["goal_json"] as GoalRevision["goal"],
-    operations: row["operations_json"] as GoalRevision["operations"],
-    committedByTurnId: String(row["goal_turn_id"]),
-  };
-  const workingSet = row["working_set_json"] === null ? null : validateWorkingSet(row["working_set_json"] as WorkingSet);
+  if (row["quote_state_json"] === null) {
+    throw new ConversationRepositoryError("QUOTE_STATE_VERSION_MISSING", `Quote state missing at revision ${revision}`);
+  }
+  const quote = validateQuoteConversationState(row["quote_state_json"] as ConversationState["quote"]);
   return {
     revision,
     status: String(current["status"]) as ConversationState["status"],
-    goalRevision,
-    dialogue: normalizeDialogueState(row["dialogue_json"]),
-    workingSet,
+    quote,
   };
 }
 
@@ -261,4 +275,3 @@ export async function withOwnerSnapshotTransaction<T>(pool: pg.Pool, owner: Owne
     client.release();
   }
 }
-

@@ -2,91 +2,85 @@ export type TurnStatus =
   | 'ACCEPTED' | 'CLAIMED' | 'RUNNING' | 'COMMITTING' | 'COMPLETED'
   | 'FAILED' | 'CANCELLED' | 'TIMED_OUT' | 'SUPERSEDED' | 'DEAD_LETTER'
 
-export interface Candidate {
-  offerRef: string
-  title: string
-  canonicalModel: string | null
-  categoryId: string
-  itemRole: string
-  condition: string
-  retrievalMarket: string
-  merchant: string
-  cnyAmount: string
-  stock: string
-  claimIds: string[]
-  marketEvidenceLevel?: string
-  rankingReasonCodes?: string[]
-  ranking?: {
-    validationMode: 'SEARCH_ONLY' | 'RULE_VALIDATED'
-    identityResolution: 'LISTING_LEVEL' | 'MODEL_RESOLVED'
-    identityKey: string | null
-    matchedPreferenceKeys: string[]
-    contradictedPreferenceKeys: string[]
-    rankVector: {
-      eligibilityTier: number
-      targetCoverage: number
-      positiveCoverage: number
-      negativeConflicts: number
-      evidenceTier: number
-      stockTier: number
-      priceTieBreaker: string | null
-    }
+export type QuoteOutcome = 'CHAT' | 'CLARIFICATION' | 'QUOTE_LEADS' | 'NO_QUOTE_LEADS' | 'DEGRADED'
+
+export interface QuoteTarget {
+  targetRef: string
+  rawText: string
+  brand: string | null
+  canonicalModel: string
+  productType: string | null
+  requiredQualifiers: string[]
+  conditionPreference: 'NEW' | 'NEW_OR_UNSPECIFIED' | 'REFURBISHED' | 'USED' | 'ANY'
+  canonicalQuery: string
+  confirmation: 'LEXICALLY_GROUNDED' | 'EXPLICITLY_CONFIRMED'
+  normalizationChanges: string[]
+}
+
+export interface QuoteLeadPriceRange {
+  originalPrice: {
+    currency: string
+    minAmount: string
+    maxAmount: string
   }
+  cnyEstimate: {
+    minAmount: string
+    maxAmount: string
+    fxObservedAt: string
+    fxExpiresAt: string
+  } | null
 }
 
-export interface Goal {
-  target: { categoryId: string; targetText?: string; canonicalModel: string | null; itemRole: string; condition: string } | null
-  budget: { amount: string; currency: string } | null
-  retrievalMarkets: string[]
-  deliveryDestination: string | null
-  stockPreference: 'ANY' | 'KNOWN_IN_STOCK'
-  hardConstraints: Array<{ key: string; operator: string; value: unknown }>
-  preferences: Array<{ key: string; value: unknown; weight: number }>
-  exclusions: Array<{ kind: string; value: string }>
-  unresolved: Array<{ slotId: string; reasonCodes: string[] }>
+export interface QuoteLead {
+  quoteLeadRef: string
+  canonicalModel: string
+  representativeTitle: string
+  condition: 'NEW' | 'REFURBISHED' | 'USED' | 'UNKNOWN'
+  merchantLabel: string
+  merchantDomain: string
+  outboundUrl: string
+  priceRanges: QuoteLeadPriceRange[]
+  observationCount: number
+  firstObservedAt: string
+  latestObservedAt: string
 }
 
-export interface Claim {
-  claimId: string
-  kind: string
-  renderedText: string
-  canonicalValue: unknown
-  offerRefs: string[]
-  evidenceRefs: Array<{ artifactRef: string; source: string; observedAt: string; jsonPath: string }>
+export interface PublishedQuoteLeadSet {
+  contractVersion: 'quote-leads-sg-v1'
+  quoteLeadSetRef: string
+  targetRef: string
+  outcome: 'QUOTE_LEADS' | 'NO_QUOTE_LEADS' | 'DEGRADED'
+  reasonCodes: string[]
+  providerStatus: 'OK_RESULTS' | 'OK_EMPTY' | 'DEGRADED' | 'FAILED'
+  providerFailureCode: string | null
+  providerRetryable: boolean | null
+  providerContractVersion: string
+  leads: QuoteLead[]
+  observedAt: string
 }
 
-export type ClarificationKind =
-  | 'BUDGET' | 'PURCHASE_MARKET' | 'TARGET_PRODUCT' | 'TARGET_MODEL' | 'CONDITION'
-  | 'DELIVERY_DESTINATION' | 'QUANTITY' | 'FORM_FACTOR' | 'CANDIDATE_REFERENT' | 'TURN_REPHRASE'
-
-export interface ClarificationIntent {
-  kind: ClarificationKind
-  contextRef?: string
+export interface QuoteConversationState {
+  contractVersion: 'quote-leads-sg-v1'
+  version: number
+  target: QuoteTarget | null
+  pendingTargetConfirmation: {
+    confirmationId: string
+    proposal: { rawText: string; proposedModel: string }
+    reasonCodes: string[]
+    askedByMessageId: string
+  } | null
+  leadSet: PublishedQuoteLeadSet | null
+  displayQuoteLeadRefs: string[]
+  excludedQuoteLeadRefs: string[]
+  comparisonQuoteLeadRefs: string[]
+  focusQuoteLeadRef: string | null
 }
 
-export interface AssistantEnvelope {
-  outcome: 'CHAT' | 'CLARIFICATION' | 'SEARCH_RESULTS' | 'RECOMMENDATION' | 'NO_MATCH' | 'DEGRADED'
-  blocks: Array<
-    | { type: 'TRANSITION'; text: string }
-    | { type: 'CLAIM'; claimId: string }
-    | { type: 'COMPARISON'; claimIds: string[] }
-    | {
-        type: 'QUESTION'
-        clarificationId: string
-        clarification: ClarificationIntent
-        wording: string
-        rationale: string
-        responseSpec: {
-          inputMode: 'SINGLE_SELECT' | 'FREE_TEXT'
-          allowFreeText: boolean
-          allowSkip: boolean
-          examples: string[]
-          options: Array<{ id: string; label: string }>
-        }
-      }
-    | { type: 'DISCLOSURE'; disclosureCode: string }
-  >
-  nextMoves: Array<{ id: string; label: string; operation: Record<string, unknown> }>
+export interface QuoteAssistantEnvelope {
+  outcome: QuoteOutcome
+  addressedOpIds: string[]
+  disclosureCodes: Array<'MERCHANT_PAGE_CHECK_REQUIRED' | 'AFFILIATE_LINK_DISCLOSURE' | 'PROVIDER_RESULT_NOT_MARKET_ABSENCE'>
+  text: string
 }
 
 export interface Message {
@@ -98,9 +92,8 @@ export interface Message {
     type?: string
     content?: string
     text?: string
-    outcome?: string
-    envelope?: AssistantEnvelope
-    groundedClaims?: { claims: Claim[] }
+    outcome?: QuoteOutcome
+    envelope?: QuoteAssistantEnvelope
     [key: string]: unknown
   }
 }
@@ -116,38 +109,27 @@ export interface Turn {
 }
 
 export interface ConversationProjection {
-  conversation: { id: string; status: string; currentRevision: number; createdAt: string; updatedAt: string }
+  conversation: {
+    id: string
+    status: string
+    contractVersion: 'quote-leads-sg-v1'
+    currentRevision: number
+    createdAt: string
+    updatedAt: string
+  }
   activeTurn: Turn | null
   latestTurn: Turn | null
   state: {
     revision: number
-    goalRevision: { version: number; goal: Goal } | null
-    dialogue: {
-      pendingClarification: { clarificationId: string; clarification: ClarificationIntent; askedByMessageId: string } | null
-      focusOfferRef: string | null
-      comparisonOfferRefs: string[]
-    }
-    workingSet: {
-      version: number
-      pool: Candidate[]
-      displayOfferRefs: string[]
-      mentionedOfferRefs: string[]
-      comparisonOfferRefs: string[]
-      rejectedOfferRefs: string[]
-      focusOfferRef: string | null
-    } | null
+    status: string
+    quote: QuoteConversationState
   }
   messages: Message[]
   latestAssistantMessage: Message | null
   eventCursor: number
 }
 
-export type TurnInput =
-  | { type: 'MESSAGE'; content: string; focusOfferRef?: string }
-  | { type: 'PATCH_GOAL'; operations: Record<string, unknown>[] }
-  | { type: 'ANSWER_CLARIFICATION'; clarificationId: string; answer: { type: 'OPTION'; optionId: string } | { type: 'TEXT'; text: string } | { type: 'SKIP' } }
-  | { type: 'UNDO'; revision: number }
-  | { type: 'SET_COMPARISON'; offerRefs: string[] }
+export type TurnInput = { type: 'MESSAGE'; content: string }
 
 export interface ConversationEvent {
   id: string

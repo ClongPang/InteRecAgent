@@ -1,181 +1,63 @@
-import { MAX_TURN_OPERATIONS } from "@interec/domain";
 import { Type } from "typebox";
 
-// This is the model-facing wire shape, not the trusted domain Money type. Some
-// OpenAI-compatible providers represent an explicitly absent budget as empty
-// strings. Accept that bounded placeholder here so the turn executor can
-// discard it from the proposal before strict domain validation.
-const money = Type.Object({ amount: Type.String({ maxLength: 64 }), currency: Type.String({ maxLength: 8 }) }, { additionalProperties: false });
-const target = Type.Object({
-  categoryId: Type.String({ minLength: 1, maxLength: 100 }),
-  targetText: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
-  canonicalModel: Type.Union([Type.String({ maxLength: 200 }), Type.Null()]),
-  itemRole: Type.Union([Type.Literal("PRIMARY_PRODUCT"), Type.Literal("ACCESSORY"), Type.Literal("REPLACEMENT_PART"), Type.Literal("BUNDLE"), Type.Literal("SERVICE")]),
-  condition: Type.Union([Type.Literal("NEW"), Type.Literal("REFURBISHED"), Type.Literal("USED"), Type.Literal("ANY")]),
-}, { additionalProperties: false });
-const constraintValue = Type.Union([Type.String({ maxLength: 300 }), Type.Number(), Type.Boolean(), Type.Array(Type.String({ maxLength: 100 }), { maxItems: 20 })]);
-const entity = Type.Object({
-  kind: Type.Union([Type.Literal("OFFER"), Type.Literal("MODEL"), Type.Literal("BRAND"), Type.Literal("CATEGORY")]),
-  value: Type.String({ minLength: 1, maxLength: 200 }),
-}, { additionalProperties: false });
-const base = {
-  opId: Type.String({ minLength: 1, maxLength: 80 }),
-  sourceMessageOrdinal: Type.Integer({ minimum: 0, maximum: 7 }),
-  sourceSpan: Type.Optional(Type.Object({ start: Type.Integer({ minimum: 0 }), end: Type.Integer({ minimum: 0 }) }, { additionalProperties: false })),
-};
-const shoppingDataBase = {
-  opId: base.opId,
-  sourceMessageOrdinal: Type.Optional(base.sourceMessageOrdinal),
-  sourceSpan: base.sourceSpan,
-};
-const referent = Type.Union([
-  Type.Object({ kind: Type.Literal("OFFER_REF"), offerRef: Type.String({ minLength: 1, maxLength: 128 }) }, { additionalProperties: false }),
+const quoteConditionPreferenceSchema = Type.Union([
+  Type.Literal("NEW"),
+  Type.Literal("NEW_OR_UNSPECIFIED"),
+  Type.Literal("REFURBISHED"),
+  Type.Literal("USED"),
+  Type.Literal("ANY"),
+]);
+
+const quoteLeadReferentSchema = Type.Union([
+  Type.Object({ kind: Type.Literal("QUOTE_LEAD_REF"), quoteLeadRef: Type.String({ minLength: 1, maxLength: 128 }) }, { additionalProperties: false }),
   Type.Object({ kind: Type.Literal("DISPLAY_RANK"), rank: Type.Integer({ minimum: 1, maximum: 100 }) }, { additionalProperties: false }),
   Type.Object({ kind: Type.Literal("FOCUS") }, { additionalProperties: false }),
   Type.Object({ kind: Type.Literal("COMPARISON") }, { additionalProperties: false }),
-  Type.Object({ kind: Type.Literal("TEXT"), text: Type.String({ minLength: 1, maxLength: 200 }) }, { additionalProperties: false }),
 ]);
 
-export const turnOperationSchema = Type.Union([
-  Type.Object({ ...base, kind: Type.Literal("GOAL_SET_TARGET"), target }, { additionalProperties: false }),
-  Type.Object({ ...base, kind: Type.Literal("GOAL_CLEAR_TARGET") }, { additionalProperties: false }),
-  Type.Object({ ...base, kind: Type.Literal("GOAL_SET_BUDGET"), budget: money }, { additionalProperties: false }),
-  Type.Object({ ...base, kind: Type.Literal("GOAL_CLEAR_BUDGET") }, { additionalProperties: false }),
-  Type.Object({ ...base, kind: Type.Literal("GOAL_SET_RETRIEVAL_MARKETS"), markets: Type.Array(Type.String({ minLength: 2, maxLength: 8 }), { maxItems: 8 }) }, { additionalProperties: false }),
-  Type.Object({ ...base, kind: Type.Literal("GOAL_SET_DELIVERY_DESTINATION"), destination: Type.Union([Type.String({ maxLength: 100 }), Type.Null()]) }, { additionalProperties: false }),
-  Type.Object({ ...base, kind: Type.Literal("GOAL_SET_STOCK_PREFERENCE"), preference: Type.Union([Type.Literal("ANY"), Type.Literal("KNOWN_IN_STOCK")]) }, { additionalProperties: false }),
-  Type.Object({ ...base, kind: Type.Literal("GOAL_UPSERT_CONSTRAINT"), constraint: Type.Object({ key: Type.String({ minLength: 1, maxLength: 100 }), operator: Type.Union([Type.Literal("EQ"), Type.Literal("IN"), Type.Literal("LTE"), Type.Literal("GTE"), Type.Literal("CONTAINS")]), value: constraintValue }, { additionalProperties: false }) }, { additionalProperties: false }),
-  Type.Object({ ...base, kind: Type.Literal("GOAL_REMOVE_CONSTRAINT"), key: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
-  Type.Object({ ...base, kind: Type.Literal("GOAL_UPSERT_PREFERENCE"), preference: Type.Object({ key: Type.String({ minLength: 1, maxLength: 100 }), value: constraintValue, weight: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false }) }, { additionalProperties: false }),
-  Type.Object({ ...base, kind: Type.Literal("GOAL_REMOVE_PREFERENCE"), key: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
-  Type.Object({ ...base, kind: Type.Literal("GOAL_EXCLUDE_ENTITY"), entity }, { additionalProperties: false }),
-  Type.Object({ ...base, kind: Type.Literal("GOAL_RESTORE_ENTITY"), entity }, { additionalProperties: false }),
-  Type.Object({ ...base, kind: Type.Literal("GOAL_ADD_GAP"), gap: Type.Object({ slotId: Type.String({ minLength: 1, maxLength: 100 }), reasonCodes: Type.Array(Type.String({ minLength: 1, maxLength: 100 }), { maxItems: 10 }) }, { additionalProperties: false }) }, { additionalProperties: false }),
-  Type.Object({ ...base, kind: Type.Literal("GOAL_RESOLVE_GAP"), slotId: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
+const quoteOperationBase = { opId: Type.String({ minLength: 1, maxLength: 80 }) };
+
+/** The only model-facing operation set after the quote-lead cutover. */
+export const quoteTurnOperationSchema = Type.Union([
   Type.Object({
-    ...shoppingDataBase,
-    kind: Type.Literal("RESOLVE_CLARIFICATION"),
-    clarificationId: Type.String({ minLength: 1, maxLength: 200 }),
-    clarification: Type.Object({
-      kind: Type.Union([
-        Type.Literal("BUDGET"), Type.Literal("PURCHASE_MARKET"), Type.Literal("TARGET_PRODUCT"),
-        Type.Literal("TARGET_MODEL"), Type.Literal("CONDITION"), Type.Literal("DELIVERY_DESTINATION"),
-        Type.Literal("QUANTITY"), Type.Literal("FORM_FACTOR"), Type.Literal("CANDIDATE_REFERENT"),
-      ]),
-      contextRef: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-      interpretations: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { minItems: 2, maxItems: 4, uniqueItems: true })),
+    ...quoteOperationBase,
+    kind: Type.Literal("SET_QUOTE_TARGET"),
+    sourceMessageOrdinal: Type.Integer({ minimum: 0, maximum: 7 }),
+    sourceSpan: Type.Optional(Type.Object({ start: Type.Integer({ minimum: 0 }), end: Type.Integer({ minimum: 1 }) }, { additionalProperties: false })),
+    target: Type.Object({
+      proposedModel: Type.String({ minLength: 1, maxLength: 200 }),
+      brand: Type.Union([Type.String({ minLength: 1, maxLength: 100 }), Type.Null()]),
+      productType: Type.Union([Type.String({ minLength: 1, maxLength: 120 }), Type.Null()]),
+      requiredQualifiers: Type.Array(Type.String({ minLength: 1, maxLength: 100 }), { maxItems: 6, uniqueItems: true }),
+      conditionPreference: quoteConditionPreferenceSchema,
     }, { additionalProperties: false }),
-    outcome: Type.Union([Type.Literal("ANSWERED"), Type.Literal("SKIPPED")]),
   }, { additionalProperties: false }),
-  Type.Object({ ...shoppingDataBase, kind: Type.Literal("REJECT_OFFERS"), referents: Type.Array(referent, { minItems: 1, maxItems: 4 }), reasonCode: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
-  Type.Object({ ...shoppingDataBase, kind: Type.Literal("RESTORE_OFFERS"), referents: Type.Array(referent, { minItems: 1, maxItems: 4 }) }, { additionalProperties: false }),
-  Type.Object({ ...shoppingDataBase, kind: Type.Literal("SET_COMPARISON"), referents: Type.Array(referent, { minItems: 2, maxItems: 4 }) }, { additionalProperties: false }),
-  Type.Object({ ...shoppingDataBase, kind: Type.Literal("SET_FOCUS"), referent: Type.Union([referent, Type.Null()]) }, { additionalProperties: false }),
+  Type.Object({ ...quoteOperationBase, kind: Type.Literal("REQUEST_QUOTE_MODEL_CONFIRMATION") }, { additionalProperties: false }),
   Type.Object({
-    ...shoppingDataBase,
-    kind: Type.Literal("INSPECT_WORKING_SET"),
-    referents: Type.Array(referent, { maxItems: 4 }),
-    fields: Type.Array(Type.Union([
-      Type.Literal("PRICE"),
-      Type.Literal("MERCHANT"),
-      Type.Literal("MARKET"),
-      Type.Literal("STOCK"),
-      Type.Literal("MODEL"),
-      Type.Literal("CONDITION"),
-      Type.Literal("RANKING_REASON"),
-      Type.Literal("WARRANTY"),
-    ]), { minItems: 1, maxItems: 8 }),
+    ...quoteOperationBase,
+    kind: Type.Literal("DECLINE_UNSUPPORTED_QUOTE_TARGET"),
+    reasonCode: Type.Union([Type.Literal("ACCESSORY_OR_PART"), Type.Literal("SERVICE")]),
   }, { additionalProperties: false }),
-  Type.Object({ ...shoppingDataBase, kind: Type.Literal("INSPECT_SEARCH_COVERAGE") }, { additionalProperties: false }),
-  Type.Object({ ...shoppingDataBase, kind: Type.Literal("REFILTER_WORKING_SET") }, { additionalProperties: false }),
-  Type.Object({
-    ...shoppingDataBase,
-    kind: Type.Literal("SEARCH_OFFERS"),
-    reasonCode: Type.Union([
-      Type.Literal("USER_REQUESTED_REFRESH"),
-      Type.Literal("GOAL_BECAME_SEARCH_READY"),
-      Type.Literal("TARGET_CHANGED"),
-      Type.Literal("INSUFFICIENT_COVERAGE"),
-      Type.Literal("STALE_EVIDENCE"),
-    ]),
-    queryVariant: Type.Optional(Type.String({ minLength: 1, maxLength: 300 })),
-    marketScope: Type.Optional(Type.Array(Type.Union([Type.Literal("US"), Type.Literal("SG")]), { minItems: 1, maxItems: 2, uniqueItems: true })),
-    assumptionDisclosureCodes: Type.Optional(Type.Array(Type.Union([
-      Type.Literal("PURCHASE_MARKET_SCOPE_ASSUMED"),
-      Type.Literal("PRODUCT_CONDITION_NOT_RESTRICTED"),
-    ]), { minItems: 1, maxItems: 2, uniqueItems: true })),
-  }, { additionalProperties: false }),
-  Type.Object({
-    ...shoppingDataBase,
-    kind: Type.Literal("REQUEST_CLARIFICATION"),
-    clarification: Type.Object({
-      kind: Type.Union([
-        Type.Literal("BUDGET"),
-        Type.Literal("PURCHASE_MARKET"),
-        Type.Literal("TARGET_PRODUCT"),
-        Type.Literal("TARGET_MODEL"),
-        Type.Literal("CONDITION"),
-        Type.Literal("DELIVERY_DESTINATION"),
-        Type.Literal("QUANTITY"),
-        Type.Literal("FORM_FACTOR"),
-        Type.Literal("CANDIDATE_REFERENT"),
-      ]),
-      contextRef: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-      interpretations: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { minItems: 2, maxItems: 4, uniqueItems: true })),
-    }, { additionalProperties: false }),
-    uncertainty: Type.Object({
-      type: Type.Union([
-        Type.Literal("INTENT_AMBIGUITY"),
-        Type.Literal("MISSING_USER_INFORMATION"),
-      ]),
-      userResolvable: Type.Literal(true),
-    }, { additionalProperties: false }),
-    reasonCode: Type.String({ minLength: 1, maxLength: 100 }),
-  }, { additionalProperties: false }),
-  Type.Object({ ...shoppingDataBase, kind: Type.Literal("UNDO_REVISION"), revision: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
+  Type.Object({ ...quoteOperationBase, kind: Type.Literal("CONFIRM_QUOTE_TARGET"), confirmationId: Type.String({ minLength: 1, maxLength: 128 }) }, { additionalProperties: false }),
+  Type.Object({ ...quoteOperationBase, kind: Type.Literal("LOOKUP_QUOTES") }, { additionalProperties: false }),
+  Type.Object({ ...quoteOperationBase, kind: Type.Literal("REFRESH_QUOTES") }, { additionalProperties: false }),
+  Type.Object({ ...quoteOperationBase, kind: Type.Literal("EXCLUDE_QUOTE_LEADS"), referents: Type.Array(quoteLeadReferentSchema, { minItems: 1, maxItems: 4 }) }, { additionalProperties: false }),
+  Type.Object({ ...quoteOperationBase, kind: Type.Literal("RESTORE_QUOTE_LEADS"), referents: Type.Array(quoteLeadReferentSchema, { minItems: 1, maxItems: 4 }) }, { additionalProperties: false }),
+  Type.Object({ ...quoteOperationBase, kind: Type.Literal("SET_QUOTE_COMPARISON"), referents: Type.Array(quoteLeadReferentSchema, { minItems: 2, maxItems: 4 }) }, { additionalProperties: false }),
+  Type.Object({ ...quoteOperationBase, kind: Type.Literal("SET_QUOTE_FOCUS"), referent: Type.Union([quoteLeadReferentSchema, Type.Null()]) }, { additionalProperties: false }),
+  Type.Object({ ...quoteOperationBase, kind: Type.Literal("INSPECT_QUOTE_LEADS"), referents: Type.Array(quoteLeadReferentSchema, { minItems: 1, maxItems: 4 }) }, { additionalProperties: false }),
+  Type.Object({ ...quoteOperationBase, kind: Type.Literal("INSPECT_QUOTE_STATUS") }, { additionalProperties: false }),
 ]);
 
-export const turnPlanSchema = Type.Object({
+export const quoteTurnPlanSchema = Type.Object({
   userIntentSummary: Type.String({ minLength: 1, maxLength: 400 }),
-  ops: Type.Array(turnOperationSchema, { minItems: 1, maxItems: MAX_TURN_OPERATIONS }),
-  leftover: Type.Optional(Type.Array(Type.Object({ operation: turnOperationSchema, conditionCode: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }), { maxItems: 4 })),
+  ops: Type.Array(quoteTurnOperationSchema, { minItems: 1, maxItems: 8 }),
 }, { additionalProperties: false });
 
-const assistantBlockSchema = Type.Union([
-  Type.Object({
-    type: Type.Literal("TRANSITION"),
-    transitionCode: Type.Union([
-      Type.Literal("STATE_UPDATED"),
-      Type.Literal("EVIDENCE_SUMMARY"),
-      Type.Literal("EVIDENCE_COMPARISON"),
-      Type.Literal("SEARCH_COMPLETED"),
-      Type.Literal("CHECKED_PREMISE"),
-    ]),
-    // Provider compatibility: harmless receipt IDs attached to a transition
-    // are accepted here and discarded before the turn executor sees the proposal.
-    claimIds: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { maxItems: 12 })),
-  }, { additionalProperties: false }),
-  Type.Object({ type: Type.Literal("CLAIM"), claimId: Type.String({ minLength: 1, maxLength: 128 }) }, { additionalProperties: false }),
-  Type.Object({ type: Type.Literal("COMPARISON"), claimIds: Type.Array(Type.String({ minLength: 1, maxLength: 128 }), { minItems: 2, maxItems: 12 }) }, { additionalProperties: false }),
-  Type.Object({
-    type: Type.Literal("QUESTION"),
-    clarification: Type.Object({
-      kind: Type.Union([
-        Type.Literal("BUDGET"), Type.Literal("PURCHASE_MARKET"), Type.Literal("TARGET_PRODUCT"),
-        Type.Literal("TARGET_MODEL"), Type.Literal("CONDITION"), Type.Literal("DELIVERY_DESTINATION"),
-        Type.Literal("QUANTITY"), Type.Literal("FORM_FACTOR"), Type.Literal("CANDIDATE_REFERENT"), Type.Literal("TURN_REPHRASE"),
-      ]),
-      contextRef: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-      interpretations: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { minItems: 2, maxItems: 4, uniqueItems: true })),
-    }, { additionalProperties: false }),
-  }, { additionalProperties: false }),
-  Type.Object({ type: Type.Literal("DISCLOSURE"), disclosureCode: Type.String({ minLength: 1, maxLength: 100 }) }, { additionalProperties: false }),
+export const quoteAssistantOutcomeSchema = Type.Union([
+  Type.Literal("CHAT"),
+  Type.Literal("CLARIFICATION"),
+  Type.Literal("QUOTE_LEADS"),
+  Type.Literal("NO_QUOTE_LEADS"),
+  Type.Literal("DEGRADED"),
 ]);
-
-export const assistantEnvelopeSchema = Type.Object({
-  outcome: Type.Union([Type.Literal("CHAT"), Type.Literal("CLARIFICATION"), Type.Literal("SEARCH_RESULTS"), Type.Literal("RECOMMENDATION"), Type.Literal("NO_MATCH"), Type.Literal("DEGRADED")]),
-  blocks: Type.Array(assistantBlockSchema, { minItems: 1, maxItems: 20 }),
-  // Keep this as a regular array schema for OpenAI-compatible providers. Empty
-  // tuples are rejected by some providers even though they are valid JSON Schema.
-  nextMoves: Type.Array(Type.String(), { maxItems: 0 }),
-}, { additionalProperties: false });

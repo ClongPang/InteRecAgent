@@ -7,8 +7,8 @@ import type pg from "pg";
 const MIGRATION_NAME = /^(\d{4})_[a-z0-9_]+\.sql$/;
 const MIGRATION_LOCK_ID = "497281340126";
 const REQUIRED_TABLES: Readonly<Record<string, readonly string[]>> = {
-  conversations: ["id", "tenant_id", "owner_id", "current_revision", "next_message_seq", "next_event_seq", "active_turn_id"],
-  conversation_revisions: ["conversation_id", "revision", "parent_revision", "base_revision", "goal_version_id", "dialogue_state_version_id", "working_set_id"],
+  conversations: ["id", "tenant_id", "owner_id", "contract_version", "current_revision", "next_message_seq", "next_event_seq", "active_turn_id"],
+  conversation_revisions: ["conversation_id", "revision", "parent_revision", "base_revision", "goal_version_id", "dialogue_state_version_id", "working_set_id", "quote_state_version_id"],
   messages: ["conversation_id", "seq", "role", "payload_json", "consumed_by_turn_id", "assistant_response_id"],
   turns: ["conversation_id", "client_turn_id", "request_hash", "base_revision", "status", "attempt", "fence_token", "lease_expires_at", "trace_id", "trace_root_observation_id"],
   turn_attempts: ["turn_id", "attempt", "fence_token", "status", "plan_json", "draft_json", "evidence_keys", "trace_id", "root_observation_id"],
@@ -40,6 +40,16 @@ const REQUIRED_TABLES: Readonly<Record<string, readonly string[]>> = {
   provider_permits: ["tenant_id", "provider", "turn_id", "attempt", "step_key", "is_retry", "status", "expires_at"],
   observed_candidates: ["tenant_id", "owner_id", "candidate_ref", "source_listing_id", "retrieval_market", "search_tokens", "candidate_json", "support_level", "observed_at", "expires_at"],
   candidate_feedback_events: ["tenant_id", "owner_id", "conversation_id", "turn_id", "attempt", "kind", "operation_id", "offer_refs", "payload_json"],
+  quote_lead_sets: ["conversation_id", "turn_id", "attempt", "quote_lead_set_ref", "target_ref", "canonical_query", "contract_version", "outcome", "provider_status", "provider_meta_json", "artifact_ref", "lead_set_json", "observed_at", "status", "published_revision"],
+  quote_provider_artifacts: ["conversation_id", "lead_set_id", "artifact_ref", "provider_contract_version", "payload_json", "payload_sha256", "observed_at", "expires_at", "purged_at"],
+  quote_observations: ["conversation_id", "lead_set_id", "artifact_id", "observation_ref", "record_index", "raw_record_json", "observation_json", "admission_status", "admission_reason_codes", "admission_policy_version"],
+  quote_fx_snapshots: ["conversation_id", "lead_set_id", "fx_snapshot_ref", "base", "quote", "rate", "snapshot_json"],
+  quote_leads: ["conversation_id", "lead_set_id", "quote_lead_ref", "merchant_target_url", "condition", "lead_json"],
+  quote_lead_observations: ["conversation_id", "lead_set_id", "quote_lead_id", "observation_id", "ordinal"],
+  quote_source_facts: ["conversation_id", "lead_set_id", "quote_lead_id", "observation_id", "source_fact_ref", "fact_kind", "json_path", "canonical_value"],
+  quote_claims: ["conversation_id", "lead_set_id", "quote_lead_id", "claim_ref", "kind", "canonical_value"],
+  quote_claim_evidence: ["conversation_id", "lead_set_id", "quote_claim_id", "source_fact_id", "quote_fx_snapshot_id"],
+  quote_state_versions: ["conversation_id", "revision", "state_json", "quote_lead_set_id", "committed_by_turn_id"],
 };
 const REQUIRED_CONSTRAINTS = [
   "conversations_active_turn_fk",
@@ -67,6 +77,20 @@ const REQUIRED_CONSTRAINTS = [
   "working_sets_proof_comparison_set_fk",
   "comparison_sets_conversation_id_version_key",
   "provider_permits_turn_id_step_key_key",
+  "quote_lead_sets_turn_attempt_fk",
+  "quote_lead_sets_publication_pair_check",
+  "quote_lead_observations_lead_fk",
+  "quote_lead_observations_observation_fk",
+  "quote_source_facts_lead_fk",
+  "quote_source_facts_observation_fk",
+  "quote_claims_lead_fk",
+  "quote_claim_evidence_claim_fk",
+  "quote_claim_evidence_fact_fk",
+  "quote_claim_evidence_fx_fk",
+  "conversations_contract_version_check",
+  "quote_state_contract_check",
+  "quote_state_lead_set_fk",
+  "conversation_revisions_quote_state_fk",
 ] as const;
 const REQUIRED_INDEXES = [
   "conversations_owner_updated_idx",
@@ -86,6 +110,12 @@ const REQUIRED_INDEXES = [
   "observed_candidates_owner_market_expiry_idx",
   "candidate_feedback_owner_timeline_idx",
   "turns_trace_id_idx",
+  "quote_lead_sets_conversation_timeline_idx",
+  "quote_observations_lead_set_idx",
+  "quote_leads_lead_set_idx",
+  "quote_source_facts_ref_idx",
+  "quote_artifacts_expiry_idx",
+  "quote_state_versions_conversation_revision_idx",
 ] as const;
 const REQUIRED_TRIGGERS = [
   "source_facts_promoted_immutable",
@@ -96,6 +126,16 @@ const REQUIRED_TRIGGERS = [
   "published_claim_evidence_immutable",
   "candidate_feedback_append_only",
   "turn_plan_reviews_append_only",
+  "quote_lead_sets_update_guard",
+  "quote_provider_artifacts_update_guard",
+  "quote_observations_immutable",
+  "quote_fx_snapshots_immutable",
+  "quote_leads_immutable",
+  "quote_lead_observations_immutable",
+  "quote_source_facts_immutable",
+  "quote_claims_immutable",
+  "quote_claim_evidence_immutable",
+  "quote_state_versions_immutable",
 ] as const;
 const REQUIRED_RLS_TABLES = [
   "conversations",
@@ -117,6 +157,16 @@ const REQUIRED_RLS_TABLES = [
   "comparison_sets",
   "observed_candidates",
   "candidate_feedback_events",
+  "quote_lead_sets",
+  "quote_provider_artifacts",
+  "quote_observations",
+  "quote_fx_snapshots",
+  "quote_leads",
+  "quote_lead_observations",
+  "quote_source_facts",
+  "quote_claims",
+  "quote_claim_evidence",
+  "quote_state_versions",
 ] as const;
 
 export interface MigrationResult {

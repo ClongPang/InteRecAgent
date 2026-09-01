@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 
-import { BuyWhereClient, FxRatesClient } from "./providers.js";
+import { BuyWhereMcpQuoteClient } from "./buywhere-mcp-quote-client.js";
 import { ConversationWorker } from "./conversation-worker.js";
-import { PostgresConversationSearchRepository } from "./conversation-search-repository.js";
+import { FxRatesClient } from "./fx-provider.js";
 import { createPiModelRuntime } from "./model-factory.js";
 import { registerPostgresOperationalMetrics } from "./operational-metrics.js";
 import { PostgresConversationRepository } from "./postgres-conversation-repository.js";
@@ -23,12 +23,13 @@ const telemetry = await startTelemetry("interec-conversation-worker");
 const operationalMetrics = registerPostgresOperationalMetrics(repository.pool);
 const worker = new ConversationWorker(
   repository,
-  new PostgresConversationSearchRepository(repository.pool),
   new PostgresProviderCallController(repository.pool),
-  new BuyWhereClient(buyWhere.apiKey, { timeoutMs: buyWhere.timeoutMs }),
   new FxRatesClient(),
+  new BuyWhereMcpQuoteClient(buyWhere.apiKey, { timeoutMs: buyWhere.timeoutMs }),
   createPiModelRuntime(),
-  { workerId: process.env["INTEREC_WORKER_ID"]?.trim() || `worker-${randomUUID()}` },
+  {
+    workerId: process.env["INTEREC_WORKER_ID"]?.trim() || `worker-${randomUUID()}`,
+  },
 );
 let stopping = false;
 const stop = () => { stopping = true; };

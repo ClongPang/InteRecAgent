@@ -1,8 +1,9 @@
 # ADR-0004：以 pi-agent Conversation Turn Runtime 实现对话式推荐
 
-- 状态：Accepted for implementation；生产发布仍需完整验收
+- 状态：Partially superseded by ADR-0007；仅保留 durable Conversation Turn Runtime 决策
 - 日期：2026-08-26
 - 替代：ADR-0001 中仅面向报价搜索的三工具话轮协议；不替代 ADR-0003 的来源充分性准入原则
+- 被替代范围：跨市场推荐、Goal/WorkingSet 推荐业务语义及旧产品合同；现行产品边界见 ADR-0007
 
 ## 决策
 
@@ -35,6 +36,4 @@ Goal、DialogueState、WorkingSet、AssistantMessage、可选 Decision、Turn st
 
 ## 验收依据
 
-权威产品行为由 `spec/conversational-agent-product-contract.json` 定义。任何实现必须先通过机器校验，再通过领域、pi-agent contract、PostgreSQL、API/SSE、浏览器和真实多轮 Provider 验收。
-
-详细设计、工作包和发布门槛见 `docs/pi-agent-conversational-agent-refactor-plan.md`。
+本 ADR 仅作为 durable Conversation Turn Runtime 的历史决策记录，不再定义现行产品行为。现行权威产品合同为 `spec/quote-lead-product-contract.json`，业务边界见 ADR-0007，模块架构见 ADR-0008。

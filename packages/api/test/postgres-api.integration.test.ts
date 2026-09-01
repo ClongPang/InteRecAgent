@@ -1,14 +1,15 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { createModels } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import {
   ConversationWorker,
   PostgresConversationRepository,
-  PostgresConversationSearchRepository,
   PostgresProviderCallController,
+  QUOTE_PROVIDER_CONTRACT_VERSION,
   runConversationMigrations,
   type OwnerClaims,
+  type QuoteProviderResult,
 } from "@interec/runtime";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -19,7 +20,29 @@ const enabled = process.env["RUN_CONVERSATION_PG_INTEGRATION"] === "1";
 const suite = enabled ? describe : describe.skip;
 const databaseUrl = process.env["INTEREC_DATABASE_URL"] ?? "postgresql://interec:interec@127.0.0.1:5432/interec";
 
-suite("PostgreSQL Conversation API vertical slice", () => {
+function quoteProviderResult(): QuoteProviderResult {
+  const records = [{
+    id: "api-quote-record",
+    title: "Sony WH-1000XM5 Wireless Headphones",
+    price: { amount: "399.90", currency: "SGD" },
+    merchant: "Example Shop",
+    url: "https://shop.example/product/wh-1000xm5?sku=black",
+    outbound_url: "https://shop.example/product/wh-1000xm5?sku=black&utm_source=buywhere",
+  }];
+  const rawPayload = { best_price: records[0], alternatives: [], meta: { status: "ok" } };
+  return {
+    status: "OK_RESULTS",
+    records,
+    meta: { status: "ok", emptinessReason: null, confidence: null, engineStatus: null, raw: { status: "ok" } },
+    failure: null,
+    rawPayload,
+    artifactRef: `sha256:${createHash("sha256").update(JSON.stringify(rawPayload)).digest("hex")}`,
+    observedAt: "2026-09-01T05:00:00.000Z",
+    providerContractVersion: QUOTE_PROVIDER_CONTRACT_VERSION,
+  };
+}
+
+suite("PostgreSQL quote Conversation API vertical slice", () => {
   const repository = new PostgresConversationRepository(databaseUrl, 6);
   const owner: OwnerClaims = { tenantId: `api-it-${randomUUID()}`, ownerId: `owner-${randomUUID()}` };
   const verifier: IdentityVerifier = {
@@ -39,16 +62,17 @@ suite("PostgreSQL Conversation API vertical slice", () => {
     await repository.close();
   });
 
-  it("publishes one durable dialogue turn and resumes its Conversation event stream", async () => {
+  it("publishes one evidence-backed quote turn and resumes its event stream", async () => {
     const headers = { authorization: "Bearer owner" };
     const created = await app.inject({ method: "POST", url: "/api/conversations", headers });
     expect(created.statusCode).toBe(201);
+    expect(created.json().conversation.contractVersion).toBe("quote-leads-sg-v1");
     const conversationId = created.json().conversation.id as string;
     const accepted = await app.inject({
       method: "POST",
       url: `/api/conversations/${conversationId}/turns`,
       headers,
-      payload: { clientTurnId: "api-turn-1", expectedRevision: 0, input: { type: "MESSAGE", content: "我还没决定具体买什么" } },
+      payload: { clientTurnId: "api-turn-1", expectedRevision: 0, input: { type: "MESSAGE", content: "Sony WH-1000XM5 headphones" } },
     });
     expect(accepted.statusCode).toBe(202);
     const turnId = accepted.json().turn.id as string;
@@ -57,25 +81,32 @@ suite("PostgreSQL Conversation API vertical slice", () => {
     const models = createModels();
     models.setProvider(faux.provider);
     faux.setResponses([
-      fauxAssistantMessage(fauxToolCall("commit_turn_plan", {
-        userIntentSummary: "ask the highest-impact target clarification",
-        ops: [{ opId: "ask-product", kind: "REQUEST_CLARIFICATION", clarification: { kind: "TARGET_PRODUCT" }, uncertainty: { type: "MISSING_USER_INFORMATION", userResolvable: true }, reasonCode: "HIGH_IMPACT_GAP" }],
-        leftover: [],
-      })),
-      fauxAssistantMessage(fauxToolCall("publish_reply", {
-        outcome: "CLARIFICATION",
-        blocks: [{ type: "QUESTION", clarification: { kind: "TARGET_PRODUCT" } }],
-        nextMoves: [],
+      fauxAssistantMessage(fauxToolCall("commit_quote_plan", {
+        userIntentSummary: "look up the exact known model",
+        ops: [
+          {
+            opId: "set-target",
+            kind: "SET_QUOTE_TARGET",
+            sourceMessageOrdinal: 0,
+            target: {
+              proposedModel: "WH-1000XM5",
+              brand: "Sony",
+              productType: "headphones",
+              requiredQualifiers: [],
+              conditionPreference: "ANY",
+            },
+          },
+          { opId: "lookup", kind: "LOOKUP_QUOTES" },
+        ],
       })),
     ]);
     const worker = new ConversationWorker(
       repository,
-      new PostgresConversationSearchRepository(repository.pool),
       new PostgresProviderCallController(repository.pool),
-      { search: async () => { throw new Error("PROVIDER_CALL_NOT_ALLOWED"); } },
-      { getRate: async () => { throw new Error("FX_CALL_NOT_ALLOWED"); } },
+      { getRate: async () => { throw new Error("FX_UNAVAILABLE"); } },
+      { lookup: async () => quoteProviderResult() },
       { model: faux.getModel(), streamFn: models.streamSimple.bind(models), apiKey: "test" },
-      { workerId: "api-vertical-worker" },
+      { workerId: "api-quote-vertical-worker" },
     );
     expect(await worker.runOnce(turnId)).toBe(true);
     expect(await repository.getTurn(turnId, owner)).toMatchObject({ status: "COMPLETED", errorCode: null });
@@ -83,17 +114,37 @@ suite("PostgreSQL Conversation API vertical slice", () => {
     const projection = await app.inject({ method: "GET", url: `/api/conversations/${conversationId}`, headers });
     expect(projection.statusCode).toBe(200);
     expect(projection.json().projection).toMatchObject({
-      conversation: { id: conversationId, currentRevision: 1 },
+      conversation: { id: conversationId, contractVersion: "quote-leads-sg-v1", currentRevision: 1 },
       activeTurn: null,
-      state: { revision: 1, dialogue: { pendingClarification: { clarification: { kind: "TARGET_PRODUCT" } } } },
-      latestAssistantMessage: { role: "ASSISTANT", payload: { outcome: "CLARIFICATION", envelope: { outcome: "CLARIFICATION" } } },
+      state: {
+        revision: 1,
+        quote: {
+          contractVersion: "quote-leads-sg-v1",
+          target: { canonicalModel: "WH-1000XM5" },
+          leadSet: {
+            outcome: "QUOTE_LEADS",
+            providerStatus: "OK_RESULTS",
+            leads: [{ quoteLeadRef: expect.any(String), outboundUrl: expect.stringContaining("https://") }],
+          },
+        },
+      },
+      latestAssistantMessage: {
+        role: "ASSISTANT",
+        payload: { outcome: "QUOTE_LEADS", envelope: { outcome: "QUOTE_LEADS" } },
+      },
     });
+    expect(JSON.stringify(projection.json().projection.state.quote)).not.toContain("rawRecord");
+    expect(JSON.stringify(projection.json().projection.state.quote)).not.toContain("availability");
     const hidden = await app.inject({ method: "GET", url: `/api/conversations/${conversationId}`, headers: { authorization: "Bearer other" } });
     expect(hidden.statusCode).toBe(404);
 
     const events = await repository.listEvents(conversationId, owner, 0);
     const cursor = events[0]!.seq;
-    const stream = await app.inject({ method: "GET", url: `/api/conversations/${conversationId}/events`, headers: { ...headers, "last-event-id": String(cursor) } });
+    const stream = await app.inject({
+      method: "GET",
+      url: `/api/conversations/${conversationId}/events`,
+      headers: { ...headers, "last-event-id": String(cursor) },
+    });
     expect(stream.statusCode).toBe(200);
     expect(stream.body).not.toContain(`id: ${cursor}\n`);
     for (const event of events.slice(1)) expect(stream.body).toContain(`id: ${event.seq}\nevent: ${event.eventType}`);

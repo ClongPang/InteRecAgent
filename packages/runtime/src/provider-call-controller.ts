@@ -44,7 +44,7 @@ export class ProviderCallControlError extends Error {
 export class PostgresProviderCallController {
   private readonly limits: ProviderCallLimits;
 
-  public constructor(private readonly pool: pg.Pool, limits: Partial<ProviderCallLimits> = {}) {
+  public constructor(public readonly pool: pg.Pool, limits: Partial<ProviderCallLimits> = {}) {
     this.limits = { ...DEFAULT_LIMITS, ...limits };
   }
 

@@ -1,11 +1,10 @@
 import type {
-  AssistantEnvelope,
-  GroundedClaimSet,
+  ConversationContractVersion,
   ConversationState,
-  ClarificationAnswer,
-  GoalOperation,
-  PlanReview,
-  TurnPlan,
+  QuoteAssistantPublication,
+  QuoteConversationState,
+  QuotePlanReview,
+  QuoteTurnPlan,
 } from "@interec/domain";
 
 export interface OwnerClaims {
@@ -13,23 +12,16 @@ export interface OwnerClaims {
   ownerId: string;
 }
 
-export type UnboundGoalOperation = GoalOperation extends infer Operation
-  ? Operation extends { source: unknown }
-    ? Omit<Operation, "source">
-    : never
-  : never;
-
-export type ConversationTurnInput =
-  | { type: "MESSAGE"; content: string; focusOfferRef?: string }
-  | { type: "PATCH_GOAL"; operations: UnboundGoalOperation[] }
-  | { type: "UNDO"; revision: number }
-  | { type: "SET_COMPARISON"; offerRefs: string[] }
-  | { type: "ANSWER_CLARIFICATION"; clarificationId: string; answer: ClarificationAnswer };
+export interface ConversationTurnInput {
+  type: "MESSAGE";
+  content: string;
+}
 
 export interface ConversationRecord {
   id: string;
   owner: OwnerClaims;
   status: "OPEN" | "CLOSED" | "BLOCKED";
+  contractVersion: ConversationContractVersion;
   currentRevision: number;
   messageCursor: number;
   eventCursor: number;
@@ -83,6 +75,7 @@ export interface AcceptedConversationTurn extends ConversationTurnRecord {
 
 export interface ClaimedConversationTurn extends ConversationTurnRecord {
   owner: OwnerClaims;
+  contractVersion: ConversationContractVersion;
   inputMessages: ConversationMessageRecord[];
   snapshot: ConversationState;
   telemetryTraceId: string;
@@ -112,14 +105,9 @@ export interface RetryConversationTurnInput {
 }
 
 export interface AttemptDraft {
-  plan?: TurnPlan;
-  goal?: ConversationState["goalRevision"];
-  dialogue?: ConversationState["dialogue"];
-  workingSet?: ConversationState["workingSet"];
-  envelope?: AssistantEnvelope;
-  groundedClaims?: GroundedClaimSet;
-  evidenceKeys?: string[];
-  fallbackReasonCode?: string;
+  quotePlan?: QuoteTurnPlan;
+  quoteState?: QuoteConversationState;
+  quoteReply?: QuoteAssistantPublication;
 }
 
 export interface RecordPlanReviewInput {
@@ -128,23 +116,19 @@ export interface RecordPlanReviewInput {
   fenceToken: string;
   proposalNumber: number;
   proposal: unknown;
-  reviewedPlan: TurnPlan;
-  review: PlanReview;
-  approvedPlan: TurnPlan | null;
+  reviewedPlan: QuoteTurnPlan;
+  review: QuotePlanReview;
+  approvedPlan: QuoteTurnPlan | null;
 }
 
-export interface CommitConversationTurnInput {
+export interface CommitQuoteConversationTurnInput {
   turnId: string;
   attempt: number;
   fenceToken: string;
-  state: ConversationState;
-  plan: TurnPlan;
-  envelope: AssistantEnvelope;
-  groundedClaims: GroundedClaimSet;
-  renderedText: string;
-  allowedClarificationIds: ReadonlySet<string>;
-  allowedDisclosureCodes: ReadonlySet<string>;
-  decision?: Record<string, unknown>;
+  conversationStatus: ConversationState["status"];
+  state: QuoteConversationState;
+  plan: QuoteTurnPlan;
+  reply: QuoteAssistantPublication;
 }
 
 export interface ConversationEventRecord {
@@ -211,7 +195,7 @@ export interface ConversationRepository {
   reserveToolExecution(turnId: string, attempt: number, fenceToken: string, stepKey: string, request: Record<string, unknown>): Promise<ToolReservation | null>;
   completeToolExecution(turnId: string, attempt: number, fenceToken: string, stepKey: string, requestHash: string, result: Record<string, unknown>): Promise<boolean>;
   failToolExecution(turnId: string, attempt: number, fenceToken: string, stepKey: string, requestHash: string, errorCode: string): Promise<boolean>;
-  commitTurn(input: CommitConversationTurnInput): Promise<FinalCommitResult | null>;
+  commitQuoteTurn(input: CommitQuoteConversationTurnInput): Promise<FinalCommitResult | null>;
   failTurn(turnId: string, attempt: number, fenceToken: string, errorCode: string): Promise<boolean>;
   cancelTurn(turnId: string, owner: OwnerClaims): Promise<boolean>;
   expireDueTurns(): Promise<number>;

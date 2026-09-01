@@ -8,7 +8,7 @@ import type {
 import type { ConversationState } from "@interec/domain";
 
 export interface ConversationProjection {
-  conversation: Pick<ConversationRecord, "id" | "status" | "currentRevision" | "createdAt" | "updatedAt">;
+  conversation: Pick<ConversationRecord, "id" | "status" | "contractVersion" | "currentRevision" | "createdAt" | "updatedAt">;
   activeTurn: Pick<ConversationTurnRecord, "id" | "status" | "attempt" | "deadlineAt" | "errorCode" | "createdAt"> | null;
   latestTurn: Pick<ConversationTurnRecord, "id" | "status" | "attempt" | "deadlineAt" | "errorCode" | "createdAt" | "completedAt"> | null;
   state: ConversationState;
@@ -29,6 +29,7 @@ export async function loadConversationProjection(
     conversation: {
       id: conversation.id,
       status: conversation.status,
+      contractVersion: conversation.contractVersion,
       currentRevision: conversation.currentRevision,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,

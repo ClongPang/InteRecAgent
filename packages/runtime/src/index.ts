@@ -1,28 +1,104 @@
-export * from "./conversation-repository-types.js";
-export * from "./conversation-search-repository.js";
-export * from "./conversation-offer-search-service.js";
-export * from "./conversation-worker.js";
-export * from "./fault-acceptance-evaluator.js";
-export * from "./controlled-provider-clients.js";
-export * from "./development-evaluation-executor.js";
-export * from "./langfuse-evaluation.js";
-export * from "./langfuse-control-plane.js";
-export * from "./langfuse-prompt.js";
-export * from "./live-turn-config.js";
-export * from "./live-dependency-compatibility.js";
-export * from "./model-factory.js";
-export * from "./operational-metrics.js";
-export * from "./candidate-cache-repository.js";
-export * from "./operations-acceptance-evaluator.js";
-export * from "./outbox-publisher.js";
-export * from "./provider-call-controller.js";
-export * from "./postgres-conversation-repository.js";
-export * from "./providers.js";
-export * from "./replay-providers.js";
-export * from "./search-provenance.js";
-export * from "./semantic-relevance-classifier.js";
-export * from "./repository-turn-session.js";
-export * from "./runtime-config.js";
-export * from "./schema-migrator.js";
-export * from "./search-service.js";
-export * from "./telemetry.js";
+export {
+  ConversationRepositoryError,
+  type AcceptConversationTurnInput,
+  type AcceptedConversationTurn,
+  type AttemptDraft,
+  type ClaimedConversationTurn,
+  type CommitQuoteConversationTurnInput,
+  type ConversationEventRecord,
+  type ConversationMessageRecord,
+  type ConversationProjectionRecord,
+  type ConversationRecord,
+  type ConversationRepository,
+  type ConversationTurnInput,
+  type ConversationTurnRecord,
+  type ConversationTurnStatus,
+  type FinalCommitResult,
+  type OwnerClaims,
+  type RecordPlanReviewInput,
+  type RetryConversationTurnInput,
+  type ToolExecutionRecord,
+  type ToolReservation,
+} from "./conversation-repository-types.js";
+export {
+  ConversationWorker,
+  type AgentTraceCorrelation,
+  type ConversationWorkerOptions,
+} from "./conversation-worker.js";
+export { createPiModelRuntime, type PiModelRuntime } from "./model-factory.js";
+export {
+  registerPostgresOperationalMetrics,
+  type OperationalMetricsRegistration,
+} from "./operational-metrics.js";
+export {
+  PostgresOutboxPublisher,
+  type OutboxMessage,
+  type OutboxPublisherOptions,
+  type OutboxSink,
+} from "./outbox-publisher.js";
+export {
+  PostgresProviderCallController,
+  ProviderCallControlError,
+  type ProviderCallContext,
+  type ProviderCallLimits,
+} from "./provider-call-controller.js";
+export { PostgresConversationRepository } from "./postgres-conversation-repository.js";
+export {
+  QUOTE_PROVIDER_CONTRACT_VERSION,
+  type QuoteLookupRequest,
+  type QuoteProvider,
+  type QuoteProviderFailure,
+  type QuoteProviderMeta,
+  type QuoteProviderResult,
+  type QuoteProviderStatus,
+} from "./quote-provider.js";
+export {
+  QuoteLookupService,
+  type QuoteLookupArtifact,
+  type QuoteLookupExecution,
+} from "./quote-lookup-service.js";
+export {
+  PostgresQuoteLookupRepository,
+  type CompletedQuoteLookupExecution,
+  type SavedQuoteLookup,
+} from "./quote-lookup-repository.js";
+export {
+  QUOTE_PROVENANCE_POLICY_VERSION,
+  buildQuoteProvenance,
+  type QuoteClaimEvidenceRef,
+  type QuoteGroundedClaim,
+  type QuoteProvenanceBundle,
+  type QuoteSourceFact,
+  type QuoteSourceFactKind,
+} from "./quote-provenance.js";
+export {
+  BuyWhereMcpQuoteClient,
+  type BuyWhereMcpQuoteClientOptions,
+} from "./buywhere-mcp-quote-client.js";
+export { parseBuyWhereMcpToolResponse } from "./buywhere-mcp-quote-parser.js";
+export {
+  ControlledFxClient,
+  type ProviderCallExecutionContext,
+} from "./controlled-fx-client.js";
+export { FxRatesClient, type FxPort } from "./fx-provider.js";
+export {
+  resolveBuyWhereRuntimeConfig,
+  resolveBuyWhereTimeoutMs,
+  type BuyWhereRuntimeConfig,
+} from "./runtime-config.js";
+export {
+  runConversationMigrations,
+  verifyConversationSchema,
+  type MigrationResult,
+} from "./schema-migrator.js";
+export {
+  observeTurnEnqueue,
+  runtimeMetrics,
+  startTelemetry,
+  telemetryTraceIdForTurn,
+  type ActiveTurnEnqueueObservation,
+  type TelemetryLifecycleOptions,
+  type TelemetryLifecycleResult,
+  type TelemetryRuntime,
+  type TurnEnqueueObservation,
+} from "./telemetry.js";

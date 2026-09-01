@@ -1,0 +1,415 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "quote-leads-sg-v1",
+  "product": "InteRecAgent",
+  "positioning": "A durable, evidence-grounded conversational assistant for finding quote leads and merchant-page entry points for known product models in the Singapore service market.",
+  "serviceMarket": "SG",
+  "conversationBoundary": "QUOTE_LOOKUP_MISSION",
+  "turnBoundary": "DURABLE_EXECUTION",
+  "providerPolicy": {
+    "primaryTool": "find_best_price_v2",
+    "detailTool": "get_product_v2",
+    "internalDeliverTo": "SG",
+    "automaticFallbacks": [],
+    "userVisibleSearchModes": []
+  },
+  "assistantOutcomes": [
+    "CHAT",
+    "CLARIFICATION",
+    "QUOTE_LEADS",
+    "NO_QUOTE_LEADS",
+    "DEGRADED"
+  ],
+  "forbiddenUserClaims": [
+    "RECOMMENDATION",
+    "SEARCH_RESULTS",
+    "GLOBAL_LOWEST_PRICE",
+    "CURRENTLY_IN_STOCK",
+    "DELIVERY_VERIFIED",
+    "PURCHASE_VERIFIED"
+  ],
+  "invariants": [
+    {
+      "id": "known_model_precedes_lookup",
+      "statement": "A quote lookup requires a confirmed model; unresolved or typo-suspected model text is clarified without a provider call."
+    },
+    {
+      "id": "singapore_scope_is_internal",
+      "statement": "The Singapore service scope is fixed inside the provider adapter and is never a user goal or delivery-destination question."
+    },
+    {
+      "id": "quote_leads_are_not_recommendations",
+      "statement": "Returned records are quote leads for merchant-page confirmation and are never published as product recommendations or global best prices."
+    },
+    {
+      "id": "provider_status_is_explicit",
+      "statement": "Provider results distinguish non-degraded results, non-degraded empty responses, degraded responses, and failures; HTTP 200 alone is insufficient."
+    },
+    {
+      "id": "no_automatic_search_fallback",
+      "statement": "The user quote path never falls back automatically to catalog keyword, semantic, hybrid, or REST sorted search."
+    },
+    {
+      "id": "model_characters_are_not_silently_corrected",
+      "statement": "Normalization may change punctuation, case, Unicode form, and spacing but never silently changes model letters or digits."
+    },
+    {
+      "id": "candidate_admission_fails_closed",
+      "statement": "A record is user-visible only after exact model, required qualifier, and requested item-role checks; insufficient evidence remains excluded."
+    },
+    {
+      "id": "complements_and_services_are_excluded",
+      "statement": "Accessory, replacement, repair, part, and service records cannot enter a primary-product QuoteLead."
+    },
+    {
+      "id": "raw_observations_are_preserved",
+      "statement": "Every provider record is retained as a QuoteObservation even when rejected or grouped."
+    },
+    {
+      "id": "merchant_page_grouping_is_explicit",
+      "statement": "QuoteLeads group only records with the same normalized merchant target URL and condition; record count is never merchant count."
+    },
+    {
+      "id": "original_currency_is_primary",
+      "statement": "Original amount and currency remain primary; CNY is an optional estimate with an FX observation timestamp."
+    },
+    {
+      "id": "provider_availability_is_not_current_stock",
+      "statement": "Provider availability may be retained as evidence but never produces a current-stock claim or ranking signal."
+    },
+    {
+      "id": "merchant_page_confirmation_is_mandatory",
+      "statement": "Every visible QuoteLead carries an HTTPS handoff and a mandatory final-price, exact-model/version, condition, and purchasability confirmation disclosure."
+    },
+    {
+      "id": "audit_retention_is_not_freshness",
+      "statement": "Stored artifacts may support audit and same-conversation follow-up but cross-conversation cache never substitutes for a new quote lookup or refresh."
+    },
+    {
+      "id": "zero_provider_followups_are_preserved",
+      "statement": "Focus, comparison, exclusion, explanation, and ordinary follow-up use the current QuoteLeadSet without a provider call when evidence is sufficient."
+    },
+    {
+      "id": "state_publication_remains_atomic",
+      "statement": "Goal, dialogue, QuoteLeadSet, claims, assistant message, status, and events publish atomically and stale attempts cannot publish."
+    },
+    {
+      "id": "legacy_goals_are_not_reinterpreted",
+      "statement": "A legacy cross-market recommendation conversation is not silently migrated into a Singapore quote lookup."
+    },
+    {
+      "id": "single_active_business_implementation",
+      "statement": "After cutover there is one active quote-lead business implementation without dual write, legacy runtime fallback, or hidden recommendation path."
+    }
+  ],
+  "requiredRoutes": [
+    "talk",
+    "clarify",
+    "lookup"
+  ],
+  "requiredCapabilities": [
+    "exact_model_lookup",
+    "model_confirmation",
+    "punctuation_normalization",
+    "merchant_page_grouping",
+    "reject_complement",
+    "reject_service",
+    "compare_existing_leads",
+    "exclude_existing_lead",
+    "explicit_refresh",
+    "provider_empty",
+    "provider_degraded",
+    "fx_optional",
+    "restart_recovery",
+    "target_correction"
+  ],
+  "trajectories": [
+    {
+      "id": "exact_model_lookup_then_compare",
+      "capabilities": ["exact_model_lookup", "compare_existing_leads"],
+      "turns": [
+        {
+          "user": "帮我查 Sony WH-1000XM5 的报价。",
+          "expected": {
+            "route": "lookup",
+            "operations": ["set_quote_target", "lookup_quotes"],
+            "providerCalls": 1,
+            "outcome": "QUOTE_LEADS",
+            "assertions": ["service scope is internally SG", "original currency and merchant handoff are visible", "no recommendation claim"]
+          }
+        },
+        {
+          "user": "比较第一条和第二条。",
+          "expected": {
+            "route": "talk",
+            "operations": ["bind_rank:1", "bind_rank:2", "compare_quote_leads"],
+            "providerCalls": 0,
+            "outcome": "CHAT",
+            "assertions": ["stable quoteLeadRefs are used", "only quote-record differences are compared"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "typo_requires_confirmation",
+      "capabilities": ["model_confirmation"],
+      "turns": [
+        {
+          "user": "查 Soni WH-1000XM55 的报价。",
+          "expected": {
+            "route": "clarify",
+            "operations": ["request_model_confirmation"],
+            "providerCalls": 0,
+            "outcome": "CLARIFICATION",
+            "assertions": ["letters and digits are not silently changed", "no provider query uses an invented model"]
+          }
+        },
+        {
+          "user": "我确认就是 Sony WH-1000XM5。",
+          "expected": {
+            "route": "lookup",
+            "operations": ["resolve_model_confirmation", "set_quote_target", "lookup_quotes"],
+            "providerCalls": 1,
+            "outcome": "QUOTE_LEADS",
+            "assertions": ["confirmed model is durably stored", "lookup uses the confirmed canonical model"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "punctuation_normalization_is_deterministic",
+      "capabilities": ["punctuation_normalization", "exact_model_lookup"],
+      "turns": [
+        {
+          "user": "查 Sony WH1000XM5 报价。",
+          "expected": {
+            "route": "lookup",
+            "operations": ["normalize_model_punctuation", "set_quote_target", "lookup_quotes"],
+            "providerCalls": 1,
+            "outcome": "QUOTE_LEADS",
+            "assertions": ["normalization trace preserves the original text", "normalized model equals WH-1000XM5"]
+          }
+        },
+        {
+          "user": "你改了哪些内容？",
+          "expected": {
+            "route": "talk",
+            "operations": ["inspect_target_normalization"],
+            "providerCalls": 0,
+            "outcome": "CHAT",
+            "assertions": ["only punctuation, spacing, case, or Unicode normalization is reported", "the original user text remains auditable"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "duplicate_records_form_one_merchant_page_lead",
+      "capabilities": ["merchant_page_grouping"],
+      "turns": [
+        {
+          "user": "查 Sony WH-1000XM5 翻新版报价。",
+          "environment": ["NINE_RECORDS_SAME_URL_AND_CONDITION"],
+          "expected": {
+            "route": "lookup",
+            "operations": ["set_quote_target", "set_condition:REFURBISHED", "lookup_quotes", "group_quote_observations"],
+            "providerCalls": 1,
+            "outcome": "QUOTE_LEADS",
+            "assertions": ["nine observations remain stored", "one QuoteLead is displayed", "price range and observation count are visible"]
+          }
+        },
+        {
+          "user": "这是九家商家吗？",
+          "expected": {
+            "route": "talk",
+            "operations": ["inspect_quote_lead_group"],
+            "providerCalls": 0,
+            "outcome": "CHAT",
+            "assertions": ["assistant explains these are records for one merchant page", "record count is not merchant count"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "complements_and_services_fail_closed",
+      "capabilities": ["reject_complement", "reject_service"],
+      "turns": [
+        {
+          "user": "查 Sony WH-1000XM5 报价。",
+          "environment": ["ONLY_ACCESSORY_AND_REPAIR_RECORDS"],
+          "expected": {
+            "route": "lookup",
+            "operations": ["set_quote_target", "lookup_quotes", "reject_non_primary_records"],
+            "providerCalls": 1,
+            "outcome": "NO_QUOTE_LEADS",
+            "assertions": ["all raw observations remain auditable", "reason is ALL_RECORDS_REJECTED rather than provider empty"]
+          }
+        },
+        {
+          "user": "那是不是没有卖？",
+          "expected": {
+            "route": "talk",
+            "operations": ["inspect_lookup_status"],
+            "providerCalls": 0,
+            "outcome": "CHAT",
+            "assertions": ["assistant says BuyWhere returned no eligible primary-product leads", "market absence is not claimed"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "provider_empty_is_not_degraded",
+      "capabilities": ["provider_empty"],
+      "turns": [
+        {
+          "user": "查 Apple AirPods Max USB-C A3184 报价。",
+          "environment": ["PROVIDER_OK_EMPTY"],
+          "expected": {
+            "route": "lookup",
+            "operations": ["set_quote_target", "lookup_quotes"],
+            "providerCalls": 1,
+            "outcome": "NO_QUOTE_LEADS",
+            "assertions": ["reason is PROVIDER_RETURNED_EMPTY", "response is not presented as global market absence"]
+          }
+        },
+        {
+          "user": "再查一次。",
+          "expected": {
+            "route": "lookup",
+            "operations": ["refresh_quotes"],
+            "providerCalls": 1,
+            "outcome": "NO_QUOTE_LEADS",
+            "assertions": ["a new observation is created", "old empty result is not treated as the refresh"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "provider_degraded_does_not_become_empty",
+      "capabilities": ["provider_degraded", "explicit_refresh"],
+      "turns": [
+        {
+          "user": "查 Samsung Galaxy S24 SM-S921B 256GB 报价。",
+          "environment": ["PROVIDER_DEGRADED"],
+          "expected": {
+            "route": "lookup",
+            "operations": ["set_quote_target", "lookup_quotes"],
+            "providerCalls": 1,
+            "outcome": "DEGRADED",
+            "assertions": ["no-match is not claimed", "provider status and retryability are recorded"]
+          }
+        },
+        {
+          "user": "现在刷新。",
+          "environment": ["PROVIDER_RECOVERED"],
+          "expected": {
+            "route": "lookup",
+            "operations": ["refresh_quotes"],
+            "providerCalls": 1,
+            "outcome": "QUOTE_LEADS",
+            "assertions": ["recovered observation is distinct", "degraded artifact remains auditable"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "fx_is_optional_for_original_quote",
+      "capabilities": ["fx_optional"],
+      "turns": [
+        {
+          "user": "查 Dyson TP09 报价。",
+          "environment": ["PROVIDER_RETURNS_USD", "FX_UNAVAILABLE"],
+          "expected": {
+            "route": "lookup",
+            "operations": ["set_quote_target", "lookup_quotes", "attempt_fx_projection"],
+            "providerCalls": 1,
+            "outcome": "QUOTE_LEADS",
+            "assertions": ["USD amount remains visible", "CNY estimate is unavailable rather than invented"]
+          }
+        },
+        {
+          "user": "人民币大约多少？",
+          "expected": {
+            "route": "talk",
+            "operations": ["inspect_fx_projection"],
+            "providerCalls": 0,
+            "outcome": "CHAT",
+            "assertions": ["assistant says current FX evidence is unavailable", "original quote is preserved"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "exclusion_and_refresh_have_different_call_semantics",
+      "capabilities": ["exclude_existing_lead", "explicit_refresh"],
+      "turns": [
+        {
+          "user": "查 Logitech MX Master 3S 910-006559 报价。",
+          "expected": {
+            "route": "lookup",
+            "operations": ["set_quote_target", "lookup_quotes"],
+            "providerCalls": 1,
+            "outcome": "QUOTE_LEADS",
+            "assertions": ["QuoteLeadSet has stable refs", "merchant-page handoffs remain source-grounded"]
+          }
+        },
+        {
+          "user": "排除第一条，然后刷新报价。",
+          "expected": {
+            "route": "lookup",
+            "operations": ["exclude_rank:1", "refresh_quotes"],
+            "providerCalls": 1,
+            "outcome": "QUOTE_LEADS",
+            "assertions": ["exclusion binds before refresh", "refresh creates a new provider observation", "excluded merchant-page lead remains excluded"]
+          }
+        },
+        {
+          "user": "为什么那条仍然没有显示？",
+          "expected": {
+            "route": "talk",
+            "operations": ["inspect_excluded_quote_lead"],
+            "providerCalls": 0,
+            "outcome": "CHAT",
+            "assertions": ["the durable exclusion is explained", "no provider call is needed to inspect current state"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "target_correction_and_restart_recovery",
+      "capabilities": ["target_correction", "restart_recovery"],
+      "turns": [
+        {
+          "user": "查 Sony WH-1000XM5 报价。",
+          "expected": {
+            "route": "lookup",
+            "operations": ["set_quote_target:WH-1000XM5", "lookup_quotes"],
+            "providerCalls": 1,
+            "outcome": "QUOTE_LEADS",
+            "assertions": ["revision A and QuoteLeadSet A are committed", "the target and leads are bound to the same goal revision"]
+          }
+        },
+        {
+          "user": "不是 XM5，是 WH-1000XM4；worker 重启后重新查。",
+          "environment": ["WORKER_RESTART"],
+          "expected": {
+            "route": "lookup",
+            "operations": ["set_quote_target:WH-1000XM4", "invalidate_incompatible_quote_leads", "lookup_quotes"],
+            "providerCalls": 1,
+            "outcome": "QUOTE_LEADS",
+            "assertions": ["XM5 is not converted into an exclusion", "XM5 leads cannot enter XM4 QuoteLeadSet", "no process memory is required"]
+          }
+        },
+        {
+          "user": "现在会话中的型号和第一条报价是什么？",
+          "expected": {
+            "route": "talk",
+            "operations": ["inspect_quote_target", "bind_rank:1", "inspect_quote_lead"],
+            "providerCalls": 0,
+            "outcome": "CHAT",
+            "assertions": ["the restored target is WH-1000XM4", "the first lead belongs to the restored QuoteLeadSet"]
+          }
+        }
+      ]
+    }
+  ]
+}

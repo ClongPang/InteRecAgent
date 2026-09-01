@@ -1,0 +1,112 @@
+{
+  "fixtureVersion": 1,
+  "captureKind": "SANITIZED_LIVE_BUYWHERE_MCP_V2",
+  "canonicalQuery": "Sony WH-1000XM5 headphones",
+  "serviceMarket": "SG",
+  "providerStatus": "OK_RESULTS",
+  "providerContractVersion": "buywhere-mcp-v2-quote-records-v1",
+  "sourceArtifactRef": "sha256:124406daf0aecc1855dd65ac5e96bf9ddd41621698798fe9f55f408097a1f8db",
+  "sourceObservedAt": "2026-09-01T03:48:40.894Z",
+  "sanitization": "Selected commerce fields retained; provider ids hashed; tracking parameters and outbound redirects removed.",
+  "records": [
+    {
+      "id": "captured-32dd0123e438",
+      "title": "Sony WH-1000XM5 XM5 Wireless Noise-Canceling Over-the-Ear Headphones - Refurbished",
+      "price": { "amount": 215, "currency": "USD" },
+      "merchant": "shopify",
+      "url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "outbound_url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "country_code": "SG",
+      "updated_at": null,
+      "condition": null
+    },
+    {
+      "id": "captured-9d411406c7f8",
+      "title": "Sony WH-1000XM5 XM5 Wireless Noise-Canceling Over-the-Ear Headphones - Refurbished",
+      "price": { "amount": 230, "currency": "USD" },
+      "merchant": "shopify",
+      "url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "outbound_url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "country_code": "SG",
+      "updated_at": null,
+      "condition": null
+    },
+    {
+      "id": "captured-6be85bcaa8ca",
+      "title": "Sony WH-1000XM5 XM5 Wireless Noise-Canceling Over-the-Ear Headphones - Refurbished",
+      "price": { "amount": 235, "currency": "USD" },
+      "merchant": "shopify",
+      "url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "outbound_url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "country_code": "SG",
+      "updated_at": null,
+      "condition": null
+    },
+    {
+      "id": "captured-c9e743aa26bf",
+      "title": "Sony WH-1000XM5 XM5 Wireless Noise-Canceling Over-the-Ear Headphones - Refurbished",
+      "price": { "amount": 239.99, "currency": "USD" },
+      "merchant": "shopify",
+      "url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "outbound_url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "country_code": "SG",
+      "updated_at": null,
+      "condition": null
+    },
+    {
+      "id": "captured-dc2cb922909e",
+      "title": "Sony WH-1000XM5 XM5 Wireless Noise-Canceling Over-the-Ear Headphones - Refurbished",
+      "price": { "amount": 240, "currency": "USD" },
+      "merchant": "shopify",
+      "url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "outbound_url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "country_code": "SG",
+      "updated_at": null,
+      "condition": null
+    },
+    {
+      "id": "captured-218759eb3ec2",
+      "title": "Sony WH-1000XM5 XM5 Wireless Noise-Canceling Over-the-Ear Headphones - Refurbished",
+      "price": { "amount": 245, "currency": "USD" },
+      "merchant": "shopify",
+      "url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "outbound_url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "country_code": "SG",
+      "updated_at": null,
+      "condition": null
+    },
+    {
+      "id": "captured-3e4b4bd51af2",
+      "title": "Sony WH-1000XM5 XM5 Wireless Noise-Canceling Over-the-Ear Headphones - Refurbished",
+      "price": { "amount": 245, "currency": "USD" },
+      "merchant": "shopify",
+      "url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "outbound_url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "country_code": "SG",
+      "updated_at": null,
+      "condition": null
+    },
+    {
+      "id": "captured-5e99c270c5c9",
+      "title": "Sony WH-1000XM5 XM5 Wireless Noise-Canceling Over-the-Ear Headphones - Refurbished",
+      "price": { "amount": 249.99, "currency": "USD" },
+      "merchant": "shopify",
+      "url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "outbound_url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "country_code": "SG",
+      "updated_at": null,
+      "condition": null
+    },
+    {
+      "id": "captured-fff0e2b3fae2",
+      "title": "Sony WH-1000XM5 XM5 Wireless Noise-Canceling Over-the-Ear Headphones - Refurbished",
+      "price": { "amount": 249.99, "currency": "USD" },
+      "merchant": "shopify",
+      "url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "outbound_url": "https://joesge.myshopify.com/products/sony-wh1000xm5-wireless-noise-canceling-over-the-ear-headphones-refurbished",
+      "country_code": "SG",
+      "updated_at": null,
+      "condition": null
+    }
+  ]
+}

@@ -7,5 +7,10 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "references": [{ "path": "../domain" }],
-  "include": ["src/**/*.ts"]
+  "include": [
+    "src/index.ts",
+    "src/agent-observation.ts",
+    "src/quote-*.ts",
+    "src/schemas.ts"
+  ]
 }

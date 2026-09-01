@@ -29,8 +29,8 @@ api-dev: ## Start the Conversation API
 worker-dev: ## Start the durable Conversation worker
 	$(NPM) run dev:worker
 
-architecture: ## Assert that every active surface points to TypeScript/pi-agent
-	$(NPM) run architecture:check
+architecture: ## Assert the quote-only dependency and build boundaries
+	$(NPM) run architecture:active:check
 
 unit: ## Run deterministic tests without PostgreSQL
 	$(NPM) run test:unit

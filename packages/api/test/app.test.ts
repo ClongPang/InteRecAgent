@@ -1,7 +1,7 @@
 import { createHmac, randomUUID } from "node:crypto";
 
 import { afterEach, describe, expect, it } from "vitest";
-import { emptyDialogueState, type ConversationState } from "@interec/domain";
+import { emptyQuoteConversationState, type ConversationState } from "@interec/domain";
 import type {
   AcceptedConversationTurn,
   ConversationEventRecord,
@@ -23,11 +23,11 @@ class ApiRepositoryStub {
   public messages: ConversationMessageRecord[] = [];
   public events: ConversationEventRecord[] = [];
   public turn: ConversationTurnRecord | null = null;
-  public readonly state: ConversationState = { revision: 0, status: "OPEN", goalRevision: null, dialogue: emptyDialogueState(), workingSet: null };
+  public readonly state: ConversationState = { revision: 0, status: "OPEN", quote: emptyQuoteConversationState() };
 
   public async createConversation(claims: OwnerClaims): Promise<ConversationRecord> {
     const now = new Date().toISOString();
-    this.conversation = { id: randomUUID(), owner: claims, status: "OPEN", currentRevision: 0, messageCursor: 0, eventCursor: 0, activeTurnId: null, createdAt: now, updatedAt: now };
+    this.conversation = { id: randomUUID(), owner: claims, status: "OPEN", contractVersion: "quote-leads-sg-v1", currentRevision: 0, messageCursor: 0, eventCursor: 0, activeTurnId: null, createdAt: now, updatedAt: now };
     return this.conversation;
   }
 
@@ -116,7 +116,7 @@ describe("Conversation API", () => {
       method: "POST",
       url: `/api/conversations/${conversationId}/turns`,
       headers,
-      payload: { clientTurnId: "turn-1", expectedRevision: 0, input: { type: "MESSAGE", content: "比较美国和新加坡的耳机" } },
+      payload: { clientTurnId: "turn-1", expectedRevision: 0, input: { type: "MESSAGE", content: "查 Sony WH-1000XM5 报价" } },
     });
     expect(accepted).toMatchObject({ statusCode: 202 });
     const projection = await app.inject({ method: "GET", url: `/api/conversations/${conversationId}`, headers });
@@ -128,6 +128,21 @@ describe("Conversation API", () => {
     });
     const hidden = await app.inject({ method: "GET", url: `/api/conversations/${conversationId}`, headers: { authorization: "Bearer other" } });
     expect(hidden.statusCode).toBe(404);
+  });
+
+  it("rejects every retired structured shopping input at the HTTP schema boundary", async () => {
+    const repository = new ApiRepositoryStub();
+    const app = createConversationApp({ repository: repository as unknown as ConversationRepository, identityVerifier: verifier });
+    apps.push(app);
+    const created = await app.inject({ method: "POST", url: "/api/conversations", headers: { authorization: "Bearer owner" } });
+    const conversationId = created.json().conversation.id as string;
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/conversations/${conversationId}/turns`,
+      headers: { authorization: "Bearer owner" },
+      payload: { clientTurnId: "legacy-turn", input: { type: "SET_COMPARISON", offerRefs: ["a", "b"] } },
+    });
+    expect(rejected.statusCode).toBe(400);
   });
 
   it("resumes the Conversation event stream strictly after Last-Event-ID", async () => {

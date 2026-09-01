@@ -3,15 +3,22 @@ import { dirname, resolve } from "node:path";
 
 const documentationFiles = [
   "README.md",
-  "docs/project-architecture-interview-guide.md",
-  "docs/acceptance/search-attempt-coverage-implementation-2026-08-29.md",
+  "docs/quote-lead-refactor-execution-plan.md",
+  "docs/adr/0007-singapore-known-model-quote-leads.md",
+  "docs/adr/0008-maintainable-module-architecture.md",
+  "docs/acceptance/quote-lead-phase-0-baseline-2026-09-01.md",
+  "docs/acceptance/quote-lead-phase-1-provider-2026-09-01.md",
+  "docs/acceptance/quote-lead-phase-2-domain-evidence-2026-09-01.md",
+  "docs/acceptance/quote-lead-phase-3-agent-api-ui-2026-09-01.md",
+  "docs/acceptance/quote-lead-phase-4-single-implementation-quality-2026-09-01.md",
+  "docs/acceptance/quote-lead-phase-5-live-final-2026-09-01.md",
 ];
 
 const retiredActiveNames = [
-  "RESEARCH_OFFERS",
-  "INSPECT_RESEARCH_COVERAGE",
-  "GOAL_BECAME_RESEARCH_READY",
-  "packages/agent/src/intent-compiler.ts",
+  "packages/agent/src/turn-agent.ts",
+  "packages/agent/src/conversation-turn-executor.ts",
+  "packages/runtime/src/conversation-offer-search-service.ts",
+  "packages/runtime/src/providers.ts",
 ];
 
 const failures = [];
