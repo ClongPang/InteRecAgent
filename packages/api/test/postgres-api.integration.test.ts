@@ -6,6 +6,7 @@ import {
   ConversationWorker,
   PostgresConversationRepository,
   PostgresProviderCallController,
+  PostgresQuoteLookupRepository,
   QUOTE_PROVIDER_CONTRACT_VERSION,
   runConversationMigrations,
   type OwnerClaims,
@@ -88,6 +89,15 @@ suite("PostgreSQL quote Conversation API vertical slice", () => {
             opId: "set-target",
             kind: "SET_QUOTE_TARGET",
             sourceMessageOrdinal: 0,
+            identityHypothesis: {
+              sourceMessageOrdinal: 0,
+              model: { value: "WH-1000XM5", span: { start: 5, end: 15 } },
+              brand: { value: "Sony", span: { start: 0, end: 4 } },
+              productType: { value: "headphones", span: { start: 16, end: 26 } },
+              qualifiers: [],
+              selectedVariantRef: "variant_sony_wh1000xm5",
+              confidence: 0.99,
+            },
             target: {
               proposedModel: "WH-1000XM5",
               brand: "Sony",
@@ -120,7 +130,14 @@ suite("PostgreSQL quote Conversation API vertical slice", () => {
         revision: 1,
         quote: {
           contractVersion: "quote-leads-sg-v1",
-          target: { canonicalModel: "WH-1000XM5" },
+          target: {
+            canonicalModel: "WH-1000XM5",
+            identity: {
+              strength: "CURATED_ALIAS",
+              registryVersion: 1,
+              variantRef: "variant_sony_wh1000xm5",
+            },
+          },
           leadSet: {
             outcome: "QUOTE_LEADS",
             providerStatus: "OK_RESULTS",
@@ -135,6 +152,22 @@ suite("PostgreSQL quote Conversation API vertical slice", () => {
     });
     expect(JSON.stringify(projection.json().projection.state.quote)).not.toContain("rawRecord");
     expect(JSON.stringify(projection.json().projection.state.quote)).not.toContain("availability");
+    const quoteLeadSetRef = projection.json().projection.state.quote.leadSet.quoteLeadSetRef as string;
+    const persisted = await new PostgresQuoteLookupRepository(repository.pool)
+      .loadQuoteLeadSet(owner, conversationId, quoteLeadSetRef);
+    expect(persisted).toMatchObject({
+      admissions: [{
+        status: "ELIGIBLE",
+        policyVersion: "quote-admission-v2",
+        identityStrength: "CURATED_TITLE_ALIAS_MATCH",
+        identityEvidenceRefs: expect.arrayContaining(["alias_user_sony_wh1000xm5"]),
+      }],
+      leads: [{
+        admissionPolicyVersion: "quote-admission-v2",
+        identityStrength: "CURATED_TITLE_ALIAS_MATCH",
+        identityEvidenceRefs: expect.arrayContaining(["alias_user_sony_wh1000xm5"]),
+      }],
+    });
     const hidden = await app.inject({ method: "GET", url: `/api/conversations/${conversationId}`, headers: { authorization: "Bearer other" } });
     expect(hidden.statusCode).toBe(404);
 

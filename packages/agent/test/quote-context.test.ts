@@ -91,6 +91,34 @@ describe("quote conversation context projection", () => {
     expect(projection.runtime.estimatedInputTokens).toBeGreaterThan(0);
   });
 
+  it("projects only validated host identity candidates and caps the allowlist", () => {
+    const candidates = Array.from({ length: 24 }, (_, index) => ({
+      registryVersion: 7,
+      brandRef: "brand_sony",
+      productRef: "product_sony_wh1000x",
+      variantRef: `variant_sony_${index}`,
+      canonicalModel: `WH-1000XM${index}`,
+      evidenceRefs: [`alias_sony_${index}`],
+    }));
+    const projection = projectQuoteConversationContext({
+      state: emptyQuoteConversationState(),
+      currentUserMessages: ["Sony WH-1000XM5"],
+      identityCandidates: candidates,
+      now: "2026-09-01T00:00:00.000Z",
+      modelId: "faux-model",
+      providerCallBudget: 1,
+    });
+    expect(projection.identityCandidates).toEqual(candidates.slice(0, 20));
+    expect(() => projectQuoteConversationContext({
+      state: emptyQuoteConversationState(),
+      currentUserMessages: ["Sony WH-1000XM5"],
+      identityCandidates: [{ ...candidates[0]!, evidenceRefs: [] }],
+      now: "2026-09-01T00:00:00.000Z",
+      modelId: "faux-model",
+      providerCallBudget: 1,
+    })).toThrow("IDENTITY_CANDIDATE_ALLOWLIST_INVALID");
+  });
+
   it("projects pending confirmation without exposing the complete internal proposal", () => {
     const state = {
       ...emptyQuoteConversationState(1),

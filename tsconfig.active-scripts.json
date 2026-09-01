@@ -9,9 +9,15 @@
   },
   "include": [
     "scripts/probe_quote_provider.ts",
+    "scripts/identity-grounded-trajectory-fixtures.ts",
+    "scripts/identity-grounded-identity-fixture.ts",
     "scripts/quote_live_acceptance_controlled.ts",
     "scripts/quote_live_acceptance_history.ts",
+    "scripts/quote_live_acceptance_identity.ts",
     "scripts/quote_live_acceptance_support.ts",
+    "scripts/run_identity_grounded_trajectories.ts",
+    "scripts/run_identity_resolution_shadow_replay.ts",
+    "scripts/run_identity_mutations.ts",
     "scripts/run_quote_live_acceptance.ts"
   ]
 }

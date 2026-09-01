@@ -1,0 +1,323 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "identity-grounded-quote-v1",
+  "baseProductContract": "quote-leads-sg-v1",
+  "routeVocabulary": ["talk", "clarify", "quote_followup", "quote_lookup"],
+  "forbiddenReplyFragments": ["全网最低", "当前最低", "最便宜", "产品推荐", "购买推荐", "currently in stock", "delivery confirmed"],
+  "trajectories": [
+    {
+      "id": "exact_lookup_compare_exclude_refresh",
+      "turns": [
+        {
+          "id": "lookup",
+          "user": "帮我查 Sony WH-1000XM5 的报价。",
+          "proposal": {
+            "userIntentSummary": "look up a lexically grounded exact model",
+            "ops": [
+              { "opId": "target", "kind": "SET_QUOTE_TARGET", "sourceMessageOrdinal": 0, "target": { "proposedModel": "WH-1000XM5", "brand": "Sony", "productType": null, "requiredQualifiers": [], "conditionPreference": "ANY" } },
+              { "opId": "lookup", "kind": "LOOKUP_QUOTES" }
+            ]
+          },
+          "providerFixture": "RESULTS_TWO",
+          "expected": { "route": "quote_lookup", "operationKinds": ["SET_QUOTE_TARGET", "LOOKUP_QUOTES"], "providerCalls": 1, "outcome": "QUOTE_LEADS", "state": { "targetModel": "WH-1000XM5", "leadOutcome": "QUOTE_LEADS", "displayCount": 2, "excludedCount": 0, "comparisonCount": 0, "identityStrength": "CURATED_ALIAS", "identityRegistryVersion": 1, "identityEvidenceRefs": ["alias_provider_sony_wh1000xm5", "alias_user_sony_wh1000xm5"] }, "replyIncludes": ["商家页"], "disclosureCodes": ["MERCHANT_PAGE_CHECK_REQUIRED", "AFFILIATE_LINK_DISCLOSURE"] }
+        },
+        {
+          "id": "compare",
+          "user": "比较第一条和第二条。",
+          "proposal": {
+            "userIntentSummary": "compare two current quote leads",
+            "ops": [
+              { "opId": "compare", "kind": "SET_QUOTE_COMPARISON", "referents": [{ "kind": "DISPLAY_RANK", "rank": 1 }, { "kind": "DISPLAY_RANK", "rank": 2 }] }
+            ]
+          },
+          "expected": { "route": "quote_followup", "operationKinds": ["SET_QUOTE_COMPARISON"], "providerCalls": 0, "outcome": "CHAT", "state": { "targetModel": "WH-1000XM5", "displayCount": 2, "comparisonCount": 2 }, "replyIncludes": ["没有重新调用报价服务", "不是商品优劣排序"] }
+        },
+        {
+          "id": "exclude_and_refresh",
+          "user": "排除第一条，然后刷新报价。",
+          "proposal": {
+            "userIntentSummary": "exclude first current lead and explicitly refresh",
+            "ops": [
+              { "opId": "exclude", "kind": "EXCLUDE_QUOTE_LEADS", "referents": [{ "kind": "DISPLAY_RANK", "rank": 1 }] },
+              { "opId": "refresh", "kind": "REFRESH_QUOTES" }
+            ]
+          },
+          "providerFixture": "RESULTS_TWO",
+          "expected": { "route": "quote_lookup", "operationKinds": ["EXCLUDE_QUOTE_LEADS", "REFRESH_QUOTES"], "providerCalls": 1, "outcome": "QUOTE_LEADS", "state": { "targetModel": "WH-1000XM5", "displayCount": 1, "excludedCount": 1 }, "replyIncludes": ["商家页"] }
+        },
+        {
+          "id": "inspect_exclusion",
+          "user": "为什么那条仍然没有显示？",
+          "proposal": {
+            "userIntentSummary": "inspect the excluded quote lead",
+            "ops": [
+              { "opId": "inspect", "kind": "INSPECT_QUOTE_LEADS", "referents": [{ "kind": "QUOTE_LEAD_REF", "quoteLeadRef": "ql_merchant_a_new" }] }
+            ]
+          },
+          "expected": { "route": "quote_followup", "operationKinds": ["INSPECT_QUOTE_LEADS"], "providerCalls": 0, "outcome": "CHAT", "state": { "displayCount": 1, "excludedCount": 1 }, "replyIncludes": ["已在当前会话中排除", "没有重新调用报价服务"] }
+        }
+      ]
+    },
+    {
+      "id": "punctuation_normalization_is_auditable",
+      "turns": [
+        {
+          "id": "normalized_lookup",
+          "user": "查 Sony WH1000XM5 报价。",
+          "proposal": {
+            "userIntentSummary": "look up punctuation alias without changing alphanumerics",
+            "ops": [
+              { "opId": "target", "kind": "SET_QUOTE_TARGET", "sourceMessageOrdinal": 0, "target": { "proposedModel": "WH1000XM5", "brand": "Sony", "productType": null, "requiredQualifiers": [], "conditionPreference": "ANY" } },
+              { "opId": "lookup", "kind": "LOOKUP_QUOTES" }
+            ]
+          },
+          "providerFixture": "RESULTS_ONE",
+          "expected": { "route": "quote_lookup", "operationKinds": ["SET_QUOTE_TARGET", "LOOKUP_QUOTES"], "providerCalls": 1, "outcome": "QUOTE_LEADS", "state": { "targetModel": "WH-1000XM5", "normalizationChanges": ["MODEL_CASE_OR_PUNCTUATION_NORMALIZED"], "displayCount": 1 }, "replyIncludes": ["商家页"] }
+        },
+        {
+          "id": "inspect_normalization",
+          "user": "你改了哪些内容？",
+          "proposal": { "userIntentSummary": "inspect target normalization", "ops": [{ "opId": "inspect", "kind": "INSPECT_QUOTE_STATUS" }] },
+          "expected": { "route": "talk", "operationKinds": ["INSPECT_QUOTE_STATUS"], "providerCalls": 0, "outcome": "CHAT", "state": { "targetModel": "WH-1000XM5", "displayCount": 1 }, "replyIncludes": ["未改动型号字母或数字", "MODEL_CASE_OR_PUNCTUATION_NORMALIZED"] }
+        }
+      ]
+    },
+    {
+      "id": "abbreviation_requires_explicit_confirmation",
+      "turns": [
+        {
+          "id": "ask_confirmation",
+          "user": "查 Sony XM5 耳机报价。",
+          "proposal": {
+            "userIntentSummary": "propose expansion but do not look up",
+            "ops": [
+              { "opId": "target", "kind": "SET_QUOTE_TARGET", "sourceMessageOrdinal": 0, "identityHypothesis": { "sourceMessageOrdinal": 0, "model": { "value": "XM5", "span": { "start": 7, "end": 10 } }, "brand": { "value": "Sony", "span": { "start": 2, "end": 6 } }, "productType": null, "qualifiers": [], "selectedVariantRef": null, "confidence": 0.93 }, "target": { "proposedModel": "WH-1000XM5", "brand": "Sony", "productType": null, "requiredQualifiers": [], "conditionPreference": "ANY" } },
+              { "opId": "clarify", "kind": "REQUEST_QUOTE_MODEL_CONFIRMATION" }
+            ]
+          },
+          "expected": { "route": "clarify", "operationKinds": ["SET_QUOTE_TARGET", "REQUEST_QUOTE_MODEL_CONFIRMATION"], "providerCalls": 0, "outcome": "CLARIFICATION", "state": { "targetModel": null, "pendingModel": "WH-1000XM5", "displayCount": 0 }, "replyIncludes": ["确认前我不会调用报价服务"] }
+        },
+        {
+          "id": "confirm_and_lookup",
+          "user": "确认，就是 WH-1000XM5。",
+          "proposal": {
+            "userIntentSummary": "confirm pending exact model then look up",
+            "ops": [
+              { "opId": "confirm", "kind": "CONFIRM_QUOTE_TARGET", "confirmationId": "$PENDING_CONFIRMATION_ID" },
+              { "opId": "lookup", "kind": "LOOKUP_QUOTES" }
+            ]
+          },
+          "providerFixture": "RESULTS_ONE",
+          "expected": { "route": "quote_lookup", "operationKinds": ["CONFIRM_QUOTE_TARGET", "LOOKUP_QUOTES"], "providerCalls": 1, "outcome": "QUOTE_LEADS", "state": { "targetModel": "WH-1000XM5", "pendingModel": null, "displayCount": 1, "identityStrength": "CURATED_ALIAS", "identityRegistryVersion": 1, "identityEvidenceRefs": ["alias_provider_sony_wh1000xm5", "alias_user_sony_wh1000xm5", "alias_user_sony_xm5"] }, "replyIncludes": ["商家页"] }
+        }
+      ]
+    },
+    {
+      "id": "unsupported_roles_fail_closed",
+      "turns": [
+        {
+          "id": "accessory",
+          "user": "查 Sony WH-1000XM5 替换耳罩报价。",
+          "proposal": { "userIntentSummary": "decline accessory quote", "ops": [{ "opId": "decline", "kind": "DECLINE_UNSUPPORTED_QUOTE_TARGET", "reasonCode": "ACCESSORY_OR_PART" }] },
+          "expected": { "route": "talk", "operationKinds": ["DECLINE_UNSUPPORTED_QUOTE_TARGET"], "providerCalls": 0, "outcome": "CHAT", "state": { "targetModel": null, "displayCount": 0 }, "replyIncludes": ["不查询配件或替换零件报价"] }
+        },
+        {
+          "id": "service",
+          "user": "帮我找 WH-1000XM5 维修服务。",
+          "proposal": { "userIntentSummary": "decline repair service", "ops": [{ "opId": "decline", "kind": "DECLINE_UNSUPPORTED_QUOTE_TARGET", "reasonCode": "SERVICE" }] },
+          "expected": { "route": "talk", "operationKinds": ["DECLINE_UNSUPPORTED_QUOTE_TARGET"], "providerCalls": 0, "outcome": "CHAT", "state": { "targetModel": null, "displayCount": 0 }, "replyIncludes": ["不查询维修或服务报价"] }
+        }
+      ]
+    },
+    {
+      "id": "empty_refresh_remains_empty_observation",
+      "turns": [
+        {
+          "id": "empty",
+          "user": "查 Apple AirPods Max A3184 报价。",
+          "proposal": {
+            "userIntentSummary": "look up exact Apple model",
+            "ops": [
+              { "opId": "target", "kind": "SET_QUOTE_TARGET", "sourceMessageOrdinal": 0, "target": { "proposedModel": "A3184", "brand": "Apple", "productType": null, "requiredQualifiers": [], "conditionPreference": "ANY" } },
+              { "opId": "lookup", "kind": "LOOKUP_QUOTES" }
+            ]
+          },
+          "providerFixture": "EMPTY",
+          "expected": { "route": "quote_lookup", "operationKinds": ["SET_QUOTE_TARGET", "LOOKUP_QUOTES"], "providerCalls": 1, "outcome": "NO_QUOTE_LEADS", "state": { "targetModel": "A3184", "leadOutcome": "NO_QUOTE_LEADS", "displayCount": 0 }, "replyIncludes": ["不表示新加坡市场没有"], "disclosureCodes": ["PROVIDER_RESULT_NOT_MARKET_ABSENCE"] }
+        },
+        {
+          "id": "explicit_refresh",
+          "user": "再查一次。",
+          "proposal": { "userIntentSummary": "explicitly refresh current exact target", "ops": [{ "opId": "refresh", "kind": "REFRESH_QUOTES" }] },
+          "providerFixture": "EMPTY",
+          "expected": { "route": "quote_lookup", "operationKinds": ["REFRESH_QUOTES"], "providerCalls": 1, "outcome": "NO_QUOTE_LEADS", "state": { "targetModel": "A3184", "leadOutcome": "NO_QUOTE_LEADS", "displayCount": 0 }, "replyIncludes": ["一次空观测", "不表示新加坡市场没有"] }
+        }
+      ]
+    },
+    {
+      "id": "degraded_then_recovered",
+      "turns": [
+        {
+          "id": "degraded",
+          "user": "查 Samsung SM-S921B 256GB 报价。",
+          "proposal": {
+            "userIntentSummary": "look up exact Samsung variant",
+            "ops": [
+              { "opId": "target", "kind": "SET_QUOTE_TARGET", "sourceMessageOrdinal": 0, "target": { "proposedModel": "SM-S921B", "brand": "Samsung", "productType": null, "requiredQualifiers": ["256GB"], "conditionPreference": "ANY" } },
+              { "opId": "lookup", "kind": "LOOKUP_QUOTES" }
+            ]
+          },
+          "providerFixture": "DEGRADED",
+          "expected": { "route": "quote_lookup", "operationKinds": ["SET_QUOTE_TARGET", "LOOKUP_QUOTES"], "providerCalls": 1, "outcome": "DEGRADED", "state": { "targetModel": "SM-S921B", "leadOutcome": "DEGRADED", "displayCount": 0 }, "replyIncludes": ["未能完成", "不表示新加坡市场没有"], "disclosureCodes": ["PROVIDER_RESULT_NOT_MARKET_ABSENCE"] }
+        },
+        {
+          "id": "recovered",
+          "user": "现在刷新报价。",
+          "proposal": { "userIntentSummary": "refresh after provider recovery", "ops": [{ "opId": "refresh", "kind": "REFRESH_QUOTES" }] },
+          "providerFixture": "RESULTS_ONE",
+          "expected": { "route": "quote_lookup", "operationKinds": ["REFRESH_QUOTES"], "providerCalls": 1, "outcome": "QUOTE_LEADS", "state": { "targetModel": "SM-S921B", "leadOutcome": "QUOTE_LEADS", "displayCount": 1 }, "replyIncludes": ["商家页"] }
+        }
+      ]
+    },
+    {
+      "id": "grouped_records_and_optional_fx_are_explained",
+      "turns": [
+        {
+          "id": "grouped_lookup",
+          "user": "查 Sony WH-1000XM5 翻新版报价。",
+          "proposal": {
+            "userIntentSummary": "look up refurbished exact model",
+            "ops": [
+              { "opId": "target", "kind": "SET_QUOTE_TARGET", "sourceMessageOrdinal": 0, "target": { "proposedModel": "WH-1000XM5", "brand": "Sony", "productType": null, "requiredQualifiers": [], "conditionPreference": "REFURBISHED" } },
+              { "opId": "lookup", "kind": "LOOKUP_QUOTES" }
+            ]
+          },
+          "providerFixture": "GROUPED_NO_FX",
+          "expected": { "route": "quote_lookup", "operationKinds": ["SET_QUOTE_TARGET", "LOOKUP_QUOTES"], "providerCalls": 1, "outcome": "QUOTE_LEADS", "state": { "targetModel": "WH-1000XM5", "leadOutcome": "QUOTE_LEADS", "displayCount": 1, "leadObservationCounts": [9] }, "replyIncludes": ["商家页"] }
+        },
+        {
+          "id": "inspect_group_and_fx",
+          "user": "这是九家商家吗？人民币大约多少？",
+          "proposal": { "userIntentSummary": "inspect grouped lead and current FX evidence", "ops": [{ "opId": "inspect", "kind": "INSPECT_QUOTE_LEADS", "referents": [{ "kind": "DISPLAY_RANK", "rank": 1 }] }] },
+          "expected": { "route": "quote_followup", "operationKinds": ["INSPECT_QUOTE_LEADS"], "providerCalls": 0, "outcome": "CHAT", "state": { "displayCount": 1, "leadObservationCounts": [9] }, "replyIncludes": ["观测条数不是商家数量", "当前没有可发布的 CNY 汇率估算", "没有重新调用报价服务"] }
+        }
+      ]
+    },
+    {
+      "id": "target_correction_invalidates_old_leads",
+      "turns": [
+        {
+          "id": "xm5",
+          "user": "查 Sony WH-1000XM5 报价。",
+          "proposal": {
+            "userIntentSummary": "look up XM5",
+            "ops": [
+              { "opId": "target", "kind": "SET_QUOTE_TARGET", "sourceMessageOrdinal": 0, "target": { "proposedModel": "WH-1000XM5", "brand": "Sony", "productType": null, "requiredQualifiers": [], "conditionPreference": "ANY" } },
+              { "opId": "lookup", "kind": "LOOKUP_QUOTES" }
+            ]
+          },
+          "providerFixture": "RESULTS_ONE",
+          "expected": { "route": "quote_lookup", "operationKinds": ["SET_QUOTE_TARGET", "LOOKUP_QUOTES"], "providerCalls": 1, "outcome": "QUOTE_LEADS", "state": { "targetModel": "WH-1000XM5", "displayCount": 1 } }
+        },
+        {
+          "id": "xm4",
+          "user": "不是 XM5，是 Sony WH-1000XM4，重新查。",
+          "proposal": {
+            "userIntentSummary": "correct target to exact XM4",
+            "ops": [
+              { "opId": "target", "kind": "SET_QUOTE_TARGET", "sourceMessageOrdinal": 0, "target": { "proposedModel": "WH-1000XM4", "brand": "Sony", "productType": null, "requiredQualifiers": [], "conditionPreference": "ANY" } },
+              { "opId": "lookup", "kind": "LOOKUP_QUOTES" }
+            ]
+          },
+          "providerFixture": "RESULTS_ONE",
+          "expected": { "route": "quote_lookup", "operationKinds": ["SET_QUOTE_TARGET", "LOOKUP_QUOTES"], "providerCalls": 1, "outcome": "QUOTE_LEADS", "state": { "targetModel": "WH-1000XM4", "displayCount": 1, "excludedCount": 0, "comparisonCount": 0 } }
+        },
+        {
+          "id": "inspect_current_target",
+          "user": "现在的型号和第一条报价是什么？",
+          "proposal": { "userIntentSummary": "inspect restored current target and first lead", "ops": [{ "opId": "status", "kind": "INSPECT_QUOTE_STATUS" }, { "opId": "lead", "kind": "INSPECT_QUOTE_LEADS", "referents": [{ "kind": "DISPLAY_RANK", "rank": 1 }] }] },
+          "expected": { "route": "quote_followup", "operationKinds": ["INSPECT_QUOTE_STATUS", "INSPECT_QUOTE_LEADS"], "providerCalls": 0, "outcome": "CHAT", "state": { "targetModel": "WH-1000XM4", "displayCount": 1 }, "replyIncludes": ["当前已发布观测", "WH-1000XM4"] }
+        }
+      ]
+    }
+  ],
+  "effectFailures": [
+    {
+      "id": "target_correction_provider_failure_is_atomic",
+      "baseFixture": "RESULTS_ONE",
+      "user": "不是 XM5，是 Sony WH-1000XM4，重新查。",
+      "proposal": {
+        "userIntentSummary": "correct target then encounter provider failure",
+        "ops": [
+          { "opId": "target", "kind": "SET_QUOTE_TARGET", "sourceMessageOrdinal": 0, "target": { "proposedModel": "WH-1000XM4", "brand": "Sony", "productType": null, "requiredQualifiers": [], "conditionPreference": "ANY" } },
+          { "opId": "lookup", "kind": "LOOKUP_QUOTES" }
+        ]
+      },
+      "providerError": "BUYWHERE_TIMEOUT",
+      "expected": { "providerCalls": 1, "outcome": "DEGRADED", "preservedTargetModel": "WH-1000XM5", "preservedLeadOutcome": "QUOTE_LEADS", "preservedDisplayCount": 1 }
+    }
+  ],
+  "rejectedPlans": [
+    {
+      "id": "changed_model_digit_cannot_lookup",
+      "user": "查 Sony WH-1000XM5 报价。",
+      "proposal": {
+        "userIntentSummary": "silently change one model digit",
+        "ops": [
+          { "opId": "target", "kind": "SET_QUOTE_TARGET", "sourceMessageOrdinal": 0, "identityHypothesis": { "sourceMessageOrdinal": 0, "model": { "value": "WH-1000XM5", "span": { "start": 7, "end": 17 } }, "brand": { "value": "Sony", "span": { "start": 2, "end": 6 } }, "productType": null, "qualifiers": [], "selectedVariantRef": null, "confidence": 0.99 }, "target": { "proposedModel": "WH-1000XM4", "brand": "Sony", "productType": null, "requiredQualifiers": [], "conditionPreference": "ANY" } },
+          { "opId": "lookup", "kind": "LOOKUP_QUOTES" }
+        ]
+      },
+      "expectedViolation": "IDENTITY_LOOKUP_REQUIRES_MODEL_LITERAL",
+      "providerCalls": 0
+    },
+    {
+      "id": "invented_condition_cannot_lookup",
+      "user": "查 Sony WH-1000XM5 报价。",
+      "proposal": {
+        "userIntentSummary": "invent new condition",
+        "ops": [
+          { "opId": "target", "kind": "SET_QUOTE_TARGET", "sourceMessageOrdinal": 0, "target": { "proposedModel": "WH-1000XM5", "brand": "Sony", "productType": null, "requiredQualifiers": [], "conditionPreference": "NEW" } },
+          { "opId": "lookup", "kind": "LOOKUP_QUOTES" }
+        ]
+      },
+      "expectedViolation": "QUOTE_CONDITION_NOT_GROUNDED",
+      "providerCalls": 0
+    },
+    {
+      "id": "accessory_cannot_be_relabelled_primary",
+      "user": "查 Sony WH-1000XM5 replacement ear pads 报价。",
+      "proposal": {
+        "userIntentSummary": "incorrectly look up an accessory as primary",
+        "ops": [
+          { "opId": "target", "kind": "SET_QUOTE_TARGET", "sourceMessageOrdinal": 0, "target": { "proposedModel": "WH-1000XM5", "brand": "Sony", "productType": null, "requiredQualifiers": [], "conditionPreference": "ANY" } },
+          { "opId": "lookup", "kind": "LOOKUP_QUOTES" }
+        ]
+      },
+      "expectedViolation": "QUOTE_PRIMARY_PRODUCT_REQUIRED",
+      "providerCalls": 0
+    },
+    {
+      "id": "implicit_refresh_is_rejected",
+      "baseFixture": "RESULTS_ONE",
+      "user": "第一条再详细一点。",
+      "proposal": { "userIntentSummary": "refresh without explicit request", "ops": [{ "opId": "refresh", "kind": "REFRESH_QUOTES" }] },
+      "expectedViolation": "QUOTE_REFRESH_NOT_EXPLICIT",
+      "providerCalls": 0
+    },
+    {
+      "id": "provider_call_budget_is_one",
+      "user": "查 Sony WH-1000XM5 报价。",
+      "proposal": {
+        "userIntentSummary": "attempt two provider calls",
+        "ops": [
+          { "opId": "target", "kind": "SET_QUOTE_TARGET", "sourceMessageOrdinal": 0, "target": { "proposedModel": "WH-1000XM5", "brand": "Sony", "productType": null, "requiredQualifiers": [], "conditionPreference": "ANY" } },
+          { "opId": "lookup", "kind": "LOOKUP_QUOTES" },
+          { "opId": "refresh", "kind": "REFRESH_QUOTES" }
+        ]
+      },
+      "expectedViolation": "MULTIPLE_QUOTE_PROVIDER_OPERATIONS",
+      "providerCalls": 0
+    }
+  ]
+}

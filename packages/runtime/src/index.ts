@@ -43,6 +43,14 @@ export {
   type ProviderCallLimits,
 } from "./provider-call-controller.js";
 export { PostgresConversationRepository } from "./postgres-conversation-repository.js";
+export { PostgresProductIdentityRegistry } from "./postgres-product-identity-registry.js";
+export {
+  compareIdentityResolutionShadow,
+  recordIdentityResolution,
+  recordIdentityShadowComparison,
+  type FrozenLegacyAdmissionStatus,
+  type IdentityResolutionComparison,
+} from "./identity-resolution-observability.js";
 export {
   QUOTE_PROVIDER_CONTRACT_VERSION,
   type QuoteLookupRequest,

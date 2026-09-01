@@ -37,7 +37,7 @@ const exactSet = (actual, expected, label) => {
 };
 
 exactSet(contract.assistantOutcomes, ["CHAT", "CLARIFICATION", "QUOTE_LEADS", "NO_QUOTE_LEADS", "DEGRADED"], "assistantOutcomes");
-exactSet(contract.requiredRoutes, ["talk", "clarify", "lookup"], "requiredRoutes");
+exactSet(contract.requiredRoutes, ["talk", "clarify", "quote_followup", "quote_lookup"], "requiredRoutes");
 
 const forbiddenClaims = new Set(contract.forbiddenUserClaims ?? []);
 for (const claim of [

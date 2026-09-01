@@ -1,4 +1,5 @@
-import { QuoteConversationTurnExecutor, type QuoteLookupDataPort } from "@interec/agent";
+import { QuoteConversationTurnExecutor, type IdentityCandidateView, type QuoteEffectExecutionPort } from "@interec/agent";
+import type { ProductIdentitySnapshot } from "@interec/domain";
 
 import type { ClaimedConversationTurn, ConversationRepository, FinalCommitResult } from "./conversation-repository-types.js";
 
@@ -15,7 +16,9 @@ function naturalInput(payload: Record<string, unknown>): string {
 export function createQuoteRepositoryTurnSession(
   repository: ConversationRepository,
   claimed: ClaimedConversationTurn,
-  quoteData: QuoteLookupDataPort,
+  quoteEffects: QuoteEffectExecutionPort,
+  identityCandidates: IdentityCandidateView[] = [],
+  identitySnapshot?: ProductIdentitySnapshot,
 ): QuoteRepositoryTurnSession {
   let commitResult: FinalCommitResult | null = null;
   const fence = { turnId: claimed.id, attempt: claimed.attempt, fenceToken: claimed.fenceToken };
@@ -25,7 +28,9 @@ export function createQuoteRepositoryTurnSession(
     inputMessageContents: claimed.inputMessages.map((message) => naturalInput(message.payload)),
     baseState: claimed.snapshot.quote,
     publicationRevision: claimed.snapshot.revision + 1,
-    quoteData,
+    quoteEffects,
+    identityCandidates,
+    ...(identitySnapshot ? { identitySnapshot } : {}),
     onPlanReviewed: async (observation) => {
       const recorded = await repository.recordPlanReview({ ...fence, ...observation });
       if (!recorded) throw new Error("STALE_QUOTE_PLAN_REVIEW_REJECTED");

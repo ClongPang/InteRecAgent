@@ -3,7 +3,7 @@ import { resolveQuoteLeadReferents } from "./quote-conversation-state.js";
 import type { QuoteConversationState, QuoteTurnOperation, QuoteTurnPlan } from "./quote-conversation-types.js";
 import { resolveQuoteTarget } from "./quote-target.js";
 
-export const QUOTE_PLAN_POLICY_VERSION = "quote-plan-policy-v1" as const;
+export const QUOTE_PLAN_POLICY_VERSION = "quote-plan-policy-v2" as const;
 export const MAX_QUOTE_TURN_OPERATIONS = 8;
 
 export interface QuotePlanPolicyViolation {
@@ -94,8 +94,17 @@ export function reviewQuoteTurnPlan(input: ReviewQuoteTurnPlanInput): QuotePlanR
       if (!conditionGrounded(groundedText, operation)) {
         return violation("QUOTE_CONDITION_NOT_GROUNDED", operation, operation.target.conditionPreference, ["Use ANY unless the current user text explicitly states the condition."]);
       }
-      const resolution = resolveQuoteTarget({ rawText: groundedText, ...operation.target });
-      if (resolution.status === "NEEDS_CONFIRMATION" && !resolution.reasonCodes.every((code) => code === "MODEL_NOT_LEXICALLY_GROUNDED")) {
+      const resolution = resolveQuoteTarget({
+        rawText: groundedText,
+        ...operation.target,
+        ...(operation.identityResolution ? { identityResolution: operation.identityResolution } : {}),
+      });
+      const clarificationCodes = new Set([
+        "MODEL_NOT_LEXICALLY_GROUNDED",
+        "MODEL_CANONICAL_ALIAS_REQUIRES_CONFIRMATION",
+        "ALIAS_AMBIGUOUS",
+      ]);
+      if (resolution.status === "NEEDS_CONFIRMATION" && !resolution.reasonCodes.every((code) => clarificationCodes.has(code))) {
         return violation("QUOTE_TARGET_FIELDS_NOT_GROUNDED", operation, resolution.reasonCodes, ["Keep brand, product type and qualifiers only when they occur in the cited user text.", "Request the exact model if it cannot be resolved."]);
       }
       hasTarget = resolution.status === "RESOLVED";
@@ -104,6 +113,7 @@ export function reviewQuoteTurnPlan(input: ReviewQuoteTurnPlanInput): QuotePlanR
         proposal: { rawText: groundedText, ...operation.target },
         reasonCodes: resolution.reasonCodes,
         askedByMessageId: operation.source.messageId,
+        ...(operation.identityResolution ? { identityResolution: structuredClone(operation.identityResolution) } : {}),
       } : null;
       targetChanged = true;
       continue;
@@ -129,8 +139,8 @@ export function reviewQuoteTurnPlan(input: ReviewQuoteTurnPlanInput): QuotePlanR
       continue;
     }
     if (operation.kind === "LOOKUP_QUOTES") {
-      if (!hasTarget) return violation("QUOTE_TARGET_REQUIRED", operation, null, ["Set an exact target before lookup.", "Request the exact model instead."]);
       if (pendingConfirmation) return violation("LOOKUP_BEFORE_MODEL_CONFIRMATION", operation, pendingConfirmation.reasonCodes, ["Wait for explicit model confirmation."]);
+      if (!hasTarget) return violation("QUOTE_TARGET_REQUIRED", operation, null, ["Set an exact target before lookup.", "Request the exact model instead."]);
       if (input.state.leadSet && !targetChanged) return violation("REFRESH_OPERATION_REQUIRED", operation, input.state.leadSet.quoteLeadSetRef, ["Use REFRESH_QUOTES only after the user explicitly asks to refresh."]);
       if (index === 0 && !input.state.target) return violation("QUOTE_TARGET_REQUIRED", operation, null, ["Place SET_QUOTE_TARGET before LOOKUP_QUOTES."]);
       continue;

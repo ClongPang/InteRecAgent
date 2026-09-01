@@ -2,6 +2,7 @@ import { DomainError } from "./errors.js";
 import type { QuoteConversationState, QuoteLeadReferent } from "./quote-conversation-types.js";
 import { validatePublishedQuoteLeadSet } from "./quote-publication.js";
 import { QUOTE_LEAD_CONTRACT_VERSION } from "./quote-types.js";
+import { upcastLegacyQuoteTarget } from "./quote-target.js";
 import { assertNoForbiddenPublicKey, uniqueRefs } from "./quote-validation.js";
 
 export function emptyQuoteConversationState(version = 0): QuoteConversationState {
@@ -21,6 +22,7 @@ export function emptyQuoteConversationState(version = 0): QuoteConversationState
 
 export function validateQuoteConversationState(input: QuoteConversationState): QuoteConversationState {
   const value = structuredClone(input);
+  if (value.target) value.target = upcastLegacyQuoteTarget(value.target);
   assertNoForbiddenPublicKey(value);
   if (value.contractVersion !== QUOTE_LEAD_CONTRACT_VERSION) throw new DomainError("QUOTE_CONTRACT_VERSION_MISMATCH", value.contractVersion);
   if (!Number.isSafeInteger(value.version) || value.version < 0) throw new DomainError("INVALID_QUOTE_STATE_VERSION", String(value.version));

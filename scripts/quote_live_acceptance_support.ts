@@ -7,13 +7,14 @@ import {
   type QuoteProviderSummary,
   type ResolveQuoteTargetInput,
 } from "../packages/domain/src/index.js";
-import { QuoteConversationTurnExecutor } from "../packages/agent/src/index.js";
+import { createLexicallyGroundedIdentityHypothesis, QuoteConversationTurnExecutor } from "../packages/agent/src/index.js";
 import {
   parseBuyWhereMcpToolResponse,
   QuoteLookupService,
   type QuoteProvider,
   type QuoteProviderResult,
 } from "../packages/runtime/src/index.js";
+import { countValues, summarizeAdmissionIdentity } from "./quote_live_acceptance_identity.js";
 
 export interface AcceptanceCheck {
   id: string;
@@ -45,6 +46,7 @@ export interface AcceptanceCase {
   } | null;
   rawRecordCount: number;
   admissionCounts: Record<string, number>;
+  identityStrengthCounts: Record<string, number>;
   rejectionReasonCounts: Record<string, number>;
   groupedLeadCount: number;
   multiObservationLeadCount: number;
@@ -114,12 +116,6 @@ export function appendChecks(result: AcceptanceCase, additions: AcceptanceCheck[
   return result;
 }
 
-function countBy(values: readonly string[]): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const value of values) counts[value] = (counts[value] ?? 0) + 1;
-  return Object.fromEntries(Object.entries(counts).sort(([left], [right]) => left.localeCompare(right, "en-US")));
-}
-
 function countForbiddenKeys(value: unknown): number {
   if (Array.isArray(value)) return value.reduce((total, item) => total + countForbiddenKeys(item), 0);
   if (!value || typeof value !== "object") return 0;
@@ -135,13 +131,20 @@ function expectedOutcome(provider: QuoteProviderResult, leadCount: number): "QUO
 }
 
 async function renderPublicReply(targetInput: ResolveQuoteTargetInput, leadSet: Parameters<typeof projectPublishedQuoteLeadSet>[0]) {
+  const target = {
+    proposedModel: targetInput.proposedModel,
+    brand: targetInput.brand ?? null,
+    productType: targetInput.productType ?? null,
+    requiredQualifiers: [...(targetInput.requiredQualifiers ?? [])],
+    conditionPreference: targetInput.conditionPreference ?? "ANY" as const,
+  };
   const executor = new QuoteConversationTurnExecutor({
     turnId: `acceptance-${leadSet.quoteLeadSetRef}`,
     inputMessageIds: ["acceptance-message"],
     inputMessageContents: [targetInput.rawText],
     baseState: emptyQuoteConversationState(),
     publicationRevision: 1,
-    quoteData: { lookup: async () => projectPublishedQuoteLeadSet(leadSet) },
+    quoteEffects: { execute: async () => ({ status: "SUCCEEDED", leadSet: projectPublishedQuoteLeadSet(leadSet) }) },
   });
   return executor.execute({
     userIntentSummary: "acceptance exact-model quote lookup",
@@ -150,13 +153,8 @@ async function renderPublicReply(targetInput: ResolveQuoteTargetInput, leadSet: 
         opId: "target",
         kind: "SET_QUOTE_TARGET",
         sourceMessageOrdinal: 0,
-        target: {
-          proposedModel: targetInput.proposedModel,
-          brand: targetInput.brand ?? null,
-          productType: targetInput.productType ?? null,
-          requiredQualifiers: [...(targetInput.requiredQualifiers ?? [])],
-          conditionPreference: targetInput.conditionPreference ?? "ANY",
-        },
+        target,
+        identityHypothesis: createLexicallyGroundedIdentityHypothesis(targetInput.rawText, 0, target),
       },
       { opId: "lookup", kind: "LOOKUP_QUOTES" },
     ],
@@ -179,8 +177,9 @@ export async function evaluateProviderResult(input: {
   const rendered = await renderPublicReply(input.spec.target, leadSet);
   const publicProjection = projectPublishedQuoteLeadSet(leadSet);
   const publicForbiddenKeyCount = countForbiddenKeys({ leadSet: publicProjection, reply: rendered.reply });
-  const admissionCounts = countBy(leadSet.admissions.map((decision) => decision.status));
-  const rejectionReasonCounts = countBy(leadSet.admissions.flatMap((decision) => decision.reasonCodes));
+  const admissionCounts = countValues(leadSet.admissions.map((decision) => decision.status));
+  const admissionIdentity = summarizeAdmissionIdentity(leadSet.admissions);
+  const rejectionReasonCounts = countValues(leadSet.admissions.flatMap((decision) => decision.reasonCodes));
   const priceRanges = leadSet.leads.flatMap((lead) => lead.priceRanges.map((range) => ({
     currency: range.currency,
     minAmount: range.minAmount,
@@ -215,6 +214,11 @@ export async function evaluateProviderResult(input: {
       eligibleCount,
       groupedObservationCount,
     }),
+    check(
+      "only_deterministic_identity_strengths_are_publishable",
+      admissionIdentity.onlyDeterministicPublished,
+      admissionIdentity.counts,
+    ),
     check("provider_status_maps_without_empty_conflation", leadSet.outcome === expected, {
       providerStatus: input.providerResult.status,
       outcome: leadSet.outcome,
@@ -251,6 +255,7 @@ export async function evaluateProviderResult(input: {
     },
     rawRecordCount: leadSet.observations.length,
     admissionCounts,
+    identityStrengthCounts: admissionIdentity.counts,
     rejectionReasonCounts,
     groupedLeadCount: leadSet.leads.length,
     multiObservationLeadCount: leadSet.leads.filter((lead) => lead.observationCount > 1).length,
@@ -373,6 +378,7 @@ export function localCase(input: {
     providerMeta: null,
     rawRecordCount: 0,
     admissionCounts: {},
+    identityStrengthCounts: {},
     rejectionReasonCounts: {},
     groupedLeadCount: 0,
     multiObservationLeadCount: 0,

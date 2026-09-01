@@ -1,7 +1,8 @@
 import type { FxSnapshot, Money, ProductCondition } from "./quote-base-types.js";
+import type { QuoteTargetIdentityBinding } from "./product-identity.js";
 
 export const QUOTE_LEAD_CONTRACT_VERSION = "quote-leads-sg-v1" as const;
-export const QUOTE_ADMISSION_POLICY_VERSION = "quote-admission-v1" as const;
+export const QUOTE_ADMISSION_POLICY_VERSION = "quote-admission-v2" as const;
 export const QUOTE_GROUPING_POLICY_VERSION = "merchant-page-condition-v1" as const;
 export const MERCHANT_PAGE_CONFIRMATION = "MERCHANT_PAGE_CHECK_REQUIRED" as const;
 
@@ -20,6 +21,7 @@ export interface QuoteTarget {
   canonicalQuery: string;
   confirmation: "LEXICALLY_GROUNDED" | "EXPLICITLY_CONFIRMED";
   normalizationChanges: string[];
+  identity: QuoteTargetIdentityBinding;
 }
 
 export type QuoteTargetResolution =
@@ -55,6 +57,11 @@ export interface QuoteObservation {
   providerUpdatedAt: string | null;
   providerAvailability: unknown;
   condition: ProductCondition;
+  identitySignals: {
+    brand: { value: string; jsonPath: string } | null;
+    model: { value: string; jsonPath: string } | null;
+    identifiers: Array<{ scheme: "GTIN" | "BRAND_MPN"; value: string; jsonPath: string }>;
+  };
   rawRecord: Record<string, unknown>;
 }
 
@@ -65,6 +72,8 @@ export interface QuoteAdmissionDecision {
   status: QuoteAdmissionStatus;
   reasonCodes: string[];
   policyVersion: typeof QUOTE_ADMISSION_POLICY_VERSION;
+  identityStrength: "STRONG_IDENTIFIER_MATCH" | "CURATED_TITLE_ALIAS_MATCH" | "EXACT_LEXICAL_MATCH" | "PROBABILISTIC_CANDIDATE" | "IDENTITY_OR_ROLE_CONFLICT";
+  identityEvidenceRefs: string[];
 }
 
 export interface QuoteCnyEstimate {
@@ -101,6 +110,9 @@ export interface QuoteLead {
   latestProviderUpdatedAt: string | null;
   disclosureCode: typeof MERCHANT_PAGE_CONFIRMATION;
   groupingPolicyVersion: typeof QUOTE_GROUPING_POLICY_VERSION;
+  admissionPolicyVersion: typeof QUOTE_ADMISSION_POLICY_VERSION;
+  identityStrength: Exclude<QuoteAdmissionDecision["identityStrength"], "PROBABILISTIC_CANDIDATE" | "IDENTITY_OR_ROLE_CONFLICT">;
+  identityEvidenceRefs: string[];
 }
 
 export type QuoteLeadSetOutcome = "QUOTE_LEADS" | "NO_QUOTE_LEADS" | "DEGRADED";

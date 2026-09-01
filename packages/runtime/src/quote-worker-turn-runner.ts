@@ -4,6 +4,7 @@ import {
   QUOTE_CONVERSATION_PROMPT_VERSION,
   executeQuoteConversationTurn,
 } from "@interec/agent";
+import { findProductIdentityCandidates } from "@interec/domain";
 
 import type {
   ClaimedConversationTurn,
@@ -14,6 +15,7 @@ import type {
 import type { FxPort } from "./fx-provider.js";
 import type { PiModelRuntime } from "./model-factory.js";
 import type { PostgresProviderCallController } from "./provider-call-controller.js";
+import { PostgresProductIdentityRegistry } from "./postgres-product-identity-registry.js";
 import { createQuoteRepositoryTurnSession } from "./quote-repository-turn-session.js";
 import { QuoteTurnDataService } from "./quote-turn-data-service.js";
 import type { QuoteProvider } from "./quote-provider.js";
@@ -119,14 +121,20 @@ export async function runQuoteWorkerTurn(
       const timeline = await options.repository.listMessages(claimed.conversationId, claimed.owner, 0);
       const currentIds = new Set(claimed.inputMessages.map((message) => message.id));
       const adjacent = latestCompletedUserAssistantExchange(timeline, currentIds);
-      const quoteData = new QuoteTurnDataService(
+      const identityRegistry = new PostgresProductIdentityRegistry(options.callController.pool);
+      const identitySnapshot = await identityRegistry.getActiveSnapshot();
+      const quoteEffects = new QuoteTurnDataService(
         claimed,
         options.repository,
         options.callController,
         options.quoteProvider,
         options.fxSource,
+        identityRegistry,
       );
-      const session = createQuoteRepositoryTurnSession(options.repository, claimed, quoteData);
+      const identityCandidates = findProductIdentityCandidates(identitySnapshot, currentUserMessages)
+        .slice(0, 20)
+        .map((candidate) => ({ ...candidate, registryVersion: identitySnapshot.registryVersion }));
+      const session = createQuoteRepositoryTurnSession(options.repository, claimed, quoteEffects, identityCandidates, identitySnapshot);
       const agentEventObserver = createAgentEventObserver({
         promptName: QUOTE_CONVERSATION_PROMPT_NAME,
         promptVersion: QUOTE_CONVERSATION_PROMPT_VERSION,
@@ -147,6 +155,7 @@ export async function runQuoteWorkerTurn(
             now: new Date().toISOString(),
             modelId: String(options.pi.model.id),
             providerCallBudget: 1,
+            identityCandidates,
           },
           sessionId: `${claimed.id}:${claimed.attempt}:quote`,
           signal: options.signal,

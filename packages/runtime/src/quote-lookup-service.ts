@@ -7,6 +7,7 @@ import {
   createQuoteObservation,
   groupQuoteObservations,
   type FxSnapshot,
+  type ProductIdentitySnapshot,
   type QuoteLead,
   type QuoteLeadSet,
   type QuoteProviderSummary,
@@ -14,6 +15,7 @@ import {
 } from "@interec/domain";
 
 import type { FxPort } from "./fx-provider.js";
+import { recordIdentityResolution } from "./identity-resolution-observability.js";
 import type { QuoteProvider, QuoteProviderResult } from "./quote-provider.js";
 
 export interface QuoteLookupArtifact {
@@ -132,6 +134,7 @@ export class QuoteLookupService {
   public constructor(
     private readonly provider: QuoteProvider,
     private readonly fxSource?: FxPort,
+    private readonly identitySnapshot?: ProductIdentitySnapshot,
   ) {}
 
   public async lookup(resolution: QuoteTargetResolution, signal?: AbortSignal): Promise<QuoteLookupExecution> {
@@ -152,7 +155,8 @@ export class QuoteLookupService {
       artifactRef: artifact.artifactRef,
       observedAt: providerResult.observedAt,
     }));
-    const admissions = observations.map((observation) => admitQuoteObservation(observation, resolution.target));
+    const admissions = observations.map((observation) => admitQuoteObservation(observation, resolution.target, this.identitySnapshot));
+    admissions.forEach(recordIdentityResolution);
     const grouped = providerResult.status === "OK_RESULTS"
       ? groupQuoteObservations(resolution.target, observations, admissions)
       : [];

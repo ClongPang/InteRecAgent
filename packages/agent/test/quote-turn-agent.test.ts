@@ -8,10 +8,13 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  createLexicallyGroundedIdentityHypothesis,
   executeQuoteConversationTurn,
   QuoteConversationTurnExecutor,
   type QuoteConversationTurnAgentOptions,
 } from "../src/index.js";
+
+const EXACT_USER = "Sony WH-1000XM5 headphones";
 
 function target() {
   const resolved = resolveQuoteTarget({
@@ -60,17 +63,17 @@ function executor(lookup = vi.fn(async () => leadSet())) {
   return new QuoteConversationTurnExecutor({
     turnId: "turn-agent",
     inputMessageIds: ["m1"],
-    inputMessageContents: ["Sony WH-1000XM5 headphones"],
+    inputMessageContents: [EXACT_USER],
     baseState: emptyQuoteConversationState(),
     publicationRevision: 1,
-    quoteData: { lookup },
+    quoteEffects: { execute: async (effect) => ({ status: "SUCCEEDED", leadSet: await lookup(effect.target) }) },
   });
 }
 
 function context() {
   return {
     state: emptyQuoteConversationState(),
-    currentUserMessages: ["Sony WH-1000XM5 headphones"],
+    currentUserMessages: [EXACT_USER],
     now: "2026-09-01T00:00:00.000Z",
     modelId: "faux-model",
     providerCallBudget: 1 as const,
@@ -100,6 +103,13 @@ async function runFaux(
 }
 
 function validPlan() {
+  const target = {
+    proposedModel: "WH-1000XM5",
+    brand: "Sony",
+    productType: "headphones",
+    requiredQualifiers: [],
+    conditionPreference: "ANY" as const,
+  };
   return {
     userIntentSummary: "look up the exact model",
     ops: [
@@ -107,13 +117,8 @@ function validPlan() {
         opId: "target",
         kind: "SET_QUOTE_TARGET",
         sourceMessageOrdinal: 0,
-        target: {
-          proposedModel: "WH-1000XM5",
-          brand: "Sony",
-          productType: "headphones",
-          requiredQualifiers: [],
-          conditionPreference: "ANY",
-        },
+        identityHypothesis: createLexicallyGroundedIdentityHypothesis(EXACT_USER, 0, target),
+        target,
       },
       { opId: "lookup", kind: "LOOKUP_QUOTES" },
     ],

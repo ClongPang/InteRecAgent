@@ -1,15 +1,12 @@
 import { createHash } from "node:crypto";
 
+import {
+  identityLexicalKey,
+  legacyLiteralIdentityBinding,
+  type ProductIdentityResolution,
+} from "./product-identity.js";
+import { identityBindingFromResolution } from "./product-identity-registry.js";
 import type { QuoteConditionPreference, QuoteTarget, QuoteTargetResolution } from "./quote-types.js";
-
-const BRAND_ALIASES = new Map<string, readonly string[]>([
-  ["Apple", ["apple", "苹果"]],
-  ["Dyson", ["dyson", "戴森"]],
-  ["Logitech", ["logitech", "罗技"]],
-  ["Nintendo", ["nintendo", "任天堂"]],
-  ["Samsung", ["samsung", "三星"]],
-  ["Sony", ["sony", "索尼"]],
-]);
 
 export interface ResolveQuoteTargetInput {
   rawText: string;
@@ -19,6 +16,8 @@ export interface ResolveQuoteTargetInput {
   requiredQualifiers?: readonly string[];
   conditionPreference?: QuoteConditionPreference;
   explicitlyConfirmed?: boolean;
+  /** Host-bound resolver output. This field is never accepted from the model schema. */
+  identityResolution?: ProductIdentityResolution;
 }
 
 function normalizedText(value: string): string {
@@ -26,21 +25,7 @@ function normalizedText(value: string): string {
 }
 
 export function quoteIdentityKey(value: string): string {
-  return normalizedText(value).toLocaleUpperCase("en-US").replace(/[^\p{L}\p{N}]+/gu, "");
-}
-
-function canonicalBrand(value: string | null | undefined): string | null {
-  const candidate = value ? normalizedText(value).toLocaleLowerCase("en-US") : "";
-  if (!candidate) return null;
-  for (const [brand, aliases] of BRAND_ALIASES) {
-    if (aliases.includes(candidate)) return brand;
-  }
-  return normalizedText(value!);
-}
-
-function rawContainsBrand(rawText: string, canonical: string): boolean {
-  const aliases = BRAND_ALIASES.get(canonical) ?? [canonical];
-  return aliases.some((alias) => rawContainsIdentity(rawText, alias));
+  return identityLexicalKey(normalizedText(value));
 }
 
 function rawContainsIdentity(rawText: string, identity: string): boolean {
@@ -57,13 +42,6 @@ function rawContainsIdentity(rawText: string, identity: string): boolean {
   return false;
 }
 
-function canonicalModelDisplay(value: string): string {
-  const upper = normalizedText(value).toLocaleUpperCase("en-US");
-  const sonyWh = upper.match(/^WH[\s-]?(\d{4})[\s-]?(XM\d+)$/u);
-  if (sonyWh) return `WH-${sonyWh[1]}${sonyWh[2]}`;
-  return upper;
-}
-
 function deduplicatedQualifiers(values: readonly string[]): string[] {
   const byKey = new Map<string, string>();
   for (const value of values) {
@@ -78,47 +56,53 @@ function targetRef(parts: readonly string[]): string {
   return `qt_${createHash("sha256").update(parts.join("\u0000")).digest("hex").slice(0, 24)}`;
 }
 
+/** Pure target binding. Brand/model knowledge comes from a host-bound registry resolution, never source branches. */
 export function resolveQuoteTarget(input: ResolveQuoteTargetInput): QuoteTargetResolution {
   const rawText = normalizedText(input.rawText);
   const proposedModel = normalizedText(input.proposedModel);
-  const modelKey = quoteIdentityKey(proposedModel);
+  const proposedModelKey = quoteIdentityKey(proposedModel);
   const normalizationChanges: string[] = [];
   const reasonCodes: string[] = [];
+  const identityResolution = input.identityResolution;
+  const resolvedIdentity = identityResolution?.outcome === "RESOLVED" ? identityResolution : null;
 
   if (!rawText) reasonCodes.push("TARGET_TEXT_REQUIRED");
-  if (!modelKey || !/[\p{L}]/u.test(modelKey) || !/\p{N}/u.test(modelKey)) reasonCodes.push("MODEL_FORMAT_UNRESOLVED");
-  const modelGrounded = rawContainsIdentity(rawText, proposedModel);
-  if (!modelGrounded && input.explicitlyConfirmed !== true) reasonCodes.push("MODEL_NOT_LEXICALLY_GROUNDED");
-
-  const brand = canonicalBrand(input.brand);
-  if (brand && !rawContainsBrand(rawText, brand)) {
-    reasonCodes.push("BRAND_NOT_LEXICALLY_GROUNDED");
+  if (!proposedModelKey || !/[\p{L}]/u.test(proposedModelKey) || !/\p{N}/u.test(proposedModelKey)) {
+    reasonCodes.push("MODEL_FORMAT_UNRESOLVED");
+  }
+  if (!rawContainsIdentity(rawText, proposedModel) && input.explicitlyConfirmed !== true) {
+    reasonCodes.push("MODEL_NOT_LEXICALLY_GROUNDED");
   }
 
-  const productType = input.productType ? normalizedText(input.productType) : null;
-  // A model confirmation cannot authorize extra query context invented by a planner.
-  // Product type and qualifiers must remain present in the auditable source text.
-  if (productType && !rawContainsIdentity(rawText, productType)) {
-    reasonCodes.push("PRODUCT_TYPE_NOT_LEXICALLY_GROUNDED");
-  }
-
+  const sourceBrand = input.brand ? normalizedText(input.brand) : null;
+  if (sourceBrand && !rawContainsIdentity(rawText, sourceBrand)) reasonCodes.push("BRAND_NOT_LEXICALLY_GROUNDED");
+  const sourceProductType = input.productType ? normalizedText(input.productType) : null;
+  if (sourceProductType && !rawContainsIdentity(rawText, sourceProductType)) reasonCodes.push("PRODUCT_TYPE_NOT_LEXICALLY_GROUNDED");
   const qualifiers = deduplicatedQualifiers(input.requiredQualifiers ?? []);
-  if (qualifiers.some((value) => !rawContainsIdentity(rawText, value))) {
-    reasonCodes.push("QUALIFIER_NOT_LEXICALLY_GROUNDED");
-  }
+  if (qualifiers.some((value) => !rawContainsIdentity(rawText, value))) reasonCodes.push("QUALIFIER_NOT_LEXICALLY_GROUNDED");
 
-  const canonicalModel = canonicalModelDisplay(proposedModel);
-  if (canonicalModel !== proposedModel) normalizationChanges.push("MODEL_CASE_OR_PUNCTUATION_NORMALIZED");
+  if (identityResolution && identityResolution.outcome !== "RESOLVED") reasonCodes.push(...identityResolution.reasonCodes);
+  const canonicalModel = resolvedIdentity?.canonicalModel ?? proposedModel.toLocaleUpperCase("en-US");
+  const modelKey = quoteIdentityKey(canonicalModel);
+  if (modelKey !== proposedModelKey && input.explicitlyConfirmed !== true) {
+    reasonCodes.push("MODEL_CANONICAL_ALIAS_REQUIRES_CONFIRMATION");
+  }
+  if (canonicalModel !== proposedModel) {
+    normalizationChanges.push(modelKey === proposedModelKey
+      ? "MODEL_CASE_OR_PUNCTUATION_NORMALIZED"
+      : "MODEL_CANONICAL_ALIAS_CONFIRMED");
+  }
   if (rawText !== input.rawText) normalizationChanges.push("TARGET_UNICODE_SPACE_NORMALIZED");
   if (reasonCodes.length > 0) {
     return { status: "NEEDS_CONFIRMATION", target: null, reasonCodes: [...new Set(reasonCodes)], normalizationChanges };
   }
 
-  const canonicalQuery = [brand, canonicalModel, productType, ...qualifiers]
+  const brand = resolvedIdentity?.canonicalBrand ?? sourceBrand;
+  const productType = sourceProductType ?? resolvedIdentity?.productType ?? null;
+  const canonicalQuery = resolvedIdentity?.providerQuery ?? [brand, canonicalModel, productType, ...qualifiers]
     .filter((value): value is string => Boolean(value))
     .filter((value, index, all) => all.findIndex((candidate) => quoteIdentityKey(candidate) === quoteIdentityKey(value)) === index)
     .join(" ");
-  // No condition request means "show condition-labelled quote leads", not "assume new".
   const conditionPreference = input.conditionPreference ?? "ANY";
   const target: QuoteTarget = {
     targetRef: targetRef([modelKey, brand ?? "", productType ?? "", qualifiers.map(quoteIdentityKey).join("|"), conditionPreference]),
@@ -133,6 +117,17 @@ export function resolveQuoteTarget(input: ResolveQuoteTargetInput): QuoteTargetR
     canonicalQuery,
     confirmation: input.explicitlyConfirmed === true ? "EXPLICITLY_CONFIRMED" : "LEXICALLY_GROUNDED",
     normalizationChanges: [...normalizationChanges],
+    identity: resolvedIdentity
+      ? identityBindingFromResolution(resolvedIdentity)
+      : legacyLiteralIdentityBinding(input.explicitlyConfirmed === true),
   };
   return { status: "RESOLVED", target, reasonCodes: [], normalizationChanges };
+}
+
+export function upcastLegacyQuoteTarget(target: QuoteTarget | Omit<QuoteTarget, "identity">): QuoteTarget {
+  if ("identity" in target && target.identity) return structuredClone(target as QuoteTarget);
+  return {
+    ...structuredClone(target),
+    identity: legacyLiteralIdentityBinding(target.confirmation === "EXPLICITLY_CONFIRMED"),
+  };
 }

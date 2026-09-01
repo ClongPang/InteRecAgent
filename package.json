@@ -16,6 +16,12 @@
     "docs:check": "node scripts/check_docs_drift.mjs",
     "quote:contract:check": "node scripts/check_quote_lead_contract.mjs",
     "quote:drift:check": "node scripts/check_quote_lead_drift.mjs",
+    "identity:contract:check": "node scripts/check_identity_grounded_quote_contract.mjs",
+    "identity:drift:check": "node scripts/check_identity_grounded_quote_drift.mjs",
+    "identity:trajectory:test": "tsx scripts/run_identity_grounded_trajectories.ts",
+    "identity:agent:eval": "vitest run packages/agent/test/identity-grounded-agent-eval.test.ts",
+    "identity:shadow:replay": "tsx scripts/run_identity_resolution_shadow_replay.ts",
+    "identity:mutation:test": "tsx scripts/run_identity_mutations.ts",
     "quote:live:probe": "tsx --env-file-if-exists=.env scripts/probe_quote_provider.ts",
     "quote:live:acceptance": "tsx --env-file-if-exists=.env scripts/run_quote_live_acceptance.ts",
     "lint": "eslint . --max-warnings=0",
@@ -30,7 +36,7 @@
     "dev:worker": "tsx --env-file-if-exists=.env packages/runtime/src/conversation-worker-main.ts",
     "architecture:active:check": "node scripts/check_quote_active_architecture.mjs",
     "architecture:maintainability:check": "node scripts/check_maintainability_boundaries.mjs",
-    "acceptance": "npm run quote:contract:check && npm run quote:drift:check && npm run docs:check && npm run lint && npm run architecture:maintainability:check && npm run typecheck && npm run build && npm run test:unit && npm run test:coverage && npm run test:integration && npm run test:e2e && npm run architecture:active:check"
+    "acceptance": "npm run quote:contract:check && npm run quote:drift:check && npm run identity:contract:check && npm run identity:trajectory:test && npm run identity:agent:eval && npm run identity:shadow:replay && npm run identity:mutation:test && npm run identity:drift:check && npm run docs:check && npm run lint && npm run architecture:maintainability:check && npm run typecheck && npm run build && npm run test:unit && npm run test:coverage && npm run test:integration && npm run test:e2e && npm run architecture:active:check"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -39,6 +45,7 @@
     "@types/pg": "8.15.5",
     "@vitest/coverage-v8": "4.1.9",
     "eslint": "10.9.1",
+    "esbuild": "0.25.12",
     "globals": "17.11.0",
     "tsx": "4.20.6",
     "typescript": "5.9.3",

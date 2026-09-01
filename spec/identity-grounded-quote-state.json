@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "identity-grounded-quote-v1",
+  "baseProductContract": "quote-leads-sg-v1",
+  "currentPhase": 6,
+  "phaseStatus": "APPROVED",
+  "completedPhases": [0, 1, 2, 3, 4, 5, 6],
+  "requiredPhaseOrder": [0, 1, 2, 3, 4, 5, 6],
+  "approvals": [
+    {
+      "phase": 0,
+      "decision": "APPROVED",
+      "date": "2026-09-01",
+      "evidence": "docs/acceptance/identity-grounded-phase-0-baseline-2026-09-01.md"
+    },
+    {
+      "phase": 1,
+      "decision": "APPROVED",
+      "date": "2026-09-01",
+      "evidence": "docs/acceptance/identity-grounded-phase-1-agent-contract-2026-09-01.md"
+    },
+    {
+      "phase": 2,
+      "decision": "APPROVED",
+      "date": "2026-09-01",
+      "evidence": "docs/acceptance/identity-grounded-phase-2-identity-kernel-2026-09-01.md"
+    },
+    {
+      "phase": 3,
+      "decision": "APPROVED",
+      "date": "2026-09-01",
+      "evidence": "docs/acceptance/identity-grounded-phase-3-domain-effects-2026-09-01.md"
+    },
+    {
+      "phase": 4,
+      "decision": "APPROVED",
+      "date": "2026-09-01",
+      "evidence": "docs/acceptance/identity-grounded-phase-4-llm-hypothesis-2026-09-01.md"
+    },
+    {
+      "phase": 5,
+      "decision": "APPROVED",
+      "date": "2026-09-01",
+      "evidence": "docs/acceptance/identity-grounded-phase-5-offer-cutover-2026-09-01.md"
+    },
+    {
+      "phase": 6,
+      "decision": "APPROVED",
+      "date": "2026-09-01",
+      "evidence": "docs/acceptance/identity-grounded-phase-6-final-2026-09-01.md"
+    }
+  ]
+}

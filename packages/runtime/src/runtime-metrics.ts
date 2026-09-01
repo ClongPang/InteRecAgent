@@ -79,6 +79,9 @@ export const runtimeMetrics = {
   inferenceCalls: new DeferredHistogram(),
   toolCalls: new DeferredHistogram(),
   telemetryLinkFailures: new DeferredCounter(),
+  identityResolutions: new DeferredCounter(),
+  identityShadowComparisons: new DeferredCounter(),
+  identityShadowDisagreements: new DeferredCounter(),
 };
 
 export function bindRuntimeMetrics(): void {
@@ -116,9 +119,11 @@ export function bindRuntimeMetrics(): void {
     inferenceCalls: meter.createHistogram("gen_ai.invoke_agent.inference_calls", { unit: "{call}" }),
     toolCalls: meter.createHistogram("gen_ai.invoke_agent.tool_calls", { unit: "{call}" }),
     telemetryLinkFailures: meter.createCounter("rec_agent.telemetry.link_failures", { unit: "{failure}" }),
+    identityResolutions: meter.createCounter("rec_agent.identity.resolutions", { unit: "{resolution}" }),
+    identityShadowComparisons: meter.createCounter("rec_agent.identity.shadow_comparisons", { unit: "{comparison}" }),
+    identityShadowDisagreements: meter.createCounter("rec_agent.identity.shadow_disagreements", { unit: "{disagreement}" }),
   };
   for (const key of Object.keys(runtimeMetrics) as Array<keyof typeof runtimeMetrics>) {
     runtimeMetrics[key].bind(instruments[key] as never);
   }
 }
-

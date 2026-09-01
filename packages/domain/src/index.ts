@@ -1,10 +1,63 @@
 export { DomainError } from "./errors.js";
 export {
+  OFFER_IDENTITY_POLICY_VERSION,
+  resolveOfferIdentity,
+  type OfferIdentityDecision,
+  type OfferIdentityStrength,
+} from "./offer-identity.js";
+export {
   type ConversationState,
   type ConversationStatus,
   type OperationSource,
 } from "./conversation-types.js";
 export { canonicalDecimal, compareDecimal, convertToCny } from "./money.js";
+export {
+  decideQuoteCommand,
+  type DecideQuoteCommandInput,
+  type QuoteCommandDecision,
+} from "./quote-command-decision.js";
+export {
+  applyQuoteEffectResult,
+  type QuoteEffect,
+  type QuoteEffectApplication,
+  type QuoteEffectResult,
+  type QuoteLookupEffect,
+  type QuoteOperationReceipt,
+} from "./quote-effects.js";
+export {
+  PRODUCT_IDENTITY_RESOLVER_VERSION,
+  PRODUCT_IDENTITY_SCHEMA_VERSION,
+  identityLexicalKey,
+  legacyLiteralIdentityBinding,
+  normalizeProductIdentifier,
+  validateProductIdentitySnapshot,
+  type CanonicalProduct,
+  type IdentityResolutionOutcome,
+  type IdentityResolutionStrength,
+  type ProductAlias,
+  type ProductAliasPurpose,
+  type ProductBrand,
+  type ProductIdentifier,
+  type ProductIdentifierScheme,
+  type ProductIdentityApprovalStatus,
+  type ProductIdentityCandidate,
+  type ProductIdentityResolution,
+  type ProductIdentitySnapshot,
+  type ProductRelationship,
+  type ProductRelationshipKind,
+  type ProductVariant,
+  type QuoteTargetIdentityBinding,
+} from "./product-identity.js";
+export {
+  InMemoryProductIdentityRegistry,
+  findProductIdentityCandidates,
+  identityBindingFromResolution,
+  resolveProductIdentity,
+  resolveProductIdentityFromRegistry,
+  selectProductIdentityCandidateForConfirmation,
+  type ProductIdentityRegistry,
+  type ResolveProductIdentityInput,
+} from "./product-identity-registry.js";
 export {
   type FxSnapshot,
   type Money,
@@ -50,6 +103,7 @@ export {
 export {
   quoteIdentityKey,
   resolveQuoteTarget,
+  upcastLegacyQuoteTarget,
   type ResolveQuoteTargetInput,
 } from "./quote-target.js";
 export {

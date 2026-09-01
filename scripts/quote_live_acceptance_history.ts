@@ -20,6 +20,7 @@ function baseChecksPassed(value: AcceptanceCase): boolean {
     "no_explicit_search_mode_parameter",
     "raw_records_preserved_as_observations",
     "eligible_observations_group_exactly_once",
+    "only_deterministic_identity_strengths_are_publishable",
     "provider_status_maps_without_empty_conflation",
     "public_projection_has_no_stock_delivery_or_raw_keys",
     "every_published_lead_has_https_handoff",
@@ -33,13 +34,13 @@ function qualifies(spec: LiveCaseSpec, value: AcceptanceCase): boolean {
   if (!baseChecksPassed(value)) return false;
   if (spec.id === "live-sony-wh1000xm5-primary") return ["OK_RESULTS", "OK_EMPTY"].includes(value.providerStatus);
   if (spec.id === "live-sony-wh1000xm5-accessory-pollution") {
-    const pollution = (value.rejectionReasonCounts["ACCESSORY_RECORD"] ?? 0)
-      + (value.rejectionReasonCounts["REPLACEMENT_OR_PART_RECORD"] ?? 0);
+    const pollution = (value.rejectionReasonCounts["OFFER_NON_PRIMARY_ROLE"] ?? 0)
+      + (value.rejectionReasonCounts["OFFER_UNREQUESTED_BUNDLE"] ?? 0);
     return (value.providerStatus === "OK_EMPTY" && value.rawRecordCount === 0)
       || (value.providerStatus === "OK_RESULTS" && pollution > 0 && value.groupedLeadCount === 0);
   }
   if (spec.id === "live-nintendo-switch2-display-service-pollution") {
-    const services = value.rejectionReasonCounts["SERVICE_RECORD"] ?? 0;
+    const services = value.rejectionReasonCounts["OFFER_NON_PRIMARY_ROLE"] ?? 0;
     return (["DEGRADED", "FAILED"].includes(value.providerStatus) && value.replyOutcome === "DEGRADED")
       || (value.providerStatus === "OK_EMPTY" && value.groupedLeadCount === 0)
       || (value.providerStatus === "OK_RESULTS" && services > 0 && value.groupedLeadCount === 0);
@@ -71,6 +72,7 @@ export function selectLiveEvidence(spec: LiveCaseSpec, attempts: AcceptanceCase[
     "no_explicit_search_mode_parameter",
     "raw_records_preserved_as_observations",
     "eligible_observations_group_exactly_once",
+    "only_deterministic_identity_strengths_are_publishable",
     "provider_status_maps_without_empty_conflation",
     "public_projection_has_no_stock_delivery_or_raw_keys",
     "every_published_lead_has_https_handoff",

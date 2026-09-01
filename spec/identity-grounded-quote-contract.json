@@ -1,0 +1,254 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "identity-grounded-quote-v1",
+  "extendsProductContract": "quote-leads-sg-v1",
+  "productBoundary": {
+    "mission": "KNOWN_MODEL_QUOTE_LEADS",
+    "serviceMarket": "SG",
+    "recommendationEnabled": false,
+    "provider": "buywhere",
+    "providerTool": "find_best_price_v2",
+    "automaticProviderFallbacks": []
+  },
+  "trustBoundary": {
+    "llmMay": [
+      "EXTRACT_IDENTITY_HYPOTHESIS",
+      "RANK_RESOLVER_SUPPLIED_CANDIDATES",
+      "PROPOSE_CLARIFICATION",
+      "RENDER_APPROVED_FACTS",
+      "PROPOSE_OFFLINE_ALIAS_CANDIDATE",
+      "PROPOSE_EVAL_CASE"
+    ],
+    "llmMustNot": [
+      "INVENT_PRODUCT_IDENTIFIER",
+      "SILENTLY_CHANGE_MODEL_ALPHANUMERICS",
+      "AUTHORIZE_PROVIDER_CALL",
+      "UPGRADE_IDENTITY_STRENGTH",
+      "ADMIT_OFFER_BY_SEMANTIC_SIMILARITY",
+      "MUTATE_CONVERSATION_STATE",
+      "COMMIT_TRANSACTION"
+    ],
+    "identityResolverOwns": [
+      "CANONICAL_PRODUCT_RESOLUTION",
+      "VARIANT_RESOLUTION",
+      "ALIAS_AND_IDENTIFIER_EVIDENCE",
+      "PROVIDER_QUERY_ALIAS_SELECTION"
+    ],
+    "domainOwns": [
+      "COMMAND_REVIEW",
+      "PROVIDER_CALL_AUTHORIZATION",
+      "STATE_TRANSITION",
+      "OFFER_ADMISSION",
+      "PUBLICATION_INVARIANTS"
+    ],
+    "runtimeOwns": [
+      "EFFECT_EXECUTION",
+      "PROVIDER_ADAPTER",
+      "EVIDENCE_PERSISTENCE",
+      "FENCING_AND_ATOMIC_COMMIT"
+    ]
+  },
+  "identityResolution": {
+    "outcomes": [
+      "RESOLVED",
+      "NEEDS_CONFIRMATION",
+      "UNRESOLVED"
+    ],
+    "strengths": [
+      "VERIFIED_IDENTIFIER",
+      "CURATED_ALIAS",
+      "USER_CONFIRMED_LITERAL",
+      "NONE"
+    ],
+    "lookupPolicy": [
+      {
+        "strength": "VERIFIED_IDENTIFIER",
+        "providerCallsAllowed": 1,
+        "requiresResolvedOutcome": true
+      },
+      {
+        "strength": "CURATED_ALIAS",
+        "providerCallsAllowed": 1,
+        "requiresResolvedOutcome": true
+      },
+      {
+        "strength": "USER_CONFIRMED_LITERAL",
+        "providerCallsAllowed": 1,
+        "requiresResolvedOutcome": true
+      },
+      {
+        "strength": "NONE",
+        "providerCallsAllowed": 0,
+        "requiresResolvedOutcome": false
+      }
+    ],
+    "offerAdmissionPolicy": [
+      {
+        "strength": "STRONG_IDENTIFIER_MATCH",
+        "publishable": true,
+        "merchantPageConfirmationRequired": true
+      },
+      {
+        "strength": "CURATED_TITLE_ALIAS_MATCH",
+        "publishable": true,
+        "merchantPageConfirmationRequired": true
+      },
+      {
+        "strength": "EXACT_LEXICAL_MATCH",
+        "publishable": true,
+        "merchantPageConfirmationRequired": true
+      },
+      {
+        "strength": "PROBABILISTIC_CANDIDATE",
+        "publishable": false,
+        "merchantPageConfirmationRequired": false
+      },
+      {
+        "strength": "IDENTITY_OR_ROLE_CONFLICT",
+        "publishable": false,
+        "merchantPageConfirmationRequired": false
+      }
+    ]
+  },
+  "architecture": {
+    "deploymentShape": "MODULAR_MONOLITH",
+    "dependencyDirection": [
+      "domain",
+      "agent",
+      "runtime",
+      "api"
+    ],
+    "stateTransitionOwner": "domain",
+    "llmRole": "SEMANTIC_COPROCESSOR",
+    "fullEventSourcing": false,
+    "graphDatabaseRequired": false,
+    "providerIsIdentityAuthority": false
+  },
+  "stages": [
+    {
+      "id": 0,
+      "name": "contract_and_baseline",
+      "deliverables": [
+        "MACHINE_CONTRACT",
+        "ADR",
+        "EXECUTION_PLAN",
+        "PHASE_STATE",
+        "DRIFT_CHECK"
+      ],
+      "gates": [
+        "npm run identity:contract:check",
+        "npm run identity:drift:check",
+        "npm run docs:check",
+        "npm run architecture:maintainability:check",
+        "npm run typecheck",
+        "npm run test:unit"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "executable_agent_contract",
+      "deliverables": [
+        "EXECUTABLE_TRAJECTORY_HARNESS",
+        "CONTROLLED_EFFECT_FIXTURES",
+        "AGENT_PROTOCOL_EVALS"
+      ],
+      "gates": [
+        "npm run identity:trajectory:test",
+        "npm run identity:agent:eval",
+        "npm run identity:drift:check",
+        "npm run typecheck",
+        "npm run test:unit"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "versioned_identity_kernel",
+      "deliverables": [
+        "IDENTITY_DOMAIN_MODEL",
+        "IDENTITY_REGISTRY_PORT",
+        "POSTGRES_IDENTITY_SCHEMA",
+        "LEGACY_LITERAL_UPCAST"
+      ],
+      "gates": [
+        "npm run identity:trajectory:test",
+        "npm run identity:drift:check",
+        "npm run architecture:maintainability:check",
+        "npm run typecheck",
+        "npm run test:unit",
+        "npm run test:integration"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "pure_domain_decision_core",
+      "deliverables": [
+        "PURE_COMMAND_DECISIONS",
+        "EXPLICIT_EFFECTS",
+        "DOMAIN_OWNED_STATE_TRANSITIONS",
+        "THIN_AGENT_EXECUTOR"
+      ],
+      "gates": [
+        "npm run identity:trajectory:test",
+        "npm run identity:drift:check",
+        "npm run architecture:maintainability:check",
+        "npm run typecheck",
+        "npm run test:unit",
+        "npm run test:integration"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "constrained_llm_identity_hypothesis",
+      "deliverables": [
+        "IDENTITY_HYPOTHESIS_SCHEMA",
+        "SOURCE_SPAN_VALIDATION",
+        "CANDIDATE_ALLOWLIST_VALIDATION",
+        "LLM_SAFETY_EVALS"
+      ],
+      "gates": [
+        "npm run identity:agent:eval",
+        "npm run identity:trajectory:test",
+        "npm run identity:drift:check",
+        "npm run typecheck",
+        "npm run test:unit"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "offer_evidence_and_shadow_cutover",
+      "deliverables": [
+        "OFFER_IDENTITY_STRENGTH",
+        "SHADOW_RESOLVER_COMPARISON",
+        "IDENTITY_OBSERVABILITY",
+        "SINGLE_PATH_CUTOVER"
+      ],
+      "gates": [
+        "npm run identity:trajectory:test",
+        "npm run identity:agent:eval",
+        "npm run identity:shadow:replay",
+        "npm run identity:drift:check",
+        "npm run test:coverage",
+        "npm run test:integration",
+        "npm run test:e2e"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "final_adversarial_acceptance",
+      "deliverables": [
+        "PROPERTY_TESTS",
+        "MUTATION_TESTS",
+        "LIVE_PROVIDER_OBSERVATION",
+        "FINAL_COMPLETION_AUDIT"
+      ],
+      "gates": [
+        "npm run identity:trajectory:test",
+        "npm run identity:agent:eval",
+        "npm run identity:mutation:test",
+        "npm run identity:drift:check",
+        "npm run quote:live:acceptance",
+        "npm run acceptance"
+      ]
+    }
+  ]
+}

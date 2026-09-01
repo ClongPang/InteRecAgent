@@ -50,6 +50,13 @@ const REQUIRED_TABLES: Readonly<Record<string, readonly string[]>> = {
   quote_claims: ["conversation_id", "lead_set_id", "quote_lead_id", "claim_ref", "kind", "canonical_value"],
   quote_claim_evidence: ["conversation_id", "lead_set_id", "quote_claim_id", "source_fact_id", "quote_fx_snapshot_id"],
   quote_state_versions: ["conversation_id", "revision", "state_json", "quote_lead_set_id", "committed_by_turn_id"],
+  product_identity_registry_versions: ["registry_version", "schema_version", "status", "checksum", "source_ref", "activated_at"],
+  product_brands: ["registry_version", "brand_ref", "canonical_name", "aliases_json", "source_ref"],
+  canonical_products: ["registry_version", "product_ref", "brand_ref", "canonical_name", "product_type", "source_ref"],
+  product_variants: ["registry_version", "variant_ref", "product_ref", "canonical_model", "attributes_json", "status", "source_ref"],
+  product_identifiers: ["registry_version", "identifier_ref", "variant_ref", "brand_ref", "scheme", "normalized_value", "approval_status", "source_ref"],
+  product_aliases: ["registry_version", "alias_ref", "variant_ref", "purpose", "display_value", "normalized_key", "approval_status", "priority", "source_ref"],
+  product_relationships: ["registry_version", "relationship_ref", "from_variant_ref", "to_variant_ref", "kind", "source_ref"],
 };
 const REQUIRED_CONSTRAINTS = [
   "conversations_active_turn_fk",
@@ -91,6 +98,14 @@ const REQUIRED_CONSTRAINTS = [
   "quote_state_contract_check",
   "quote_state_lead_set_fk",
   "conversation_revisions_quote_state_fk",
+  "product_identity_registry_activation_check",
+  "canonical_products_brand_fk",
+  "product_variants_product_fk",
+  "product_identifiers_variant_fk",
+  "product_identifiers_brand_fk",
+  "product_aliases_variant_fk",
+  "product_relationships_from_variant_fk",
+  "product_relationships_to_variant_fk",
 ] as const;
 const REQUIRED_INDEXES = [
   "conversations_owner_updated_idx",
@@ -116,6 +131,12 @@ const REQUIRED_INDEXES = [
   "quote_source_facts_ref_idx",
   "quote_artifacts_expiry_idx",
   "quote_state_versions_conversation_revision_idx",
+  "product_identity_one_active_version_idx",
+  "product_identifiers_approved_gtin_unique_idx",
+  "product_identifiers_approved_brand_mpn_unique_idx",
+  "product_identifiers_lookup_idx",
+  "product_aliases_resolution_idx",
+  "product_aliases_provider_priority_unique_idx",
 ] as const;
 const REQUIRED_TRIGGERS = [
   "source_facts_promoted_immutable",
@@ -136,6 +157,13 @@ const REQUIRED_TRIGGERS = [
   "quote_claims_immutable",
   "quote_claim_evidence_immutable",
   "quote_state_versions_immutable",
+  "product_identity_registry_version_guard",
+  "product_brands_version_guard",
+  "canonical_products_version_guard",
+  "product_variants_version_guard",
+  "product_identifiers_version_guard",
+  "product_aliases_version_guard",
+  "product_relationships_version_guard",
 ] as const;
 const REQUIRED_RLS_TABLES = [
   "conversations",
@@ -167,6 +195,13 @@ const REQUIRED_RLS_TABLES = [
   "quote_claims",
   "quote_claim_evidence",
   "quote_state_versions",
+  "product_identity_registry_versions",
+  "product_brands",
+  "canonical_products",
+  "product_variants",
+  "product_identifiers",
+  "product_aliases",
+  "product_relationships",
 ] as const;
 
 export interface MigrationResult {

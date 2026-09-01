@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "registryVersion": 1,
+  "cases": [
+    {
+      "id": "exact_curated_alias",
+      "title": "Sony WH-1000XM5 Wireless Headphones",
+      "frozenLegacyStatus": "ELIGIBLE",
+      "expected": { "status": "ELIGIBLE", "strength": "CURATED_TITLE_ALIAS_MATCH", "disagreementCode": null }
+    },
+    {
+      "id": "punctuation_curated_alias",
+      "title": "Sony WH1000XM5 Wireless Headphones",
+      "frozenLegacyStatus": "ELIGIBLE",
+      "expected": { "status": "ELIGIBLE", "strength": "CURATED_TITLE_ALIAS_MATCH", "disagreementCode": null }
+    },
+    {
+      "id": "near_model_is_not_publishable",
+      "title": "Sony WH-1000XM55 Wireless Headphones",
+      "frozenLegacyStatus": "REJECTED",
+      "expected": { "status": "INSUFFICIENT_EVIDENCE", "strength": "PROBABILISTIC_CANDIDATE", "disagreementCode": "STATUS_CLASS_CHANGED" }
+    },
+    {
+      "id": "accessory_conflict",
+      "title": "Replacement ear pads for Sony WH-1000XM5",
+      "frozenLegacyStatus": "REJECTED",
+      "expected": { "status": "REJECTED", "strength": "IDENTITY_OR_ROLE_CONFLICT", "disagreementCode": null }
+    },
+    {
+      "id": "strong_identifier_without_title_model",
+      "title": "Sony Premium Wireless Headphones",
+      "fields": { "brand": "Sony", "gtin": "4006381333931" },
+      "frozenLegacyStatus": "REJECTED",
+      "allowActiveMorePermissive": true,
+      "expected": { "status": "ELIGIBLE", "strength": "STRONG_IDENTIFIER_MATCH", "disagreementCode": "ACTIVE_MORE_PERMISSIVE" }
+    },
+    {
+      "id": "sibling_identifier_overrides_plausible_title",
+      "title": "Sony WH-1000XM5 Wireless Headphones",
+      "fields": { "brand": "Sony", "gtin": "5901234123457" },
+      "frozenLegacyStatus": "ELIGIBLE",
+      "expected": { "status": "REJECTED", "strength": "IDENTITY_OR_ROLE_CONFLICT", "disagreementCode": "ACTIVE_MORE_CONSERVATIVE" }
+    },
+    {
+      "id": "missing_price_stays_insufficient",
+      "title": "Sony WH-1000XM5 Wireless Headphones",
+      "fields": { "price": null },
+      "frozenLegacyStatus": "INSUFFICIENT_EVIDENCE",
+      "expected": { "status": "INSUFFICIENT_EVIDENCE", "strength": "CURATED_TITLE_ALIAS_MATCH", "disagreementCode": null }
+    },
+    {
+      "id": "sibling_alias_conflict",
+      "title": "Sony WH-1000XM4 Wireless Headphones",
+      "frozenLegacyStatus": "REJECTED",
+      "expected": { "status": "REJECTED", "strength": "IDENTITY_OR_ROLE_CONFLICT", "disagreementCode": null }
+    },
+    {
+      "id": "provider_brand_conflict",
+      "title": "Sony WH-1000XM5 Wireless Headphones",
+      "fields": { "brand": "Example" },
+      "frozenLegacyStatus": "ELIGIBLE",
+      "expected": { "status": "REJECTED", "strength": "IDENTITY_OR_ROLE_CONFLICT", "disagreementCode": "ACTIVE_MORE_CONSERVATIVE" }
+    }
+  ]
+}

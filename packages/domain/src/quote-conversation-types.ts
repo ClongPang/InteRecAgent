@@ -1,4 +1,5 @@
 import type { ConversationStatus, OperationSource } from "./conversation-types.js";
+import type { ProductIdentityResolution } from "./product-identity.js";
 import {
   QUOTE_LEAD_CONTRACT_VERSION,
   type QuoteConditionPreference,
@@ -22,6 +23,7 @@ export interface PendingQuoteTargetConfirmation {
   proposal: QuoteTargetProposal & { rawText: string };
   reasonCodes: string[];
   askedByMessageId: string;
+  identityResolution?: ProductIdentityResolution;
 }
 
 export interface PublishedQuotePriceRange {
@@ -92,7 +94,7 @@ interface QuoteOperationBase {
 }
 
 export type QuoteTurnOperation =
-  | (QuoteOperationBase & { kind: "SET_QUOTE_TARGET"; source: OperationSource; target: QuoteTargetProposal })
+  | (QuoteOperationBase & { kind: "SET_QUOTE_TARGET"; source: OperationSource; target: QuoteTargetProposal; identityResolution?: ProductIdentityResolution })
   | (QuoteOperationBase & { kind: "REQUEST_QUOTE_MODEL_CONFIRMATION" })
   | (QuoteOperationBase & { kind: "DECLINE_UNSUPPORTED_QUOTE_TARGET"; reasonCode: "ACCESSORY_OR_PART" | "SERVICE" })
   | (QuoteOperationBase & { kind: "CONFIRM_QUOTE_TARGET"; confirmationId: string })

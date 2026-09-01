@@ -10,6 +10,7 @@
   "include": [
     "src/index.ts",
     "src/agent-observation.ts",
+    "src/identity-*.ts",
     "src/quote-*.ts",
     "src/schemas.ts"
   ]

@@ -34,7 +34,7 @@ function priceText(lead: NonNullable<QuoteConversationState["leadSet"]>["leads"]
     const original = range.originalPrice.minAmount === range.originalPrice.maxAmount
       ? `${range.originalPrice.currency} ${range.originalPrice.minAmount}`
       : `${range.originalPrice.currency} ${range.originalPrice.minAmount}–${range.originalPrice.maxAmount}`;
-    if (!range.cnyEstimate) return original;
+    if (!range.cnyEstimate) return `${original}（当前没有可发布的 CNY 汇率估算）`;
     const cny = range.cnyEstimate.minAmount === range.cnyEstimate.maxAmount
       ? `CNY ${range.cnyEstimate.minAmount}`
       : `CNY ${range.cnyEstimate.minAmount}–${range.cnyEstimate.maxAmount}`;
@@ -132,11 +132,18 @@ export function renderQuoteAssistantPublication(
     const refs = Array.isArray(receipt?.publicResult["quoteLeadRefs"])
       ? receipt.publicResult["quoteLeadRefs"].map(String)
       : [];
+    const excludedRefs = refs.filter((ref) => state.excludedQuoteLeadRefs.includes(ref));
+    const targetContext = state.target
+      ? `当前准确型号是 ${state.target.canonicalModel}，以下信息来自当前已发布观测。`
+      : "以下信息来自当前已发布观测。";
+    const exclusionContext = excludedRefs.length > 0
+      ? `其中 ${excludedRefs.length} 个报价线索已在当前会话中排除，因此不会出现在当前展示列表；检查状态不会触发重新查询。`
+      : "";
     return {
       outcome: "CHAT",
       addressedOpIds,
       disclosureCodes: disclosureCodes(state, "CHAT"),
-      text: `以下信息来自当前已发布观测，没有重新调用报价服务。\n${leadSummary(state, refs)}\n观测条数不是商家数量；${MERCHANT_CHECK}${AFFILIATE_NOTICE}`,
+      text: `${targetContext}没有重新调用报价服务。\n${leadSummary(state, refs)}\n观测条数不是商家数量；${exclusionContext}${MERCHANT_CHECK}${AFFILIATE_NOTICE}`,
     };
   }
   if (plan.ops.some((operation) => operation.kind === "INSPECT_QUOTE_STATUS") && state.target) {

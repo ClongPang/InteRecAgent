@@ -4,14 +4,23 @@ import { dirname, resolve } from "node:path";
 const documentationFiles = [
   "README.md",
   "docs/quote-lead-refactor-execution-plan.md",
+  "docs/identity-grounded-quote-agent-execution-plan.md",
   "docs/adr/0007-singapore-known-model-quote-leads.md",
   "docs/adr/0008-maintainable-module-architecture.md",
+  "docs/adr/0009-identity-grounded-agent-decision-core.md",
   "docs/acceptance/quote-lead-phase-0-baseline-2026-09-01.md",
   "docs/acceptance/quote-lead-phase-1-provider-2026-09-01.md",
   "docs/acceptance/quote-lead-phase-2-domain-evidence-2026-09-01.md",
   "docs/acceptance/quote-lead-phase-3-agent-api-ui-2026-09-01.md",
   "docs/acceptance/quote-lead-phase-4-single-implementation-quality-2026-09-01.md",
   "docs/acceptance/quote-lead-phase-5-live-final-2026-09-01.md",
+  "docs/acceptance/identity-grounded-phase-0-baseline-2026-09-01.md",
+  "docs/acceptance/identity-grounded-phase-1-agent-contract-2026-09-01.md",
+  "docs/acceptance/identity-grounded-phase-2-identity-kernel-2026-09-01.md",
+  "docs/acceptance/identity-grounded-phase-3-domain-effects-2026-09-01.md",
+  "docs/acceptance/identity-grounded-phase-4-llm-hypothesis-2026-09-01.md",
+  "docs/acceptance/identity-grounded-phase-5-offer-cutover-2026-09-01.md",
+  "docs/acceptance/identity-grounded-phase-6-final-2026-09-01.md",
 ];
 
 const retiredActiveNames = [

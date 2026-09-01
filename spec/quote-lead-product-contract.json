@@ -105,7 +105,8 @@
   "requiredRoutes": [
     "talk",
     "clarify",
-    "lookup"
+    "quote_followup",
+    "quote_lookup"
   ],
   "requiredCapabilities": [
     "exact_model_lookup",
@@ -131,7 +132,7 @@
         {
           "user": "帮我查 Sony WH-1000XM5 的报价。",
           "expected": {
-            "route": "lookup",
+            "route": "quote_lookup",
             "operations": ["set_quote_target", "lookup_quotes"],
             "providerCalls": 1,
             "outcome": "QUOTE_LEADS",
@@ -141,7 +142,7 @@
         {
           "user": "比较第一条和第二条。",
           "expected": {
-            "route": "talk",
+            "route": "quote_followup",
             "operations": ["bind_rank:1", "bind_rank:2", "compare_quote_leads"],
             "providerCalls": 0,
             "outcome": "CHAT",
@@ -167,7 +168,7 @@
         {
           "user": "我确认就是 Sony WH-1000XM5。",
           "expected": {
-            "route": "lookup",
+            "route": "quote_lookup",
             "operations": ["resolve_model_confirmation", "set_quote_target", "lookup_quotes"],
             "providerCalls": 1,
             "outcome": "QUOTE_LEADS",
@@ -183,7 +184,7 @@
         {
           "user": "查 Sony WH1000XM5 报价。",
           "expected": {
-            "route": "lookup",
+            "route": "quote_lookup",
             "operations": ["normalize_model_punctuation", "set_quote_target", "lookup_quotes"],
             "providerCalls": 1,
             "outcome": "QUOTE_LEADS",
@@ -210,7 +211,7 @@
           "user": "查 Sony WH-1000XM5 翻新版报价。",
           "environment": ["NINE_RECORDS_SAME_URL_AND_CONDITION"],
           "expected": {
-            "route": "lookup",
+            "route": "quote_lookup",
             "operations": ["set_quote_target", "set_condition:REFURBISHED", "lookup_quotes", "group_quote_observations"],
             "providerCalls": 1,
             "outcome": "QUOTE_LEADS",
@@ -220,7 +221,7 @@
         {
           "user": "这是九家商家吗？",
           "expected": {
-            "route": "talk",
+            "route": "quote_followup",
             "operations": ["inspect_quote_lead_group"],
             "providerCalls": 0,
             "outcome": "CHAT",
@@ -237,7 +238,7 @@
           "user": "查 Sony WH-1000XM5 报价。",
           "environment": ["ONLY_ACCESSORY_AND_REPAIR_RECORDS"],
           "expected": {
-            "route": "lookup",
+            "route": "quote_lookup",
             "operations": ["set_quote_target", "lookup_quotes", "reject_non_primary_records"],
             "providerCalls": 1,
             "outcome": "NO_QUOTE_LEADS",
@@ -264,7 +265,7 @@
           "user": "查 Apple AirPods Max USB-C A3184 报价。",
           "environment": ["PROVIDER_OK_EMPTY"],
           "expected": {
-            "route": "lookup",
+            "route": "quote_lookup",
             "operations": ["set_quote_target", "lookup_quotes"],
             "providerCalls": 1,
             "outcome": "NO_QUOTE_LEADS",
@@ -274,7 +275,7 @@
         {
           "user": "再查一次。",
           "expected": {
-            "route": "lookup",
+            "route": "quote_lookup",
             "operations": ["refresh_quotes"],
             "providerCalls": 1,
             "outcome": "NO_QUOTE_LEADS",
@@ -291,7 +292,7 @@
           "user": "查 Samsung Galaxy S24 SM-S921B 256GB 报价。",
           "environment": ["PROVIDER_DEGRADED"],
           "expected": {
-            "route": "lookup",
+            "route": "quote_lookup",
             "operations": ["set_quote_target", "lookup_quotes"],
             "providerCalls": 1,
             "outcome": "DEGRADED",
@@ -302,7 +303,7 @@
           "user": "现在刷新。",
           "environment": ["PROVIDER_RECOVERED"],
           "expected": {
-            "route": "lookup",
+            "route": "quote_lookup",
             "operations": ["refresh_quotes"],
             "providerCalls": 1,
             "outcome": "QUOTE_LEADS",
@@ -319,7 +320,7 @@
           "user": "查 Dyson TP09 报价。",
           "environment": ["PROVIDER_RETURNS_USD", "FX_UNAVAILABLE"],
           "expected": {
-            "route": "lookup",
+            "route": "quote_lookup",
             "operations": ["set_quote_target", "lookup_quotes", "attempt_fx_projection"],
             "providerCalls": 1,
             "outcome": "QUOTE_LEADS",
@@ -345,7 +346,7 @@
         {
           "user": "查 Logitech MX Master 3S 910-006559 报价。",
           "expected": {
-            "route": "lookup",
+            "route": "quote_lookup",
             "operations": ["set_quote_target", "lookup_quotes"],
             "providerCalls": 1,
             "outcome": "QUOTE_LEADS",
@@ -355,7 +356,7 @@
         {
           "user": "排除第一条，然后刷新报价。",
           "expected": {
-            "route": "lookup",
+            "route": "quote_lookup",
             "operations": ["exclude_rank:1", "refresh_quotes"],
             "providerCalls": 1,
             "outcome": "QUOTE_LEADS",
@@ -365,7 +366,7 @@
         {
           "user": "为什么那条仍然没有显示？",
           "expected": {
-            "route": "talk",
+            "route": "quote_followup",
             "operations": ["inspect_excluded_quote_lead"],
             "providerCalls": 0,
             "outcome": "CHAT",
@@ -381,7 +382,7 @@
         {
           "user": "查 Sony WH-1000XM5 报价。",
           "expected": {
-            "route": "lookup",
+            "route": "quote_lookup",
             "operations": ["set_quote_target:WH-1000XM5", "lookup_quotes"],
             "providerCalls": 1,
             "outcome": "QUOTE_LEADS",
@@ -392,7 +393,7 @@
           "user": "不是 XM5，是 WH-1000XM4；worker 重启后重新查。",
           "environment": ["WORKER_RESTART"],
           "expected": {
-            "route": "lookup",
+            "route": "quote_lookup",
             "operations": ["set_quote_target:WH-1000XM4", "invalidate_incompatible_quote_leads", "lookup_quotes"],
             "providerCalls": 1,
             "outcome": "QUOTE_LEADS",
@@ -402,7 +403,7 @@
         {
           "user": "现在会话中的型号和第一条报价是什么？",
           "expected": {
-            "route": "talk",
+            "route": "quote_followup",
             "operations": ["inspect_quote_target", "bind_rank:1", "inspect_quote_lead"],
             "providerCalls": 0,
             "outcome": "CHAT",

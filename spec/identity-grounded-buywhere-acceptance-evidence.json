@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "identity-grounded-quote-v1",
+  "runKind": "REAL_BUYWHERE_MULTI_CASE_WITH_EXPLICIT_CONTROLLED_BOUNDARIES",
+  "observedAt": "2026-09-01T10:15:13.406Z",
+  "completedAt": "2026-09-01T10:15:56.793Z",
+  "liveCallCount": 5,
+  "liveProviderStatus": {
+    "OK_RESULTS": 1,
+    "OK_EMPTY": 4
+  },
+  "retainedAttemptStatus": {
+    "OK_RESULTS": 4,
+    "OK_EMPTY": 17,
+    "DEGRADED": 10,
+    "FAILED": 14
+  },
+  "sonyPrimary": {
+    "rawObservationCount": 9,
+    "eligibleObservationCount": 9,
+    "identityStrengthCounts": {
+      "EXACT_LEXICAL_MATCH": 9
+    }
+  },
+  "providerEvaluatedCaseCount": 11,
+  "deterministicOfferIdentityChecksPassed": true,
+  "overallCheckCount": 8,
+  "failedOverallCheckCount": 0,
+  "overallDecision": "PASS",
+  "dataHandling": {
+    "apiKeyPersisted": false,
+    "rawProviderPayloadPersisted": false,
+    "rawMerchantUrlsPersisted": false,
+    "onlySanitizedAggregatesPersisted": true
+  },
+  "localReportSha256": "c266f744d695af3709c43e306bb71c7b96f34a56b71eb0318ae0da6511d696fe"
+}

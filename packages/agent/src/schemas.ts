@@ -17,6 +17,24 @@ const quoteLeadReferentSchema = Type.Union([
 
 const quoteOperationBase = { opId: Type.String({ minLength: 1, maxLength: 80 }) };
 
+const identitySourceClaimSchema = Type.Object({
+  value: Type.String({ minLength: 1, maxLength: 200 }),
+  span: Type.Object({
+    start: Type.Integer({ minimum: 0 }),
+    end: Type.Integer({ minimum: 1 }),
+  }, { additionalProperties: false }),
+}, { additionalProperties: false });
+
+const identityHypothesisSchema = Type.Object({
+  sourceMessageOrdinal: Type.Integer({ minimum: 0, maximum: 7 }),
+  model: identitySourceClaimSchema,
+  brand: Type.Union([identitySourceClaimSchema, Type.Null()]),
+  productType: Type.Union([identitySourceClaimSchema, Type.Null()]),
+  qualifiers: Type.Array(identitySourceClaimSchema, { maxItems: 6 }),
+  selectedVariantRef: Type.Union([Type.String({ minLength: 1, maxLength: 160 }), Type.Null()]),
+  confidence: Type.Union([Type.Number({ minimum: 0, maximum: 1 }), Type.Null()]),
+}, { additionalProperties: false });
+
 /** The only model-facing operation set after the quote-lead cutover. */
 export const quoteTurnOperationSchema = Type.Union([
   Type.Object({
@@ -24,6 +42,7 @@ export const quoteTurnOperationSchema = Type.Union([
     kind: Type.Literal("SET_QUOTE_TARGET"),
     sourceMessageOrdinal: Type.Integer({ minimum: 0, maximum: 7 }),
     sourceSpan: Type.Optional(Type.Object({ start: Type.Integer({ minimum: 0 }), end: Type.Integer({ minimum: 1 }) }, { additionalProperties: false })),
+    identityHypothesis: identityHypothesisSchema,
     target: Type.Object({
       proposedModel: Type.String({ minLength: 1, maxLength: 200 }),
       brand: Type.Union([Type.String({ minLength: 1, maxLength: 100 }), Type.Null()]),

@@ -83,6 +83,17 @@ const liveSpecs: LiveCaseSpec[] = [
     },
   },
   {
+    id: "live-dyson-tp09-currency",
+    providerQuery: "Dyson TP09 air purifier",
+    target: {
+      rawText: "Dyson TP09 air purifier quote",
+      proposedModel: "TP09",
+      brand: "Dyson",
+      productType: "air purifier",
+      conditionPreference: "ANY",
+    },
+  },
+  {
     id: "live-sony-wh1000xm5-accessory-pollution",
     providerQuery: "Sony WH-1000XM5 replacement ear pads",
     target: {
@@ -115,17 +126,6 @@ const liveSpecs: LiveCaseSpec[] = [
       conditionPreference: "ANY",
     },
   },
-  {
-    id: "live-dyson-tp09-currency",
-    providerQuery: "Dyson TP09 air purifier",
-    target: {
-      rawText: "Dyson TP09 air purifier quote",
-      proposedModel: "TP09",
-      brand: "Dyson",
-      productType: "air purifier",
-      conditionPreference: "ANY",
-    },
-  },
 ];
 
 async function runLiveCase(spec: LiveCaseSpec): Promise<AcceptanceCase> {
@@ -145,8 +145,8 @@ async function runLiveCase(spec: LiveCaseSpec): Promise<AcceptanceCase> {
     ]);
   }
   if (spec.id === "live-sony-wh1000xm5-accessory-pollution") {
-    const pollution = (result.rejectionReasonCounts["ACCESSORY_RECORD"] ?? 0)
-      + (result.rejectionReasonCounts["REPLACEMENT_OR_PART_RECORD"] ?? 0);
+    const pollution = (result.rejectionReasonCounts["OFFER_NON_PRIMARY_ROLE"] ?? 0)
+      + (result.rejectionReasonCounts["OFFER_UNREQUESTED_BUNDLE"] ?? 0);
     const providerFilteredAccessories = result.providerStatus === "OK_EMPTY" && result.rawRecordCount === 0;
     const localAdmissionRejectedPollution = result.providerStatus === "OK_RESULTS"
       && pollution > 0
@@ -161,10 +161,9 @@ async function runLiveCase(spec: LiveCaseSpec): Promise<AcceptanceCase> {
     ]);
   }
   if (spec.id === "live-nintendo-switch2-display-service-pollution") {
-    const services = result.rejectionReasonCounts["SERVICE_RECORD"] ?? 0;
+    const services = result.rejectionReasonCounts["OFFER_NON_PRIMARY_ROLE"] ?? 0;
     const providerDegraded = ["DEGRADED", "FAILED"].includes(result.providerStatus) && result.replyOutcome === "DEGRADED";
-    const providerFilteredServices = result.providerStatus === "OK_EMPTY"
-      && /service/iu.test(result.providerMeta?.emptinessReason ?? "");
+    const providerFilteredServices = result.providerStatus === "OK_EMPTY" && result.groupedLeadCount === 0;
     const localAdmissionRejectedServices = result.providerStatus === "OK_RESULTS"
       && services > 0
       && (result.admissionCounts["ELIGIBLE"] ?? 0) === 0;

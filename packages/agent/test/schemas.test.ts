@@ -12,6 +12,15 @@ describe("quote-only model schema", () => {
           opId: "target",
           kind: "SET_QUOTE_TARGET",
           sourceMessageOrdinal: 0,
+          identityHypothesis: {
+            sourceMessageOrdinal: 0,
+            model: { value: "WH-1000XM5", span: { start: 5, end: 15 } },
+            brand: { value: "Sony", span: { start: 0, end: 4 } },
+            productType: { value: "headphones", span: { start: 16, end: 26 } },
+            qualifiers: [],
+            selectedVariantRef: null,
+            confidence: null,
+          },
           target: {
             proposedModel: "WH-1000XM5",
             brand: "Sony",
@@ -23,6 +32,41 @@ describe("quote-only model schema", () => {
         { opId: "lookup", kind: "LOOKUP_QUOTES" },
       ],
     })).toBe(true);
+  });
+
+  it("requires a closed, source-spanned identity hypothesis for every target proposal", () => {
+    const base = {
+      userIntentSummary: "look up the stated model",
+      ops: [{
+        opId: "target",
+        kind: "SET_QUOTE_TARGET",
+        sourceMessageOrdinal: 0,
+        target: {
+          proposedModel: "WH-1000XM5",
+          brand: "Sony",
+          productType: null,
+          requiredQualifiers: [],
+          conditionPreference: "ANY",
+        },
+      }],
+    };
+    expect(Check(quoteTurnPlanSchema, base)).toBe(false);
+    expect(Check(quoteTurnPlanSchema, {
+      ...base,
+      ops: [{
+        ...base.ops[0],
+        identityHypothesis: {
+          sourceMessageOrdinal: 0,
+          model: { value: "WH-1000XM5", span: { start: 5, end: 15 } },
+          brand: { value: "Sony", span: { start: 0, end: 4 } },
+          productType: null,
+          qualifiers: [],
+          selectedVariantRef: null,
+          confidence: null,
+          authority: "MODEL",
+        },
+      }],
+    })).toBe(false);
   });
 
   it("accepts explicit refresh and stable quote referents", () => {

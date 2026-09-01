@@ -5,7 +5,21 @@ import {
 } from "@interec/domain";
 import { describe, expect, it, vi } from "vitest";
 
+import { createLexicallyGroundedIdentityHypothesis } from "../src/identity-hypothesis.js";
 import { QuoteConversationTurnExecutor } from "../src/quote-turn-executor.js";
+
+const EXACT_USER = "Sony WH-1000XM5 headphones";
+
+function exactTargetOperation() {
+  const target = { proposedModel: "WH-1000XM5", brand: "Sony", productType: "headphones", requiredQualifiers: [], conditionPreference: "ANY" as const };
+  return {
+    opId: "target",
+    kind: "SET_QUOTE_TARGET" as const,
+    sourceMessageOrdinal: 0,
+    identityHypothesis: createLexicallyGroundedIdentityHypothesis(EXACT_USER, 0, target),
+    target,
+  };
+}
 
 function target() {
   const result = resolveQuoteTarget({ rawText: "Sony WH-1000XM5 headphones", proposedModel: "WH-1000XM5", brand: "Sony", productType: "headphones" });
@@ -48,10 +62,10 @@ function executor(baseState = emptyQuoteConversationState(), lookup = vi.fn(asyn
     executor: new QuoteConversationTurnExecutor({
       turnId: "turn-1",
       inputMessageIds: ["m1"],
-      inputMessageContents: ["Sony WH-1000XM5 headphones"],
+      inputMessageContents: [EXACT_USER],
       baseState,
       publicationRevision: baseState.version + 1,
-      quoteData: { lookup },
+      quoteEffects: { execute: async (effect) => ({ status: "SUCCEEDED", leadSet: await lookup(effect.target) }) },
     }),
   };
 }
@@ -62,7 +76,7 @@ describe("QuoteConversationTurnExecutor", () => {
     const result = await setup.executor.execute({
       userIntentSummary: "look up exact model",
       ops: [
-        { opId: "target", kind: "SET_QUOTE_TARGET", sourceMessageOrdinal: 0, target: { proposedModel: "WH-1000XM5", brand: "Sony", productType: "headphones", requiredQualifiers: [], conditionPreference: "ANY" } },
+        exactTargetOperation(),
         { opId: "lookup", kind: "LOOKUP_QUOTES" },
       ],
     });
@@ -99,12 +113,26 @@ describe("QuoteConversationTurnExecutor", () => {
         inputMessageContents: ["Sony XM5 headphones"],
         baseState: emptyQuoteConversationState(),
         publicationRevision: 1,
-        quoteData: { lookup: vi.fn(async () => resultSet()) },
+        quoteEffects: { execute: async () => ({ status: "SUCCEEDED", leadSet: resultSet() }) },
       }),
     };
     const result = await setup.executor.execute({
       userIntentSummary: "confirm expanded model",
-      ops: [{ opId: "target", kind: "SET_QUOTE_TARGET", sourceMessageOrdinal: 0, target: { proposedModel: "WH-1000XM5", brand: "Sony", productType: "headphones", requiredQualifiers: [], conditionPreference: "ANY" } }],
+      ops: [{
+        opId: "target",
+        kind: "SET_QUOTE_TARGET",
+        sourceMessageOrdinal: 0,
+        identityHypothesis: {
+          sourceMessageOrdinal: 0,
+          model: { value: "XM5", span: { start: 5, end: 8 } },
+          brand: { value: "Sony", span: { start: 0, end: 4 } },
+          productType: { value: "headphones", span: { start: 9, end: 19 } },
+          qualifiers: [],
+          selectedVariantRef: null,
+          confidence: 0.92,
+        },
+        target: { proposedModel: "WH-1000XM5", brand: "Sony", productType: "headphones", requiredQualifiers: [], conditionPreference: "ANY" },
+      }],
     });
     expect(result.state.pendingTargetConfirmation?.proposal.proposedModel).toBe("WH-1000XM5");
     expect(result.reply.outcome).toBe("CLARIFICATION");
@@ -116,7 +144,7 @@ describe("QuoteConversationTurnExecutor", () => {
     const result = await setup.executor.execute({
       userIntentSummary: "look up exact model",
       ops: [
-        { opId: "target", kind: "SET_QUOTE_TARGET", sourceMessageOrdinal: 0, target: { proposedModel: "WH-1000XM5", brand: "Sony", productType: "headphones", requiredQualifiers: [], conditionPreference: "ANY" } },
+        exactTargetOperation(),
         { opId: "lookup", kind: "LOOKUP_QUOTES" },
       ],
     });
@@ -138,7 +166,7 @@ describe("QuoteConversationTurnExecutor", () => {
       inputMessageContents: ["排除第一条，然后刷新报价"],
       baseState: base,
       publicationRevision: 2,
-      quoteData: { lookup },
+      quoteEffects: { execute: async (effect) => ({ status: "SUCCEEDED", leadSet: await lookup(effect.target) }) },
     });
     const result = await instance.execute({
       userIntentSummary: "exclude first and explicitly refresh",
@@ -150,5 +178,28 @@ describe("QuoteConversationTurnExecutor", () => {
     expect(lookup).toHaveBeenCalledOnce();
     expect(result.state.excludedQuoteLeadRefs).toEqual(["ql_1"]);
     expect(result.state.displayQuoteLeadRefs).toEqual([]);
+  });
+
+  it("does not leak an earlier target decision when the later Provider effect fails", async () => {
+    const drafts: Array<ReturnType<typeof emptyQuoteConversationState>> = [];
+    const instance = new QuoteConversationTurnExecutor({
+      turnId: "turn-failed-effect",
+      inputMessageIds: ["m1"],
+      inputMessageContents: [EXACT_USER],
+      baseState: emptyQuoteConversationState(),
+      publicationRevision: 1,
+      quoteEffects: { execute: async () => { throw new Error("BUYWHERE_TIMEOUT"); } },
+      onDraftChanged: async ({ state }) => { drafts.push(state); },
+    });
+    await expect(instance.execute({
+      userIntentSummary: "look up exact model",
+      ops: [
+        exactTargetOperation(),
+        { opId: "lookup", kind: "LOOKUP_QUOTES" },
+      ],
+    })).rejects.toThrow("BUYWHERE_TIMEOUT");
+    expect(drafts).toEqual([]);
+    const fallback = await instance.fallback("BUYWHERE_TIMEOUT");
+    expect(fallback.state).toMatchObject({ version: 1, target: null, leadSet: null });
   });
 });

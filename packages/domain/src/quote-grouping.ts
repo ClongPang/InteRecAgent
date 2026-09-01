@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { compareDecimal } from "./money.js";
 import {
   MERCHANT_PAGE_CONFIRMATION,
+  QUOTE_ADMISSION_POLICY_VERSION,
   QUOTE_GROUPING_POLICY_VERSION,
   type QuoteAdmissionDecision,
   type QuoteLead,
@@ -74,6 +75,13 @@ export function groupQuoteObservations(
     .sort((left, right) => `${left.normalizedUrl}\u0000${left.observations[0]!.condition}`.localeCompare(`${right.normalizedUrl}\u0000${right.observations[0]!.condition}`, "en-US"))
     .map(({ normalizedUrl, observations: values }) => {
       const representative = values[0]!;
+      const eligibleAdmissions = values.map((value) => admissionByRef.get(value.observationRef)!).filter(Boolean);
+      const identityStrength = eligibleAdmissions
+        .map((value) => value.identityStrength)
+        .sort((left, right) => {
+          const rank = { EXACT_LEXICAL_MATCH: 0, CURATED_TITLE_ALIAS_MATCH: 1, STRONG_IDENTIFIER_MATCH: 2 } as const;
+          return (rank[left as keyof typeof rank] ?? -1) - (rank[right as keyof typeof rank] ?? -1);
+        })[0] as "EXACT_LEXICAL_MATCH" | "CURATED_TITLE_ALIAS_MATCH" | "STRONG_IDENTIFIER_MATCH";
       const observed = values.map((value) => value.observedAt).sort((left, right) => Date.parse(left) - Date.parse(right));
       return {
         quoteLeadRef: stableLeadRef(target, normalizedUrl, representative.condition),
@@ -93,6 +101,9 @@ export function groupQuoteObservations(
         latestProviderUpdatedAt: latestTimestamp(values.map((value) => value.providerUpdatedAt)),
         disclosureCode: MERCHANT_PAGE_CONFIRMATION,
         groupingPolicyVersion: QUOTE_GROUPING_POLICY_VERSION,
+        admissionPolicyVersion: QUOTE_ADMISSION_POLICY_VERSION,
+        identityStrength,
+        identityEvidenceRefs: [...new Set(eligibleAdmissions.flatMap((value) => value.identityEvidenceRefs))].sort(),
       };
     });
 }

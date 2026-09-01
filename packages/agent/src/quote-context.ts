@@ -1,5 +1,7 @@
 import { validateQuoteConversationState, type QuoteConversationState } from "@interec/domain";
 
+import { validateIdentityCandidates, type IdentityCandidateView } from "./identity-hypothesis.js";
+
 export interface ContextMessage {
   role: "USER" | "ASSISTANT";
   content: string;
@@ -12,6 +14,7 @@ export interface QuoteConversationContextInput {
   now: string;
   modelId: string;
   providerCallBudget: 0 | 1;
+  identityCandidates?: IdentityCandidateView[];
   maxInputTokens?: number;
 }
 
@@ -19,6 +22,7 @@ export interface QuoteConversationContextProjection {
   contractVersion: "quote-leads-sg-v1";
   currentUserMessages: Array<{ ordinal: number; content: string; truncated: boolean }>;
   recentAdjacentPair: Array<{ role: ContextMessage["role"]; content: string; truncated: boolean }>;
+  identityCandidates: IdentityCandidateView[];
   quoteState: {
     version: number;
     target: QuoteConversationState["target"];
@@ -68,10 +72,12 @@ export function projectQuoteConversationContext(input: QuoteConversationContextI
   if (!Number.isFinite(Date.parse(input.now))) throw new Error("INVALID_QUOTE_CONTEXT_TIME");
   if (input.currentUserMessages.length < 1 || input.currentUserMessages.length > 8) throw new Error("INVALID_QUOTE_MESSAGE_BATCH");
   const state = validateQuoteConversationState(input.state);
+  const identityCandidates = validateIdentityCandidates(input.identityCandidates ?? []).slice(0, 20);
   const projection: QuoteConversationContextProjection = {
     contractVersion: state.contractVersion,
     currentUserMessages: input.currentUserMessages.map((content, ordinal) => ({ ordinal, ...bounded(content, 2_500) })),
     recentAdjacentPair: (input.recentAdjacentPair ?? []).slice(-2).map((message) => ({ role: message.role, ...bounded(message.content, 1_500) })),
+    identityCandidates,
     quoteState: {
       version: state.version,
       target: state.target,

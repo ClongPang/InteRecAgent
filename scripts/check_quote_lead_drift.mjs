@@ -117,6 +117,7 @@ if (state.currentPhase >= 2) {
     "packages/domain/src/quote-types.ts",
     "packages/domain/src/quote-target.ts",
     "packages/domain/src/quote-admission.ts",
+    "packages/domain/src/offer-identity.ts",
     "packages/domain/src/quote-grouping.ts",
     "packages/runtime/src/quote-lookup-service.ts",
     "packages/runtime/src/quote-provenance.ts",
@@ -126,11 +127,13 @@ if (state.currentPhase >= 2) {
   const quoteTypes = requireFile("packages/domain/src/quote-types.ts");
   requireIncludes(quoteTypes, ["QuoteObservation", "QuoteLead", "QUOTE_LEADS", "NO_QUOTE_LEADS"], "quote-types.ts");
   const admission = requireFile("packages/domain/src/quote-admission.ts");
+  const offerIdentity = requireFile("packages/domain/src/offer-identity.ts");
   const grouping = requireFile("packages/domain/src/quote-grouping.ts");
   const service = requireFile("packages/runtime/src/quote-lookup-service.ts");
   const repository = requireFile("packages/runtime/src/quote-lookup-repository.ts");
   const migration = requireFile("packages/runtime/conversation-migrations/0019_quote_leads.sql");
-  requireIncludes(admission, ["MODEL_EXACT_MISMATCH", "ACCESSORY_RECORD", "SERVICE_RECORD", "INSUFFICIENT_EVIDENCE"], "quote-admission.ts");
+  requireIncludes(admission, ["resolveOfferIdentity", "identitySignals", "INSUFFICIENT_EVIDENCE"], "quote-admission.ts");
+  requireIncludes(offerIdentity, ["STRONG_IDENTIFIER_MATCH", "CURATED_TITLE_ALIAS_MATCH", "EXACT_LEXICAL_MATCH", "PROBABILISTIC_CANDIDATE", "IDENTITY_OR_ROLE_CONFLICT"], "offer-identity.ts");
   requireIncludes(grouping, ["normalizeMerchantTargetUrl", "condition", "observationRefs"], "quote-grouping.ts");
   requireIncludes(service, ["PROVIDER_RETURNED_EMPTY", "ALL_RECORDS_REJECTED", "DEGRADED", "collectFx"], "quote-lookup-service.ts");
   requireIncludes(repository, ["QUOTE_LOOKUP_FENCE_REJECTED", "BEGIN", "ROLLBACK", "quote_lead_observations"], "quote-lookup-repository.ts");

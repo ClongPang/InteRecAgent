@@ -9,6 +9,7 @@ const result = spawnSync(process.execPath, [
   "packages/runtime/test/quote-conversation-repository.integration.test.ts",
   "packages/runtime/test/quote-lookup-repository.integration.test.ts",
   "packages/runtime/test/quote-turn-commit.integration.test.ts",
+  "packages/runtime/test/product-identity-registry.integration.test.ts",
   "packages/api/test/postgres-api.integration.test.ts",
 ], {
   cwd: process.cwd(),

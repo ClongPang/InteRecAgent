@@ -1,10 +1,13 @@
 import {
   projectPublishedQuoteLeadSet,
   QUOTE_LEAD_CONTRACT_VERSION,
+  type QuoteEffect,
+  type QuoteEffectResult,
   type PublishedQuoteLeadSet,
+  type ProductIdentityRegistry,
   type QuoteTarget,
 } from "@interec/domain";
-import type { QuoteLookupDataPort } from "@interec/agent";
+import type { QuoteEffectExecutionPort } from "@interec/agent";
 
 import { ControlledFxClient } from "./controlled-fx-client.js";
 import type { ClaimedConversationTurn, ConversationRepository } from "./conversation-repository-types.js";
@@ -16,7 +19,7 @@ import { PostgresProviderCallController } from "./provider-call-controller.js";
 import type { QuoteProvider } from "./quote-provider.js";
 import { withOwnerSnapshotTransaction } from "./postgres-conversation-storage.js";
 
-export class QuoteTurnDataService implements QuoteLookupDataPort {
+export class QuoteTurnDataService implements QuoteEffectExecutionPort {
   private providerCalls = 0;
   private readonly lookupRepository: PostgresQuoteLookupRepository;
 
@@ -26,11 +29,25 @@ export class QuoteTurnDataService implements QuoteLookupDataPort {
     private readonly callController: PostgresProviderCallController,
     private readonly quoteProvider: QuoteProvider,
     private readonly fxSource: FxPort,
+    private readonly identityRegistry?: ProductIdentityRegistry,
   ) {
     this.lookupRepository = new PostgresQuoteLookupRepository(callController.pool);
   }
 
-  public async lookup(target: QuoteTarget, operationId: string, signal?: AbortSignal): Promise<PublishedQuoteLeadSet> {
+  public async execute(effect: QuoteEffect, signal?: AbortSignal): Promise<QuoteEffectResult> {
+    if (effect.kind !== "QUOTE_LOOKUP") return { status: "FAILED", errorCode: "QUOTE_EFFECT_NOT_SUPPORTED", retryable: false };
+    try {
+      return { status: "SUCCEEDED", leadSet: await this.lookup(effect.target, effect.operationId, signal) };
+    } catch (error) {
+      return {
+        status: "FAILED",
+        errorCode: error instanceof Error ? error.message.slice(0, 160) : "QUOTE_EFFECT_FAILED",
+        retryable: null,
+      };
+    }
+  }
+
+  private async lookup(target: QuoteTarget, operationId: string, signal?: AbortSignal): Promise<PublishedQuoteLeadSet> {
     if (this.claimed.contractVersion !== QUOTE_LEAD_CONTRACT_VERSION) throw new Error("QUOTE_DATA_CONTRACT_MISMATCH");
     this.providerCalls += 1;
     if (this.providerCalls > 1) throw new Error("QUOTE_PROVIDER_CALL_BUDGET_EXCEEDED");
@@ -66,7 +83,16 @@ export class QuoteTurnDataService implements QuoteLookupDataPort {
           operationId: operation,
         },
       );
-      const execution = await new QuoteLookupService(this.quoteProvider, controlledFx).lookup({
+      const registryVersion = target.identity.registryVersion;
+      const identitySnapshot = registryVersion === null
+        ? undefined
+        : await this.identityRegistry?.getSnapshot(registryVersion) ?? null;
+      if (registryVersion !== null && !identitySnapshot) throw new Error("QUOTE_TARGET_IDENTITY_SNAPSHOT_NOT_FOUND");
+      const execution = await new QuoteLookupService(
+        this.quoteProvider,
+        controlledFx,
+        identitySnapshot ?? undefined,
+      ).lookup({
         status: "RESOLVED",
         target,
         reasonCodes: [],

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { emptyQuoteConversationState, resolveQuoteTarget } from "../packages/domain/src/index.js";
-import { QuoteConversationTurnExecutor } from "../packages/agent/src/index.js";
+import { createLexicallyGroundedIdentityHypothesis, QuoteConversationTurnExecutor } from "../packages/agent/src/index.js";
 import { ProviderCallControlError, type QuoteProviderResult } from "../packages/runtime/src/index.js";
 import {
   appendChecks,
@@ -92,10 +92,17 @@ export async function runControlledAcceptanceCases(replayProviderResult: QuotePr
     inputMessageContents: [failureTarget.target.rawText],
     baseState: emptyQuoteConversationState(),
     publicationRevision: 1,
-    quoteData: { lookup: async () => { throw new ProviderCallControlError("PROVIDER_CIRCUIT_OPEN"); } },
+    quoteEffects: { execute: async () => { throw new ProviderCallControlError("PROVIDER_CIRCUIT_OPEN"); } },
   });
   let circuitCode = "NONE";
   try {
+    const target = {
+      proposedModel: failureTarget.target.proposedModel,
+      brand: failureTarget.target.brand ?? null,
+      productType: failureTarget.target.productType ?? null,
+      requiredQualifiers: [],
+      conditionPreference: "ANY" as const,
+    };
     await circuitExecutor.execute({
       userIntentSummary: "controlled circuit rejection",
       ops: [
@@ -103,13 +110,8 @@ export async function runControlledAcceptanceCases(replayProviderResult: QuotePr
           opId: "target",
           kind: "SET_QUOTE_TARGET",
           sourceMessageOrdinal: 0,
-          target: {
-            proposedModel: failureTarget.target.proposedModel,
-            brand: failureTarget.target.brand ?? null,
-            productType: failureTarget.target.productType ?? null,
-            requiredQualifiers: [],
-            conditionPreference: "ANY",
-          },
+          target,
+          identityHypothesis: createLexicallyGroundedIdentityHypothesis(failureTarget.target.rawText, 0, target),
         },
         { opId: "lookup", kind: "LOOKUP_QUOTES" },
       ],
@@ -152,7 +154,7 @@ export async function runControlledAcceptanceCases(replayProviderResult: QuotePr
     invocation: null,
   });
   appendChecks(accessoryAdmission, [
-    check("accessory_record_has_explicit_rejection_reason", accessoryAdmission.rejectionReasonCounts["ACCESSORY_RECORD"] === 1, accessoryAdmission.rejectionReasonCounts),
+    check("accessory_record_has_explicit_rejection_reason", accessoryAdmission.rejectionReasonCounts["OFFER_NON_PRIMARY_ROLE"] === 1, accessoryAdmission.rejectionReasonCounts),
     check("accessory_record_publishes_no_quote_lead", accessoryAdmission.groupedLeadCount === 0 && accessoryAdmission.replyOutcome === "NO_QUOTE_LEADS", {
       groupedLeadCount: accessoryAdmission.groupedLeadCount,
       replyOutcome: accessoryAdmission.replyOutcome,
@@ -178,7 +180,7 @@ export async function runControlledAcceptanceCases(replayProviderResult: QuotePr
     invocation: null,
   });
   appendChecks(serviceAdmission, [
-    check("service_record_has_explicit_rejection_reason", serviceAdmission.rejectionReasonCounts["SERVICE_RECORD"] === 1, serviceAdmission.rejectionReasonCounts),
+    check("service_record_has_explicit_rejection_reason", serviceAdmission.rejectionReasonCounts["OFFER_NON_PRIMARY_ROLE"] === 1, serviceAdmission.rejectionReasonCounts),
     check("service_record_publishes_no_quote_lead", serviceAdmission.groupedLeadCount === 0 && serviceAdmission.replyOutcome === "NO_QUOTE_LEADS", {
       groupedLeadCount: serviceAdmission.groupedLeadCount,
       replyOutcome: serviceAdmission.replyOutcome,

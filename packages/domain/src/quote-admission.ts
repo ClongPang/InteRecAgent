@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 
 import { canonicalDecimal, compareDecimal } from "./money.js";
-import { quoteIdentityKey } from "./quote-target.js";
+import { resolveOfferIdentity } from "./offer-identity.js";
+import type { ProductIdentitySnapshot } from "./product-identity.js";
 import {
   QUOTE_ADMISSION_POLICY_VERSION,
   type QuoteAdmissionDecision,
@@ -11,9 +12,6 @@ import {
 import type { Money, ProductCondition } from "./quote-base-types.js";
 import { validatedQuoteWebUrl } from "./quote-url.js";
 
-const ACCESSORY_SIGNAL = /\b(?:accessor(?:y|ies)|case|cover|protector|cable|charger|charging|ear[\s-]?pads?|ear[\s-]?cushions?|stand|holder|mount|adapter|sleeve|skin|compatible\s+with|designed\s+for)\b|配件|保护壳|保护套|耳罩|耳垫|充电线|数据线|支架|适用于|兼容/iu;
-const SERVICE_SIGNAL = /\b(?:repair|service|display\s+service|installation|warranty|maintenance)\b|维修|服务|安装|保修/iu;
-const REPLACEMENT_SIGNAL = /\b(?:replacement|spare\s+part|parts?\s+only|screen\s+replacement)\b|替换|更换|备件|零件/iu;
 const REFURBISHED_SIGNAL = /\b(?:refurbished|renewed|reconditioned|certified\s+refurbished|outlet\s+grade)\b|翻新|官翻/iu;
 const USED_SIGNAL = /\b(?:pre[\s-]?owned|second[\s-]?hand|used)\b|二手|中古/iu;
 const NEW_SIGNAL = /\b(?:brand[\s-]?new|new|sealed)\b|全新|未拆封/iu;
@@ -24,6 +22,10 @@ function text(value: unknown): string | null {
     : null;
 }
 
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 function timestamp(value: unknown): string | null {
   const candidate = text(value);
   if (!candidate) return null;
@@ -32,24 +34,22 @@ function timestamp(value: unknown): string | null {
 }
 
 function money(value: unknown): Money | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  const rawAmount = record["amount"];
-  const rawCurrency = text(record["currency"]);
+  const source = record(value);
+  const rawAmount = source["amount"];
+  const rawCurrency = text(source["currency"]);
   if ((typeof rawAmount !== "string" && typeof rawAmount !== "number") || !rawCurrency) return null;
   const currency = rawCurrency.toUpperCase();
   if (!/^[A-Z]{3}$/u.test(currency)) return null;
   try {
     const amount = canonicalDecimal(String(rawAmount));
-    if (compareDecimal(amount, "0") <= 0) return null;
-    return { amount, currency };
+    return compareDecimal(amount, "0") > 0 ? { amount, currency } : null;
   } catch {
     return null;
   }
 }
 
 function conditionFrom(raw: Record<string, unknown>, title: string | null): ProductCondition {
-  const explicit = text(raw["condition"] ?? (raw["metadata"] as Record<string, unknown> | undefined)?.["condition"])?.toLocaleLowerCase("en-US");
+  const explicit = text(raw["condition"] ?? record(raw["metadata"])["condition"])?.toLocaleLowerCase("en-US");
   const combined = `${explicit ?? ""} ${title ?? ""}`;
   if (REFURBISHED_SIGNAL.test(combined)) return "REFURBISHED";
   if (USED_SIGNAL.test(combined)) return "USED";
@@ -64,6 +64,39 @@ function safeUrl(value: unknown): string | null {
 
 function cloneUnknown(value: unknown): unknown {
   return value === undefined ? null : structuredClone(value);
+}
+
+function identitySignals(raw: Record<string, unknown>): QuoteObservation["identitySignals"] {
+  const metadata = record(raw["metadata"]);
+  const identifiers = record(raw["identifiers"]);
+  const first = (values: Array<[unknown, string]>): { value: string; jsonPath: string } | null => {
+    for (const [value, jsonPath] of values) {
+      const normalized = text(value);
+      if (normalized) return { value: normalized, jsonPath };
+    }
+    return null;
+  };
+  const values: QuoteObservation["identitySignals"]["identifiers"] = [];
+  const append = (scheme: "GTIN" | "BRAND_MPN", candidates: Array<[unknown, string]>): void => {
+    for (const [value, jsonPath] of candidates) {
+      const normalized = text(value);
+      if (normalized) values.push({ scheme, value: normalized, jsonPath });
+    }
+  };
+  append("GTIN", [
+    [raw["gtin"], "$.gtin"], [raw["ean"], "$.ean"], [raw["upc"], "$.upc"],
+    [metadata["gtin"], "$.metadata.gtin"], [identifiers["gtin"], "$.identifiers.gtin"],
+  ]);
+  append("BRAND_MPN", [
+    [raw["mpn"], "$.mpn"], [raw["manufacturer_part_number"], "$.manufacturer_part_number"],
+    [raw["model_number"], "$.model_number"], [metadata["mpn"], "$.metadata.mpn"], [identifiers["mpn"], "$.identifiers.mpn"],
+  ]);
+  const deduplicated = [...new Map(values.map((value) => [`${value.scheme}:${value.value}:${value.jsonPath}`, value])).values()];
+  return {
+    brand: first([[raw["brand"], "$.brand"], [raw["manufacturer"], "$.manufacturer"], [metadata["brand"], "$.metadata.brand"]]),
+    model: first([[raw["model"], "$.model"], [raw["model_number"], "$.model_number"], [metadata["model"], "$.metadata.model"]]),
+    identifiers: deduplicated,
+  };
 }
 
 export function createQuoteObservation(input: {
@@ -101,22 +134,9 @@ export function createQuoteObservation(input: {
     providerUpdatedAt: timestamp(rawRecord["updated_at"]),
     providerAvailability: cloneUnknown(rawRecord["availability"]),
     condition: conditionFrom(rawRecord, title),
+    identitySignals: identitySignals(rawRecord),
     rawRecord,
   };
-}
-
-function containsExactIdentity(value: string, identity: string): boolean {
-  const wanted = quoteIdentityKey(identity);
-  if (!wanted) return false;
-  const tokens = value.normalize("NFKC").toLocaleUpperCase("en-US").match(/[\p{L}\p{N}]+/gu) ?? [];
-  for (let start = 0; start < tokens.length; start += 1) {
-    let joined = "";
-    for (let index = start; index < tokens.length && joined.length <= wanted.length; index += 1) {
-      joined += tokens[index]!;
-      if (joined === wanted) return true;
-    }
-  }
-  return false;
 }
 
 function conditionMatches(target: QuoteTarget, observed: ProductCondition): boolean {
@@ -129,7 +149,11 @@ function conditionMatches(target: QuoteTarget, observed: ProductCondition): bool
   }
 }
 
-export function admitQuoteObservation(observation: QuoteObservation, target: QuoteTarget): QuoteAdmissionDecision {
+export function admitQuoteObservation(
+  observation: QuoteObservation,
+  target: QuoteTarget,
+  identitySnapshot?: ProductIdentitySnapshot,
+): QuoteAdmissionDecision {
   const insufficient: string[] = [];
   const rejected: string[] = [];
   if (!observation.title) insufficient.push("TITLE_MISSING");
@@ -137,22 +161,17 @@ export function admitQuoteObservation(observation: QuoteObservation, target: Quo
   if (!observation.merchantTargetUrl || !observation.merchantDomain) insufficient.push("MERCHANT_TARGET_URL_MISSING_OR_UNSAFE");
   if (!observation.outboundUrl) insufficient.push("OUTBOUND_URL_MISSING_OR_UNSAFE");
 
-  const title = observation.title ?? "";
-  if (title && !containsExactIdentity(title, target.canonicalModel)) rejected.push("MODEL_EXACT_MISMATCH");
-  if (title && target.brand && !containsExactIdentity(title, target.brand)) rejected.push("BRAND_MISMATCH_OR_MISSING");
-  for (const qualifier of target.requiredQualifiers) {
-    if (title && !containsExactIdentity(title, qualifier)) rejected.push("REQUIRED_QUALIFIER_MISMATCH");
-  }
-  if (title && SERVICE_SIGNAL.test(title)) rejected.push("SERVICE_RECORD");
-  if (title && REPLACEMENT_SIGNAL.test(title)) rejected.push("REPLACEMENT_OR_PART_RECORD");
-  if (title && ACCESSORY_SIGNAL.test(title)) rejected.push("ACCESSORY_RECORD");
+  const identity = resolveOfferIdentity(observation, target, identitySnapshot);
+  if (identity.strength === "IDENTITY_OR_ROLE_CONFLICT") rejected.push(...identity.reasonCodes);
+  else if (!identity.publishable) insufficient.push(...identity.reasonCodes);
   if (!conditionMatches(target, observation.condition)) rejected.push("CONDITION_MISMATCH");
 
-  const status = rejected.length > 0 ? "REJECTED" : insufficient.length > 0 ? "INSUFFICIENT_EVIDENCE" : "ELIGIBLE";
   return {
     observationRef: observation.observationRef,
-    status,
+    status: rejected.length > 0 ? "REJECTED" : insufficient.length > 0 ? "INSUFFICIENT_EVIDENCE" : "ELIGIBLE",
     reasonCodes: [...new Set([...rejected, ...insufficient])],
     policyVersion: QUOTE_ADMISSION_POLICY_VERSION,
+    identityStrength: identity.strength,
+    identityEvidenceRefs: [...identity.evidenceRefs],
   };
 }
