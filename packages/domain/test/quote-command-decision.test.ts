@@ -102,11 +102,39 @@ describe("pure quote command decisions", () => {
     const application = applyQuoteEffectResult(lookup.nextState, lookup.effects[0]!, {
       status: "SUCCEEDED",
       leadSet: leadSet(lookup.effects[0]!.target),
+      providerInvocation: "LIVE",
     });
     expect(application).toMatchObject({
       status: "APPLIED",
       nextState: { displayQuoteLeadRefs: ["ql_1", "ql_2"] },
-      receipt: { providerCalled: true, publicResult: { outcome: "QUOTE_LEADS", quoteLeadCount: 2 } },
+      receipt: {
+        providerInvocation: "LIVE",
+        providerCalled: true,
+        publicResult: { outcome: "QUOTE_LEADS", providerFailureCode: null, providerInvocation: "LIVE", quoteLeadCount: 2 },
+      },
+    });
+  });
+
+  it("records attempt replay as an applied observation that did not issue HTTP", () => {
+    const state = stateWithLeads();
+    const decision = decideQuoteCommand({
+      state,
+      operation: { opId: "refresh", kind: "REFRESH_QUOTES" },
+      currentUserMessages: [{ messageId: "m2", content: "刷新报价" }],
+    });
+    if (decision.decision !== "EFFECT_REQUIRED") throw new Error("expected effect");
+    const application = applyQuoteEffectResult(decision.nextState, decision.effects[0]!, {
+      status: "SUCCEEDED",
+      leadSet: leadSet(target()),
+      providerInvocation: "ATTEMPT_REPLAY",
+    });
+    expect(application).toMatchObject({
+      status: "APPLIED",
+      receipt: {
+        providerInvocation: "ATTEMPT_REPLAY",
+        providerCalled: false,
+        publicResult: { providerInvocation: "ATTEMPT_REPLAY", quoteLeadCount: 2 },
+      },
     });
   });
 
@@ -130,7 +158,11 @@ describe("pure quote command decisions", () => {
     const state = stateWithLeads();
     const decision = decideQuoteCommand({ state, operation: { opId: "refresh", kind: "REFRESH_QUOTES" }, currentUserMessages: [] });
     if (decision.decision !== "EFFECT_REQUIRED") throw new Error("expected effect");
-    const application = applyQuoteEffectResult(state, decision.effects[0], { status: "SUCCEEDED", leadSet: leadSet(target()) });
+    const application = applyQuoteEffectResult(state, decision.effects[0], {
+      status: "SUCCEEDED",
+      leadSet: leadSet(target()),
+      providerInvocation: "LIVE",
+    });
     expect(application).toMatchObject({
       status: "APPLIED",
       nextState: {
@@ -155,6 +187,81 @@ describe("pure quote command decisions", () => {
       nextState: { excludedQuoteLeadRefs: ["ql_1"], displayQuoteLeadRefs: ["ql_2"], comparisonQuoteLeadRefs: ["ql_2"] },
     });
     expect(state).toEqual(before);
+  });
+
+  it("supersedes a stale resolved target and its observation when the model is re-requested", () => {
+    const state = stateWithLeads();
+    const decision = decideQuoteCommand({
+      state,
+      operation: { opId: "clarify", kind: "REQUEST_QUOTE_MODEL_CONFIRMATION" },
+      currentUserMessages: [{ messageId: "m1", content: "wireless headphones" }],
+    });
+    expect(decision).toMatchObject({
+      decision: "APPLIED",
+      nextState: { target: null, leadSet: null, displayQuoteLeadRefs: [], excludedQuoteLeadRefs: [], focusQuoteLeadRef: null },
+    });
+    if (decision.decision !== "APPLIED") throw new Error("expected applied");
+    expect(decision.nextState.target).toBeNull();
+  });
+
+  it("keeps a pending confirmation set earlier in the same plan when the model is requested", () => {
+    const pending = decideQuoteCommand({
+      state: emptyQuoteConversationState(),
+      operation: {
+        opId: "target",
+        kind: "SET_QUOTE_TARGET",
+        source: { messageId: "m1" },
+        target: { proposedModel: "WH-1000XM5", brand: "Sony", productType: null, requiredQualifiers: [], conditionPreference: "ANY" },
+      },
+      currentUserMessages: [{ messageId: "m1", content: "Sony XM5" }],
+    });
+    const decision = decideQuoteCommand({
+      state: pending.nextState,
+      operation: { opId: "clarify", kind: "REQUEST_QUOTE_MODEL_CONFIRMATION" },
+      currentUserMessages: [{ messageId: "m1", content: "Sony XM5" }],
+    });
+    expect(decision).toMatchObject({
+      decision: "APPLIED",
+      nextState: { target: null, pendingTargetConfirmation: { proposal: { proposedModel: "WH-1000XM5" } } },
+    });
+  });
+
+  it("supersedes the active target when a separate unsupported item is declined by default", () => {
+    const state = stateWithLeads();
+    const decision = decideQuoteCommand({
+      state,
+      operation: { opId: "decline", kind: "DECLINE_UNSUPPORTED_QUOTE_TARGET", reasonCode: "ACCESSORY_OR_PART" },
+      currentUserMessages: [{ messageId: "m1", content: "Beats replacement pads" }],
+    });
+    expect(decision).toMatchObject({
+      decision: "APPLIED",
+      nextState: { target: null, leadSet: null, displayQuoteLeadRefs: [] },
+      receipt: { publicResult: { targetRetained: false } },
+    });
+  });
+
+  it("retains the active target when the declined accessory belongs to it", () => {
+    const state = stateWithLeads();
+    const decision = decideQuoteCommand({
+      state,
+      operation: { opId: "decline", kind: "DECLINE_UNSUPPORTED_QUOTE_TARGET", reasonCode: "ACCESSORY_OR_PART", targetDisposition: "RETAIN" },
+      currentUserMessages: [{ messageId: "m1", content: "replacement pads for it" }],
+    });
+    expect(decision).toMatchObject({
+      decision: "APPLIED",
+      nextState: { target: { canonicalModel: "WH-1000XM5" }, displayQuoteLeadRefs: ["ql_2"], excludedQuoteLeadRefs: ["ql_1"] },
+      receipt: { publicResult: { targetRetained: true } },
+    });
+    if (decision.decision !== "APPLIED") throw new Error("expected applied");
+    expect(decision.nextState.leadSet).not.toBeNull();
+  });
+
+  it("refuses to retain a target on decline when none is active", () => {
+    expect(() => decideQuoteCommand({
+      state: emptyQuoteConversationState(),
+      operation: { opId: "decline", kind: "DECLINE_UNSUPPORTED_QUOTE_TARGET", reasonCode: "ACCESSORY_OR_PART", targetDisposition: "RETAIN" },
+      currentUserMessages: [{ messageId: "m1", content: "replacement pads" }],
+    })).toThrowError(expect.objectContaining({ code: "QUOTE_DECLINE_RETAIN_WITHOUT_TARGET" }));
   });
 
   it("cannot emit a Provider effect while identity confirmation is pending", () => {

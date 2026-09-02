@@ -4,10 +4,27 @@ import { validateQuoteConversationState } from "./quote-conversation-state.js";
 import { validatePublishedQuoteLeadSet } from "./quote-publication.js";
 import type { QuoteTarget } from "./quote-types.js";
 
+/**
+ * How this receipt relates to the physical quote provider.
+ * NONE: no lookup effect. LIVE: this attempt issued HTTP. ATTEMPT_REPLAY: reused
+ * a lead set already persisted for the same attempt (no second HTTP).
+ */
+export type QuoteProviderInvocation = "NONE" | "LIVE" | "ATTEMPT_REPLAY";
+
+export function liveProviderCalled(invocation: QuoteProviderInvocation): boolean {
+  return invocation === "LIVE";
+}
+
+export function appliedProviderObservation(invocation: QuoteProviderInvocation): boolean {
+  return invocation === "LIVE" || invocation === "ATTEMPT_REPLAY";
+}
+
 export interface QuoteOperationReceipt {
   opId: string;
   kind: QuoteTurnOperation["kind"];
   status: "APPLIED" | "BLOCKED";
+  providerInvocation: QuoteProviderInvocation;
+  /** Derived: true only for LIVE. Eval/budget still count HTTP, not effect application. */
   providerCalled: boolean;
   publicResult: Record<string, unknown>;
 }
@@ -23,7 +40,7 @@ export interface QuoteLookupEffect {
 export type QuoteEffect = QuoteLookupEffect;
 
 export type QuoteEffectResult =
-  | { status: "SUCCEEDED"; leadSet: PublishedQuoteLeadSet }
+  | { status: "SUCCEEDED"; leadSet: PublishedQuoteLeadSet; providerInvocation: Exclude<QuoteProviderInvocation, "NONE"> }
   | { status: "FAILED"; errorCode: string; retryable: boolean | null };
 
 export type QuoteEffectApplication =
@@ -76,10 +93,13 @@ export function applyQuoteEffectResult(
       opId: effect.operationId,
       kind: effect.operationKind,
       status: "APPLIED",
-      providerCalled: true,
+      providerInvocation: result.providerInvocation,
+      providerCalled: liveProviderCalled(result.providerInvocation),
       publicResult: {
         outcome: leadSet.outcome,
         providerStatus: leadSet.providerStatus,
+        providerFailureCode: leadSet.providerFailureCode,
+        providerInvocation: result.providerInvocation,
         quoteLeadCount: leadSet.leads.length,
         observedAt: leadSet.observedAt,
       },

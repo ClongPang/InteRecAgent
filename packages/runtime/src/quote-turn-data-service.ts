@@ -3,7 +3,6 @@ import {
   QUOTE_LEAD_CONTRACT_VERSION,
   type QuoteEffect,
   type QuoteEffectResult,
-  type PublishedQuoteLeadSet,
   type ProductIdentityRegistry,
   type QuoteTarget,
 } from "@interec/domain";
@@ -17,6 +16,7 @@ import { buildQuoteProvenance } from "./quote-provenance.js";
 import type { FxPort } from "./fx-provider.js";
 import { PostgresProviderCallController } from "./provider-call-controller.js";
 import type { QuoteProvider } from "./quote-provider.js";
+import { observeQuoteLookupHost, type QuoteLookupHostOutcome } from "./quote-lookup-observability.js";
 import { withOwnerSnapshotTransaction } from "./postgres-conversation-storage.js";
 
 export class QuoteTurnDataService implements QuoteEffectExecutionPort {
@@ -37,7 +37,12 @@ export class QuoteTurnDataService implements QuoteEffectExecutionPort {
   public async execute(effect: QuoteEffect, signal?: AbortSignal): Promise<QuoteEffectResult> {
     if (effect.kind !== "QUOTE_LOOKUP") return { status: "FAILED", errorCode: "QUOTE_EFFECT_NOT_SUPPORTED", retryable: false };
     try {
-      return { status: "SUCCEEDED", leadSet: await this.lookup(effect.target, effect.operationId, signal) };
+      const result = await observeQuoteLookupHost(effect, () => this.lookup(effect.target, effect.operationId, signal));
+      return {
+        status: "SUCCEEDED",
+        leadSet: result.leadSet,
+        providerInvocation: result.cacheHit ? "ATTEMPT_REPLAY" : "LIVE",
+      };
     } catch (error) {
       return {
         status: "FAILED",
@@ -47,7 +52,7 @@ export class QuoteTurnDataService implements QuoteEffectExecutionPort {
     }
   }
 
-  private async lookup(target: QuoteTarget, operationId: string, signal?: AbortSignal): Promise<PublishedQuoteLeadSet> {
+  private async lookup(target: QuoteTarget, operationId: string, signal?: AbortSignal): Promise<QuoteLookupHostOutcome> {
     if (this.claimed.contractVersion !== QUOTE_LEAD_CONTRACT_VERSION) throw new Error("QUOTE_DATA_CONTRACT_MISMATCH");
     this.providerCalls += 1;
     if (this.providerCalls > 1) throw new Error("QUOTE_PROVIDER_CALL_BUDGET_EXCEEDED");
@@ -55,7 +60,7 @@ export class QuoteTurnDataService implements QuoteEffectExecutionPort {
     if (!operation) throw new Error("QUOTE_OPERATION_ID_REQUIRED");
 
     const existing = await this.findAttemptLeadSet(target.targetRef);
-    if (existing) return projectPublishedQuoteLeadSet(existing);
+    if (existing) return { leadSet: projectPublishedQuoteLeadSet(existing), cacheHit: true };
 
     const stepKey = `quote:${operation}:buywhere`;
     let permitId: string | null = null;
@@ -102,7 +107,7 @@ export class QuoteTurnDataService implements QuoteEffectExecutionPort {
       providerSucceeded = execution.leadSet.provider.status === "OK_RESULTS" || execution.leadSet.provider.status === "OK_EMPTY";
       providerErrorCode = execution.leadSet.provider.failureCode ?? (providerSucceeded ? "NONE" : "QUOTE_PROVIDER_DEGRADED");
       await this.lookupRepository.saveQuoteLookup(this.claimed, execution, buildQuoteProvenance(execution.leadSet));
-      return projectPublishedQuoteLeadSet(execution.leadSet);
+      return { leadSet: projectPublishedQuoteLeadSet(execution.leadSet), cacheHit: false };
     } finally {
       if (permitId) {
         await this.callController.release(permitId, providerSucceeded

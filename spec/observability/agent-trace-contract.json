@@ -1,24 +1,41 @@
 {
-  "schemaVersion": "interec-agent-trace-v2",
-  "traceBoundary": "TURN",
-  "rootObservation": "conversation-turn",
-  "agentObservation": "execute-turn-attempt",
-  "generationPhases": ["PLAN", "FINALIZE", "REPAIR_PLAN", "REPAIR_FINALIZE"],
+  "schemaVersion": "interec-agent-trace-v4",
+  "traceBoundary": "TURN_ATTEMPT",
+  "rootObservation": "execute-turn-attempt",
+  "enqueueTrace": {
+    "traceName": "conversation-turn-enqueue",
+    "rootObservation": "conversation-turn-enqueue",
+    "separateFromAttempt": true,
+    "mustBeActualRoot": true,
+    "nullableUntilActualRootExists": true,
+    "correlationFields": ["causedByTraceId", "causedByObservationId", "turnId"],
+    "tags": ["turn-enqueue"],
+    "causalityToAttempt": ["causedByMetadata", "otelSpanLink"]
+  },
+  "generationPhases": ["PLAN", "REPAIR_PLAN"],
   "generationNames": {
     "PLAN": "planner.plan",
-    "FINALIZE": "planner.finalize",
-    "REPAIR_PLAN": "planner.repair-plan",
-    "REPAIR_FINALIZE": "planner.repair-finalize"
+    "REPAIR_PLAN": "planner.repair-plan"
   },
   "toolCausality": {
     "requiredFields": ["toolCallId", "toolName", "inferenceIndex", "phase"],
-    "requiredResultViews": ["modelVisibleResult", "internalExecutionSummary"],
+    "requiredResultViews": ["modelVisibleResult", "internalExecutionSummary", "modelVisibleResultSha256"],
     "requireStartEndPair": true,
-    "requireNextGenerationResultReference": true
+    "requireNextGenerationResultReference": true,
+    "terminalResultExemptFromNextGeneration": true,
+    "failureFields": [
+      "duplicateToolCallIds",
+      "orphanToolCallIds",
+      "lifecycleMismatchToolCallIds",
+      "resultMismatchToolCallIds",
+      "unconsumedToolResultIds"
+    ]
   },
   "modelBoundary": {
     "sourceOfTruth": "STREAM_FN_PROVIDER_BOUNDARY",
-    "inputFormat": "LANGFUSE_CHAT_MESSAGES",
+    "inputFormat": "OPENAI_COMPATIBLE_CHAT_MESSAGES",
+    "canonicalization": "RECURSIVE_KEY_SORT_EXCLUDE_LOCAL_RUNTIME_FIELDS",
+    "digest": "HMAC_SHA256_WHEN_TELEMETRY_KEY_AVAILABLE",
     "requiredManifestFields": [
       "contextSha256",
       "toolSchemaSha256",
@@ -28,13 +45,40 @@
       "modelId",
       "inferenceIndex",
       "phase"
+    ],
+    "additionalManifestFields": [
+      "systemInstructionSha256",
+      "messageCount",
+      "toolDefinitionCount",
+      "toolResultCount",
+      "toolResultRefs"
     ]
   },
   "hierarchy": {
     "modelToolType": "TOOL",
     "hostExecutionType": "SPAN",
     "providerExecutionType": "TOOL",
-    "guardrailType": "GUARDRAIL"
+    "guardrailType": "GUARDRAIL",
+    "quoteLookupHostObservation": "turn_executor.quote-lookup",
+    "buyWhereProviderObservation": "tool.provider.buywhere.find_best_price_v2",
+    "modelToolObservation": "agent.tool.commit_quote_plan",
+    "providerInvocationValues": ["NONE", "LIVE", "ATTEMPT_REPLAY"],
+    "providerResultFields": [
+      "providerStatus",
+      "providerFailureCode",
+      "providerRetryable",
+      "quoteRecordCount",
+      "providerRequestId",
+      "cacheHit"
+    ],
+    "hostResultFields": [
+      "cacheHit",
+      "providerInvocation",
+      "outcome",
+      "providerStatus",
+      "providerFailureCode",
+      "quoteLeadCount"
+    ]
   },
   "experimentCorrelationFields": [
     "datasetRunName",
@@ -46,12 +90,125 @@
     "turnIndex"
   ],
   "postRunCorrelationFields": ["datasetRunId"],
+  "attemptIdentity": {
+    "traceId": "ACTUAL_ROOT_TRACE_ID",
+    "persistedOn": "turn_attempts",
+    "nullableBeforeObservationStart": true,
+    "enqueueTraceIsParent": false,
+    "retryIsolation": true,
+    "conversationGrouping": "SESSION_ID",
+    "enqueueTraceIdSource": "OBSERVED_ENQUEUE_ROOT",
+    "attemptTraceIdSource": "OBSERVED_ATTEMPT_ROOT",
+    "legacySyntheticTraceIdsQueryable": false
+  },
+  "exportReliability": {
+    "workerCheckpoint": "FORCE_FLUSH_AFTER_COMPLETED_TURN",
+    "apiShutdownOwnership": "TOP_LEVEL_AWAIT_AFTER_SIGNAL",
+    "shutdownStrict": true,
+    "businessOutcomeDependsOnCheckpoint": false
+  },
   "privacy": {
-    "contentDefault": "DISABLED",
-    "contentConsent": "authorized-redacted-content",
+    "contentDefault": "ENABLED",
+    "contentOptOut": "INTEREC_LANGFUSE_CAPTURE_CONTENT=false",
     "alwaysRedactSecrets": true,
     "captureHiddenReasoning": false,
     "maxCapturedContentChars": 20000
+  },
+  "decisionProvenance": {
+    "schemaVersion": "interec-turn-decision-v5",
+    "observation": "execute-turn-attempt",
+    "alwaysCaptured": true,
+    "independentOfContentGate": true,
+    "nonPii": true,
+    "stringVocabulary": "^[A-Za-z0-9_.:\\-]*$",
+    "outputField": "decision",
+    "reconstructableArtifacts": "decision-and-state-delta",
+    "generationContent": "hashed-only",
+    "evalIsomorphism": "identity-grounded-trajectory-expected",
+    "filterMetadata": [
+      "decisionSchemaVersion",
+      "decisionRoute",
+      "decisionOutcome",
+      "decisionReviewDecision",
+      "decisionTargetLifecycle",
+      "decisionHasTarget",
+      "decisionOperationKinds",
+      "decisionLeadOutcome",
+      "decisionRepaired",
+      "decisionUsedFallback",
+      "decisionProviderStatus",
+      "decisionProviderInvocation",
+      "decisionProviderFailureCode",
+      "decisionFallbackReasonCode",
+      "decisionReviewViolation",
+      "decisionBeforeTargetRef",
+      "decisionBeforeModelKey",
+      "decisionAfterTargetRef",
+      "decisionAfterModelKey",
+      "decisionAfterCanonicalModel",
+      "decisionPendingModelKey"
+    ],
+    "requiredFields": [
+      "schemaVersion",
+      "executionStatus",
+      "attempt",
+      "revision",
+      "contractVersion",
+      "route",
+      "outcome",
+      "disclosureCodes",
+      "operationKinds",
+      "operations",
+      "provider",
+      "reviewDecision",
+      "reviewViolationCodes",
+      "targetLifecycle",
+      "targetDisposition",
+      "before",
+      "after",
+      "modelInferences",
+      "toolCalls",
+      "repaired",
+      "usedFallback",
+      "fallbackReasonCode"
+    ],
+    "stateSnapshotFields": [
+      "hasTarget",
+      "hasPendingConfirmation",
+      "leadOutcome",
+      "identityOutcome",
+      "identityStrength",
+      "displayCount",
+      "targetRef",
+      "modelKey",
+      "canonicalModel",
+      "pendingModelKey"
+    ],
+    "providerRecordFields": [
+      "operationKind",
+      "outcome",
+      "providerStatus",
+      "providerFailureCode",
+      "providerInvocation",
+      "quoteLeadCount"
+    ],
+    "targetLifecycleValues": [
+      "ESTABLISHED",
+      "RETAINED",
+      "REPLACED",
+      "CLEARED",
+      "PENDING",
+      "UNCHANGED"
+    ]
+  },
+  "viewProjection": {
+    "alwaysCaptured": true,
+    "independentOfContentGate": true,
+    "inputFormat": "OPENAI_COMPATIBLE_CHAT_MESSAGES",
+    "outputFormat": "OPENAI_COMPATIBLE_CHAT_MESSAGES",
+    "contentOffUser": "[CONTENT_NOT_CAPTURED]",
+    "contentOffAssistant": "DECISION_SCAN_LINE",
+    "scanLineFields": ["outcome", "route", "targetLifecycle", "catalogIdentity"]
   },
   "behaviorDriftInvariants": [
     "agent-tool-protocol-unchanged",

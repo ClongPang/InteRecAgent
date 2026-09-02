@@ -14,6 +14,8 @@
     "clean:build": "node scripts/clean_build_outputs.mjs",
     "build": "npm run clean:build && npm run build --workspaces --if-present",
     "docs:check": "node scripts/check_docs_drift.mjs",
+    "observability:check": "node scripts/check_agent_trace_observability.mjs",
+    "observability:smoke": "tsx --env-file-if-exists=.env scripts/observability_smoke.ts",
     "quote:contract:check": "node scripts/check_quote_lead_contract.mjs",
     "quote:drift:check": "node scripts/check_quote_lead_drift.mjs",
     "identity:contract:check": "node scripts/check_identity_grounded_quote_contract.mjs",
@@ -36,7 +38,7 @@
     "dev:worker": "tsx --env-file-if-exists=.env packages/runtime/src/conversation-worker-main.ts",
     "architecture:active:check": "node scripts/check_quote_active_architecture.mjs",
     "architecture:maintainability:check": "node scripts/check_maintainability_boundaries.mjs",
-    "acceptance": "npm run quote:contract:check && npm run quote:drift:check && npm run identity:contract:check && npm run identity:trajectory:test && npm run identity:agent:eval && npm run identity:shadow:replay && npm run identity:mutation:test && npm run identity:drift:check && npm run docs:check && npm run lint && npm run architecture:maintainability:check && npm run typecheck && npm run build && npm run test:unit && npm run test:coverage && npm run test:integration && npm run test:e2e && npm run architecture:active:check"
+    "acceptance": "npm run quote:contract:check && npm run quote:drift:check && npm run identity:contract:check && npm run identity:trajectory:test && npm run identity:agent:eval && npm run identity:shadow:replay && npm run identity:mutation:test && npm run identity:drift:check && npm run docs:check && npm run observability:check && npm run lint && npm run architecture:maintainability:check && npm run typecheck && npm run build && npm run test:unit && npm run test:coverage && npm run test:integration && npm run test:e2e && npm run architecture:active:check"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

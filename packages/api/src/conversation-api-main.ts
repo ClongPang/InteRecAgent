@@ -2,10 +2,12 @@ import {
   PostgresConversationRepository,
   startTelemetry,
   verifyConversationSchema,
+  waitForTerminationSignal,
 } from "@interec/runtime";
 
 import { createConversationApp } from "./app.js";
-import { HmacJwtIdentityVerifier } from "./auth.js";
+import { HmacJwtIdentityVerifier, type HmacJwtOptions } from "./auth.js";
+import { developmentAuthFromEnvironment } from "./development-auth.js";
 
 function required(name: string): string {
   const value = process.env[name]?.trim();
@@ -20,16 +22,19 @@ function portFromEnvironment(): number {
 }
 
 const repository = new PostgresConversationRepository(required("INTEREC_DATABASE_URL"));
-const identityVerifier = new HmacJwtIdentityVerifier({
+const jwt: HmacJwtOptions = {
   secret: required("INTEREC_AUTH_HMAC_SECRET"),
   issuer: required("INTEREC_AUTH_ISSUER"),
   audience: required("INTEREC_AUTH_AUDIENCE"),
-});
+};
+const identityVerifier = new HmacJwtIdentityVerifier(jwt);
+const developmentAuth = developmentAuthFromEnvironment(process.env, jwt);
 const telemetry = await startTelemetry("interec-conversation-api");
 const app = createConversationApp({
   repository,
   identityVerifier,
   closeRepository: true,
+  ...(developmentAuth ? { developmentAuth } : {}),
   readiness: async () => {
     const client = await repository.pool.connect();
     try {
@@ -46,9 +51,6 @@ await app.listen({
   port: portFromEnvironment(),
 });
 
-const shutdown = async () => {
-  await app.close();
-  await telemetry.shutdown();
-};
-process.once("SIGINT", () => void shutdown());
-process.once("SIGTERM", () => void shutdown());
+await waitForTerminationSignal();
+await app.close();
+await telemetry.shutdown({ strict: true });

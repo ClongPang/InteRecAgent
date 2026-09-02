@@ -7,11 +7,71 @@ export interface IdentityVerifier {
   verify(request: FastifyRequest): Promise<OwnerClaims | null>;
 }
 
-export interface HmacJwtIdentityVerifierOptions {
+export interface HmacJwtOptions {
   secret: string;
   issuer: string;
   audience: string;
+}
+
+export interface HmacJwtIdentityVerifierOptions extends HmacJwtOptions {
   clockSkewSeconds?: number;
+}
+
+export interface HmacJwtIssueOptions {
+  owner: OwnerClaims;
+  lifetimeSeconds: number;
+  nowSeconds?: number;
+}
+
+export interface IssuedHmacJwt {
+  accessToken: string;
+  expiresAt: string;
+}
+
+interface NormalizedHmacJwtOptions {
+  secret: string;
+  issuer: string;
+  audience: string;
+}
+
+function normalizeHmacJwtOptions(options: HmacJwtOptions): NormalizedHmacJwtOptions {
+  const secret = options.secret.trim();
+  const issuer = options.issuer.trim();
+  const audience = options.audience.trim();
+  if (secret.length < 32) throw new Error("INTEREC_AUTH_HMAC_SECRET_TOO_SHORT");
+  if (!issuer) throw new Error("INTEREC_AUTH_ISSUER_REQUIRED");
+  if (!audience) throw new Error("INTEREC_AUTH_AUDIENCE_REQUIRED");
+  return { secret, issuer, audience };
+}
+
+/** Issues the same HS256 contract consumed by HmacJwtIdentityVerifier. */
+export function issueHmacJwt(
+  options: HmacJwtOptions,
+  issue: HmacJwtIssueOptions,
+): IssuedHmacJwt {
+  const normalized = normalizeHmacJwtOptions(options);
+  if (!Number.isSafeInteger(issue.lifetimeSeconds) || issue.lifetimeSeconds < 1) {
+    throw new Error("INTEREC_AUTH_TOKEN_LIFETIME_INVALID");
+  }
+  const now = issue.nowSeconds ?? Math.floor(Date.now() / 1000);
+  if (!Number.isSafeInteger(now) || now < 0) throw new Error("INTEREC_AUTH_TOKEN_TIME_INVALID");
+  const expiresAtSeconds = now + issue.lifetimeSeconds;
+  const encodedHeader = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const encodedPayload = Buffer.from(JSON.stringify({
+    iss: normalized.issuer,
+    aud: normalized.audience,
+    tenant_id: issue.owner.tenantId,
+    sub: issue.owner.ownerId,
+    iat: now,
+    exp: expiresAtSeconds,
+  })).toString("base64url");
+  const signature = createHmac("sha256", normalized.secret)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest("base64url");
+  return {
+    accessToken: `${encodedHeader}.${encodedPayload}.${signature}`,
+    expiresAt: new Date(expiresAtSeconds * 1000).toISOString(),
+  };
 }
 
 function parseJsonSegment(segment: string): Record<string, unknown> | null {
@@ -24,14 +84,11 @@ function parseJsonSegment(segment: string): Record<string, unknown> | null {
 }
 
 export class HmacJwtIdentityVerifier implements IdentityVerifier {
-  private readonly secret: string;
+  private readonly options: NormalizedHmacJwtOptions;
   private readonly clockSkewSeconds: number;
 
-  public constructor(private readonly options: HmacJwtIdentityVerifierOptions) {
-    this.secret = options.secret.trim();
-    if (this.secret.length < 32) throw new Error("INTEREC_AUTH_HMAC_SECRET_TOO_SHORT");
-    if (!options.issuer.trim()) throw new Error("INTEREC_AUTH_ISSUER_REQUIRED");
-    if (!options.audience.trim()) throw new Error("INTEREC_AUTH_AUDIENCE_REQUIRED");
+  public constructor(options: HmacJwtIdentityVerifierOptions) {
+    this.options = normalizeHmacJwtOptions(options);
     this.clockSkewSeconds = options.clockSkewSeconds ?? 30;
   }
 
@@ -45,7 +102,7 @@ export class HmacJwtIdentityVerifier implements IdentityVerifier {
     const header = parseJsonSegment(encodedHeader);
     const payload = parseJsonSegment(encodedPayload);
     if (!header || !payload || header["alg"] !== "HS256") return null;
-    const expected = createHmac("sha256", this.secret).update(`${encodedHeader}.${encodedPayload}`).digest();
+    const expected = createHmac("sha256", this.options.secret).update(`${encodedHeader}.${encodedPayload}`).digest();
     let actual: Buffer;
     try {
       actual = Buffer.from(encodedSignature, "base64url");

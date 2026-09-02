@@ -82,7 +82,7 @@
 
 ### 第二步：从失败而不是功能盘点项目
 
-不要先列 PostgreSQL、Function Calling、Outbox、Grafana 等技术，而要列项目中真实出现过的失败及后果，例如：
+不要先列 PostgreSQL、Function Calling、Outbox 等技术，而要列项目中真实出现过的失败及后果，例如：
 
 - 模型臆造参数或调用未授权工具；
 - 多轮修改后条件漂移；

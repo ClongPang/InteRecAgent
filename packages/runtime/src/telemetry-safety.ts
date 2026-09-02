@@ -1,4 +1,4 @@
-import { createHash, createHmac } from "node:crypto";
+import { createHmac } from "node:crypto";
 
 import { startObservation } from "@langfuse/tracing";
 
@@ -33,9 +33,9 @@ function normalizeEnvironment(value: string | undefined): string {
   return normalized.startsWith("langfuse") ? `app-${normalized}`.slice(0, 40) : normalized;
 }
 
-function contentCaptureAuthorized(environment: NodeJS.ProcessEnv): boolean {
-  return environment["INTEREC_LANGFUSE_CAPTURE_CONTENT"]?.toLowerCase() === "true"
-    && environment["INTEREC_LANGFUSE_CAPTURE_CONSENT"] === "authorized-redacted-content";
+function contentCaptureEnabled(environment: NodeJS.ProcessEnv): boolean {
+  const flag = environment["INTEREC_LANGFUSE_CAPTURE_CONTENT"]?.trim().toLowerCase();
+  return flag !== "false" && flag !== "0" && flag !== "off";
 }
 
 export function resolveTelemetryConfig(environment: NodeJS.ProcessEnv = process.env): TelemetryConfig {
@@ -47,9 +47,6 @@ export function resolveTelemetryConfig(environment: NodeJS.ProcessEnv = process.
   const metricsEndpoint = optionalValue(environment["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"]);
   const pseudonymKey = optionalValue(environment["INTEREC_TELEMETRY_PSEUDONYM_KEY"]);
   if (publicKey && secretKey && !pseudonymKey) throw new Error("INTEREC_TELEMETRY_PSEUDONYM_KEY_REQUIRED");
-  if (environment["INTEREC_LANGFUSE_CAPTURE_CONTENT"]?.toLowerCase() === "true" && !contentCaptureAuthorized(environment)) {
-    throw new Error("INTEREC_LANGFUSE_CAPTURE_CONSENT_REQUIRED");
-  }
   return {
     langfuseEnabled: Boolean(publicKey && secretKey),
     ...(publicKey ? { publicKey } : {}),
@@ -57,7 +54,7 @@ export function resolveTelemetryConfig(environment: NodeJS.ProcessEnv = process.
     ...(baseUrl ? { baseUrl } : {}),
     environment: normalizeEnvironment(environment["LANGFUSE_TRACING_ENVIRONMENT"]),
     ...(release ? { release } : {}),
-    captureContent: contentCaptureAuthorized(environment),
+    captureContent: contentCaptureEnabled(environment),
     ...(pseudonymKey ? { pseudonymKey } : {}),
     ...(metricsEndpoint ? { metricsEndpoint } : {}),
   };
@@ -92,7 +89,7 @@ export function telemetryContent(
   value: unknown,
   environment: NodeJS.ProcessEnv = process.env,
 ): unknown {
-  if (!contentCaptureAuthorized(environment)) {
+  if (!contentCaptureEnabled(environment)) {
     return { contentCaptured: false };
   }
   const redacted = redactTelemetryData(value);
@@ -112,30 +109,6 @@ export function telemetryContent(
 export function pseudonymousUserId(tenantId: string, ownerId: string, key: string): string {
   if (key.length < 32) throw new Error("INTEREC_TELEMETRY_PSEUDONYM_KEY_INVALID");
   return createHmac("sha256", key).update(tenantId).update("\0").update(ownerId).digest("hex").slice(0, 32);
-}
-
-export function telemetryTraceIdForTurn(conversationId: string, clientTurnId: string): string {
-  return createHash("sha256")
-    .update("interec-turn-trace-v1")
-    .update("\0")
-    .update(conversationId)
-    .update("\0")
-    .update(clientTurnId)
-    .digest("hex")
-    .slice(0, 32);
-}
-
-export function validTraceId(value: string | undefined): value is string {
-  return Boolean(value && /^[0-9a-f]{32}$/.test(value) && value !== "0".repeat(32));
-}
-
-export function validSpanId(value: string | undefined): value is string {
-  return Boolean(value && /^[0-9a-f]{16}$/.test(value) && value !== "0".repeat(16));
-}
-
-export function parentSpanIdForTrace(traceId: string): string {
-  const spanId = createHash("sha256").update("interec-turn-parent-v1").update("\0").update(traceId).digest("hex").slice(0, 16);
-  return spanId === "0".repeat(16) ? `1${spanId.slice(1)}` : spanId;
 }
 
 export function pseudonymousSessionId(conversationId: string, key: string): string {
@@ -199,5 +172,3 @@ export function recordGuardrailDecision(
     // Guardrail observability must never change the guarded business outcome.
   }
 }
-
-

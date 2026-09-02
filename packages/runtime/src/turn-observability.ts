@@ -1,28 +1,35 @@
+import { TraceFlags, trace } from "@opentelemetry/api";
 import {
   getActiveSpanId,
   getActiveTraceId,
   propagateAttributes,
   startActiveObservation,
 } from "@langfuse/tracing";
-import { TraceFlags } from "@opentelemetry/api";
 
 import { TELEMETRY_SERVICE_VERSION as SERVICE_VERSION } from "./runtime-metrics.js";
 import {
-  parentSpanIdForTrace,
   pseudonymousSessionId,
   pseudonymousUserId,
   redactTelemetryData,
   resolveTelemetryConfig,
   telemetryContent,
   telemetryErrorCode,
-  validSpanId,
-  validTraceId,
 } from "./telemetry-safety.js";
+import {
+  assertDecisionProvenanceNonPii,
+  decisionProvenanceMetadata,
+  type TurnDecisionProvenance,
+} from "./turn-decision-provenance.js";
+import { projectTurnView } from "./turn-view-projection.js";
 
 export interface TurnObservationOutcome {
   status: string;
   committed: boolean;
   errorCode?: string;
+  /** Non-PII decision provenance ("why"), captured regardless of the content gate. */
+  decision?: TurnDecisionProvenance;
+  /** Assistant reply text. Content gate applied by the view projection. */
+  replyText?: string;
 }
 
 export interface ConversationTurnObservation {
@@ -32,8 +39,8 @@ export interface ConversationTurnObservation {
   ownerId: string;
   attempt: number;
   currentUserMessages: string[];
-  traceId?: string;
-  traceRootObservationId?: string;
+  causedByTraceId?: string;
+  causedByObservationId?: string;
   correlation?: {
     datasetRunId?: string;
     datasetRunName?: string;
@@ -59,15 +66,27 @@ function traceCorrelationMetadata(
   )));
 }
 
-export async function observeConversationTurn(
+function linkEnqueueCause(causedByTraceId?: string, causedByObservationId?: string): void {
+  if (!causedByTraceId || !causedByObservationId) return;
+  if (!/^[0-9a-f]{32}$/i.test(causedByTraceId) || !/^[0-9a-f]{16}$/i.test(causedByObservationId)) return;
+  trace.getActiveSpan()?.addLink({
+    context: {
+      traceId: causedByTraceId.toLowerCase(),
+      spanId: causedByObservationId.toLowerCase(),
+      traceFlags: TraceFlags.SAMPLED,
+    },
+    attributes: { "interec.causality": "enqueue_to_attempt" },
+  });
+}
+
+export async function observeTurnAttempt(
   turn: ConversationTurnObservation,
   operation: (active: ActiveTurnObservation) => Promise<TurnObservationOutcome>,
 ): Promise<TurnObservationOutcome> {
   const config = resolveTelemetryConfig();
-  const traceId = validTraceId(turn.traceId) ? turn.traceId : undefined;
   return propagateAttributes(
     {
-      traceName: "conversation-turn",
+      traceName: "conversation-turn-attempt",
       ...(config.pseudonymKey
         ? { userId: pseudonymousUserId(turn.tenantId, turn.ownerId, config.pseudonymKey) }
         : {}),
@@ -76,36 +95,68 @@ export async function observeConversationTurn(
         : {}),
       version: SERVICE_VERSION,
       environment: config.environment,
-      tags: ["conversation-agent", "pi-agent"],
+      tags: ["conversation-agent", "pi-agent", "turn-attempt"],
       metadata: {
         turnId: turn.turnId,
         attempt: String(turn.attempt),
         engine: "pi-agent",
+        projection: "turn-view-v1",
+        ...(turn.causedByTraceId ? { causedByTraceId: turn.causedByTraceId } : {}),
+        ...(turn.causedByObservationId ? { causedByObservationId: turn.causedByObservationId } : {}),
         ...traceCorrelationMetadata(turn.correlation),
       },
     },
     () => startActiveObservation(
       "execute-turn-attempt",
       async (observation) => {
+        linkEnqueueCause(turn.causedByTraceId, turn.causedByObservationId);
         const activeTraceId = getActiveTraceId();
         const activeSpanId = getActiveSpanId();
         const active: ActiveTurnObservation = {
           ...(activeTraceId ? { traceId: activeTraceId } : {}),
           ...(activeSpanId ? { rootObservationId: activeSpanId } : {}),
         };
+        const opening = projectTurnView({
+          userMessages: turn.currentUserMessages,
+          status: "STARTED",
+        });
         observation.update({
-          input: telemetryContent({ messages: turn.currentUserMessages }),
+          input: opening.input,
           metadata: {
             turnId: turn.turnId,
             attempt: turn.attempt,
             contentCaptureEnabled: config.captureContent,
+            projection: "turn-view-v1",
+            ...(turn.causedByTraceId ? { causedByTraceId: turn.causedByTraceId } : {}),
+            ...(turn.causedByObservationId ? { causedByObservationId: turn.causedByObservationId } : {}),
             ...traceCorrelationMetadata(turn.correlation),
           },
         });
         try {
           const outcome = await operation(active);
+          const decision = outcome.decision
+            ? assertDecisionProvenanceNonPii(outcome.decision)
+            : undefined;
+          const view = projectTurnView({
+            userMessages: turn.currentUserMessages,
+            ...(outcome.replyText ? { replyText: outcome.replyText } : {}),
+            status: outcome.status,
+            ...(decision ? { decision } : {}),
+          });
           observation.update({
-            output: outcome,
+            input: view.input,
+            output: view.output,
+            metadata: {
+              turnId: turn.turnId,
+              attempt: turn.attempt,
+              contentCaptureEnabled: config.captureContent,
+              projection: "turn-view-v1",
+              scanLine: view.scanLine,
+              ...(turn.causedByTraceId ? { causedByTraceId: turn.causedByTraceId } : {}),
+              ...(turn.causedByObservationId ? { causedByObservationId: turn.causedByObservationId } : {}),
+              ...traceCorrelationMetadata(turn.correlation),
+              ...(decision ? decisionProvenanceMetadata(decision) : {}),
+            },
             ...(outcome.status === "COMPLETED"
               ? {}
               : { level: "ERROR" as const, statusMessage: outcome.errorCode ?? outcome.status }),
@@ -115,29 +166,20 @@ export async function observeConversationTurn(
           observation.update({
             level: "ERROR",
             statusMessage: telemetryErrorCode(error),
-            output: { status: "FAILED", committed: false, errorCode: telemetryErrorCode(error) },
+            output: projectTurnView({
+              userMessages: turn.currentUserMessages,
+              status: "FAILED",
+            }).output,
           });
           throw error;
         }
       },
-      {
-        asType: "agent",
-        ...(traceId ? {
-          parentSpanContext: {
-            traceId,
-            spanId: validSpanId(turn.traceRootObservationId)
-              ? turn.traceRootObservationId
-              : parentSpanIdForTrace(traceId),
-            traceFlags: TraceFlags.SAMPLED,
-          },
-        } : {}),
-      },
+      { asType: "agent" },
     ),
   );
 }
 
 export interface TurnEnqueueObservation {
-  traceId: string;
   conversationId: string;
   tenantId: string;
   ownerId: string;
@@ -146,7 +188,7 @@ export interface TurnEnqueueObservation {
 }
 
 export interface ActiveTurnEnqueueObservation {
-  traceId: string;
+  traceId?: string;
   rootObservationId?: string;
 }
 
@@ -155,9 +197,8 @@ export async function observeTurnEnqueue<T>(
   operation: (active: ActiveTurnEnqueueObservation) => Promise<T>,
 ): Promise<T> {
   const config = resolveTelemetryConfig();
-  const traceId = validTraceId(turn.traceId) ? turn.traceId : undefined;
   return propagateAttributes({
-    traceName: "conversation-turn",
+    traceName: "conversation-turn-enqueue",
     ...(config.pseudonymKey
       ? { userId: pseudonymousUserId(turn.tenantId, turn.ownerId, config.pseudonymKey) }
       : {}),
@@ -166,13 +207,13 @@ export async function observeTurnEnqueue<T>(
       : {}),
     version: SERVICE_VERSION,
     environment: config.environment,
-    tags: ["conversation-agent", "api"],
-    metadata: { operation: turn.operation },
-  }, () => startActiveObservation("conversation-turn", async (root) => {
+    tags: ["conversation-agent", "api", "turn-enqueue"],
+    metadata: { operation: turn.operation, projection: "enqueue-accept" },
+  }, () => startActiveObservation("conversation-turn-enqueue", async (root) => {
     const activeTraceId = getActiveTraceId();
     const rootObservationId = getActiveSpanId();
     const active: ActiveTurnEnqueueObservation = {
-      traceId: activeTraceId ?? traceId ?? turn.traceId,
+      ...(activeTraceId ? { traceId: activeTraceId } : {}),
       ...(rootObservationId ? { rootObservationId } : {}),
     };
     root.update({
@@ -195,7 +236,12 @@ export async function observeTurnEnqueue<T>(
           throw error;
         }
       });
-      root.update({ output: { accepted: true, asynchronousExecutionPending: true } });
+      const resultRecord = result && typeof result === "object" ? result as Record<string, unknown> : {};
+      const turnId = typeof resultRecord["id"] === "string" ? resultRecord["id"] : undefined;
+      root.update({
+        output: { accepted: true, ...(turnId ? { turnId } : {}) },
+        ...(turnId ? { metadata: { operation: turn.operation, asynchronous: true, turnId } } : {}),
+      });
       return result;
     } catch (error) {
       root.update({
@@ -205,16 +251,7 @@ export async function observeTurnEnqueue<T>(
       });
       throw error;
     }
-  }, {
-    asType: "chain",
-    ...(traceId ? {
-      parentSpanContext: {
-        traceId,
-        spanId: parentSpanIdForTrace(traceId),
-        traceFlags: TraceFlags.SAMPLED,
-      },
-    } : {}),
-  }));
+  }, { asType: "chain" }));
 }
 
 export async function observeTool<T>(
@@ -236,7 +273,8 @@ export async function observeTool<T>(
         observation.update({ output: redactTelemetryData(summarizeOutput(result)) });
         return result;
       } catch (error) {
-        observation.update({ level: "ERROR", statusMessage: telemetryErrorCode(error) });
+        const errorCode = telemetryErrorCode(error);
+        observation.update({ level: "ERROR", statusMessage: errorCode, output: { errorCode } });
         throw error;
       }
     },
@@ -266,7 +304,8 @@ export async function observeTurnExecutorStep<T>(
         observation.update({ output: redactTelemetryData(summarizeOutput(result)) });
         return result;
       } catch (error) {
-        observation.update({ level: "ERROR", statusMessage: telemetryErrorCode(error) });
+        const errorCode = telemetryErrorCode(error);
+        observation.update({ level: "ERROR", statusMessage: errorCode, output: { errorCode } });
         throw error;
       }
     },

@@ -1,7 +1,5 @@
-import { createHash } from "node:crypto";
-
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
   startActiveObservation,
   startObservation,
@@ -17,6 +15,19 @@ import {
   telemetryContent,
   telemetryErrorCode,
 } from "./telemetry-safety.js";
+import {
+  AgentCausalityLedger,
+  buildAgentModelBoundaryManifest,
+  traceValueSha256,
+} from "./agent-trace-model.js";
+import { runtimeMetrics } from "./runtime-metrics.js";
+import {
+  modelParameters,
+  precedingToolCallIds,
+  safeTelemetryIdentifier,
+  telemetryChatMessage,
+  telemetryModelInput,
+} from "./agent-trace-rendering.js";
 
 interface AgentEventObserverOptions {
   promptName: string;
@@ -40,83 +51,8 @@ type AgentEventMessage = Extract<AgentEvent, { type: "message_end" }>["message"]
 
 const GENERATION_NAMES = {
   PLAN: "planner.plan",
-  FINALIZE: "planner.finalize",
   REPAIR_PLAN: "planner.repair-plan",
-  REPAIR_FINALIZE: "planner.repair-finalize",
 } as const;
-
-function telemetrySha256(value: unknown): string {
-  return `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
-}
-
-function safeTelemetryIdentifier(value: string, fallback: string): string {
-  const normalized = value.trim().replace(/[^A-Za-z0-9_.:-]+/g, "_").slice(0, 160);
-  return normalized || fallback;
-}
-
-function modelParameters(options: AgentModelCallObservation["options"]): Record<string, string | number> {
-  const source = (options ?? {}) as Record<string, unknown>;
-  const allowed = ["toolChoice", "temperature", "maxTokens", "topP", "reasoningEffort"];
-  return Object.fromEntries(allowed.flatMap((key) => {
-    const value = source[key];
-    if (typeof value === "string" || typeof value === "number") return [[key, value]];
-    if (typeof value === "boolean") return [[key, String(value)]];
-    return [];
-  }));
-}
-
-function telemetryAssistantContent(content: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
-  return content.map((item) => {
-    if (item["type"] === "toolCall") {
-      return {
-        type: "tool_call",
-        id: safeTelemetryIdentifier(String(item["id"] ?? ""), "missing-tool-call-id"),
-        name: safeTelemetryIdentifier(String(item["name"] ?? ""), "unknown-tool"),
-        arguments: telemetryContent(item["arguments"] ?? {}),
-      };
-    }
-    if (item["type"] === "thinking") return { type: "thinking", contentCaptured: false };
-    return { type: String(item["type"] ?? "text"), content: telemetryContent(item["text"] ?? item) };
-  });
-}
-
-function telemetryChatMessage(message: Message): Record<string, unknown> {
-  if (message.role === "user") return { role: "user", content: telemetryContent(message.content) };
-  if (message.role === "toolResult") {
-    return {
-      role: "tool",
-      toolCallId: safeTelemetryIdentifier(message.toolCallId, "missing-tool-call-id"),
-      name: safeTelemetryIdentifier(message.toolName, "unknown-tool"),
-      isError: message.isError,
-      content: telemetryContent(message.content),
-    };
-  }
-  return {
-    role: "assistant",
-    content: telemetryAssistantContent(message.content as unknown as Array<Record<string, unknown>>),
-  };
-}
-
-function telemetryModelInput(call: AgentModelCallObservation): Record<string, unknown> {
-  return {
-    system: {
-      role: "system",
-      content: telemetryContent(call.context.systemPrompt ?? ""),
-    },
-    messages: call.context.messages.map((message) => telemetryChatMessage(message)),
-    tools: (call.context.tools ?? []).map((tool) => ({
-      name: safeTelemetryIdentifier(tool.name, "unknown-tool"),
-      description: telemetryContent(tool.description),
-      parameters: telemetryContent(tool.parameters),
-    })),
-  };
-}
-
-function precedingToolCallIds(call: AgentModelCallObservation): string[] {
-  return call.context.messages.flatMap((message) => message.role === "toolResult"
-    ? [safeTelemetryIdentifier(message.toolCallId, "missing-tool-call-id")]
-    : []).slice(-8);
-}
 
 function generationUsage(message: AssistantMessage): {
   usageDetails?: Record<string, number>;
@@ -150,14 +86,13 @@ function generationUsage(message: AssistantMessage): {
 export function createAgentEventObserver(options: AgentEventObserverOptions): AgentEventObserver {
   let generation: LangfuseGeneration | null = null;
   let activeCall: AgentModelCallObservation | null = null;
-  const startedTools = new Map<string, string>();
-  const observedTools = new Map<string, string>();
-  const endedTools = new Map<string, string>();
-  let duplicateToolEvent = false;
+  const digestKey = process.env["INTEREC_TELEMETRY_PSEUDONYM_KEY"];
+  const causality = new AgentCausalityLedger(digestKey);
   const finishGeneration = (message?: AgentEventMessage): void => {
     if (!generation) return;
     if (message?.role === "assistant") {
       const assistant = message as AssistantMessage;
+      causality.recordModelOutput(assistant, activeCall?.inferenceIndex ?? 0);
       generation.update({
         output: telemetryChatMessage(assistant),
         model: assistant.responseModel ?? assistant.model,
@@ -189,8 +124,8 @@ export function createAgentEventObserver(options: AgentEventObserverOptions): Ag
     onModelCall: (call) => {
       finishGeneration();
       activeCall = call;
-      const contextSha256 = telemetrySha256(call.context);
-      const toolSchemaSha256 = telemetrySha256(call.context.tools ?? []);
+      causality.recordModelInput(call);
+      const manifest = buildAgentModelBoundaryManifest(call, digestKey);
       generation = startObservation(GENERATION_NAMES[call.phase], {
         input: telemetryModelInput(call),
         model: String(call.model.id),
@@ -199,12 +134,18 @@ export function createAgentEventObserver(options: AgentEventObserverOptions): Ag
         metadata: {
           provider: String(call.model.provider),
           api: String(call.model.api),
+          modelId: String(call.model.id),
           inferenceIndex: call.inferenceIndex,
           phase: call.phase,
           trigger: call.inferenceIndex === 1 ? "USER_MESSAGE" : "TOOL_RESULT_OR_REPAIR",
           precedingToolCallIds: precedingToolCallIds(call),
-          contextSha256,
-          toolSchemaSha256,
+          ...manifest,
+          toolNames: (call.context.tools ?? []).map((tool) => safeTelemetryIdentifier(tool.name, "unknown-tool")),
+          toolDefinitions: telemetryContent((call.context.tools ?? []).map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters,
+          }))),
           promptName: options.promptName,
           promptVersion: options.promptVersion,
           promptSha256: options.promptSha256,
@@ -219,20 +160,14 @@ export function createAgentEventObserver(options: AgentEventObserverOptions): Ag
       } else if (event.type === "turn_end" && generation) {
         finishGeneration(event.message);
       } else if (event.type === "tool_execution_start") {
-        const id = safeTelemetryIdentifier(event.toolCallId, "missing-tool-call-id");
-        if (startedTools.has(id)) duplicateToolEvent = true;
-        startedTools.set(id, safeTelemetryIdentifier(event.toolName, "unknown-tool"));
+        causality.recordToolStart(event.toolCallId, event.toolName);
       } else if (event.type === "tool_execution_end") {
-        const id = safeTelemetryIdentifier(event.toolCallId, "missing-tool-call-id");
-        if (endedTools.has(id)) duplicateToolEvent = true;
-        endedTools.set(id, safeTelemetryIdentifier(event.toolName, "unknown-tool"));
+        causality.recordToolEnd(event);
       }
     },
     observeToolCall: async (call, operation) => {
       const toolCallId = safeTelemetryIdentifier(call.toolCallId, "missing-tool-call-id");
       const toolName = safeTelemetryIdentifier(call.toolName, "unknown-tool");
-      if (observedTools.has(toolCallId)) duplicateToolEvent = true;
-      observedTools.set(toolCallId, toolName);
       return startActiveObservation(
         `agent.tool.${toolName}`,
         async (observation) => {
@@ -251,12 +186,14 @@ export function createAgentEventObserver(options: AgentEventObserverOptions): Ag
           });
           try {
             const result = await operation();
+            causality.recordToolObservation(call, result);
             const resultRecord = result && typeof result === "object" ? result as Record<string, unknown> : {};
             observation.update({
               output: {
                 toolCallId,
                 toolName,
                 modelVisibleResult: telemetryContent(result),
+                modelVisibleResultSha256: traceValueSha256(resultRecord["content"] ?? [], digestKey),
                 internalExecutionSummary: {
                   contentBlockCount: Array.isArray(resultRecord["content"]) ? resultRecord["content"].length : 0,
                   detailKeys: resultRecord["details"] && typeof resultRecord["details"] === "object"
@@ -268,6 +205,7 @@ export function createAgentEventObserver(options: AgentEventObserverOptions): Ag
             });
             return result;
           } catch (error) {
+            causality.recordToolObservation(call, undefined);
             observation.update({
               level: "ERROR",
               statusMessage: telemetryErrorCode(error, "AGENT_TOOL_EXECUTION_FAILED"),
@@ -281,24 +219,38 @@ export function createAgentEventObserver(options: AgentEventObserverOptions): Ag
     },
     finish: () => {
       finishGeneration();
-      const ids = new Set([...startedTools.keys(), ...observedTools.keys(), ...endedTools.keys()]);
-      const mismatched = [...ids].filter((id) => {
-        const started = startedTools.get(id);
-        const observed = observedTools.get(id);
-        const ended = endedTools.get(id);
-        return !started || !observed || !ended || started !== observed || observed !== ended;
-      });
-      if (ids.size > 0 || duplicateToolEvent || mismatched.length > 0) {
-        recordGuardrailDecision("validate-agent-tool-causality", !duplicateToolEvent && mismatched.length === 0, {
-          startedToolCalls: startedTools.size,
-          observedToolCalls: observedTools.size,
-          endedToolCalls: endedTools.size,
-          duplicateToolEvent,
-          mismatchedToolCallIds: mismatched.slice(0, 8),
+      const report = causality.report();
+      runtimeMetrics.traceCausalityChecks.add(1, { outcome: report.passed ? "PASS" : "FAIL" });
+      const violationCounts: Array<[string, number]> = [
+        ["DUPLICATE_TOOL_CALL", report.duplicateToolCallIds.length],
+        ["ORPHAN_TOOL_CALL", report.orphanToolCallIds.length],
+        ["LIFECYCLE_MISMATCH", report.lifecycleMismatchToolCallIds.length],
+        ["RESULT_MISMATCH", report.resultMismatchToolCallIds.length],
+        ["UNCONSUMED_TOOL_RESULT", report.unconsumedToolResultIds.length],
+      ];
+      for (const [failureType, count] of violationCounts) {
+        if (count > 0) runtimeMetrics.traceCausalityViolations.add(count, { failure_type: failureType });
+      }
+      if (report.requestedToolCalls > 0
+        || report.startedToolCalls > 0
+        || report.observedToolCalls > 0
+        || report.endedToolCalls > 0) {
+        const safeIds = (ids: string[]) => ids
+          .slice(0, 8)
+          .map((id) => safeTelemetryIdentifier(id, "missing-tool-call-id"));
+        recordGuardrailDecision("validate-agent-tool-causality", report.passed, {
+          requestedToolCalls: report.requestedToolCalls,
+          startedToolCalls: report.startedToolCalls,
+          observedToolCalls: report.observedToolCalls,
+          endedToolCalls: report.endedToolCalls,
+          consumedToolResults: report.consumedToolResults,
+          duplicateToolCallIds: safeIds(report.duplicateToolCallIds),
+          orphanToolCallIds: safeIds(report.orphanToolCallIds),
+          lifecycleMismatchToolCallIds: safeIds(report.lifecycleMismatchToolCallIds),
+          resultMismatchToolCallIds: safeIds(report.resultMismatchToolCallIds),
+          unconsumedToolResultIds: safeIds(report.unconsumedToolResultIds),
         });
       }
     },
   };
 }
-
-

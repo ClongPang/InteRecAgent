@@ -1,5 +1,5 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { QuoteAssistantPublication } from "@interec/domain";
+import type { QuoteAssistantPublication, QuoteConversationState } from "@interec/domain";
 
 import type { AgentInferenceContext, ObserveAgentToolCall } from "./agent-observation.js";
 import {
@@ -41,12 +41,12 @@ export class QuoteToolProtocol {
     return this.phase === "CONTEXT_READY" && name === "commit_quote_plan";
   }
 
-  public async fallback(errorCode: string): Promise<QuoteAssistantPublication> {
+  public async fallback(errorCode: string): Promise<{ state: QuoteConversationState; reply: QuoteAssistantPublication }> {
     this.phase = "FALLBACK";
     this.lastErrorCode = errorCode;
     const result = await this.executor.fallback(errorCode);
     this.phase = "COMPLETED";
-    return result.reply;
+    return result;
   }
 
   private commitTool(): AgentTool<typeof quoteTurnPlanSchema> {

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { observeBuyWhereProviderCall } from "./buywhere-provider-observability.js";
 import { failedQuoteProviderResult, parseBuyWhereMcpToolResponse } from "./buywhere-mcp-quote-parser.js";
 import type { QuoteLookupRequest, QuoteProvider, QuoteProviderResult } from "./quote-provider.js";
 
@@ -41,54 +42,57 @@ export class BuyWhereMcpQuoteClient implements QuoteProvider {
   public async lookup(request: QuoteLookupRequest, signal?: AbortSignal): Promise<QuoteProviderResult> {
     const canonicalQuery = request.canonicalQuery.normalize("NFKC").trim();
     if (!canonicalQuery) throw new Error("QUOTE_QUERY_REQUIRED");
-    const observedAt = this.now().toISOString();
-    let response: Response;
-    try {
-      response = await this.fetchImpl(new URL("/mcp", this.baseUrl), {
-        method: "POST",
-        headers: {
-          "x-api-key": this.apiKey,
-          "content-type": "application/json",
-          accept: "application/json",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: this.requestId(),
-          method: "tools/call",
-          params: {
-            name: "find_best_price_v2",
-            arguments: {
-              product_name: canonicalQuery,
-              deliver_to: "SG",
-            },
+    const requestId = this.requestId();
+    return observeBuyWhereProviderCall(canonicalQuery, requestId, async () => {
+      const observedAt = this.now().toISOString();
+      let response: Response;
+      try {
+        response = await this.fetchImpl(new URL("/mcp", this.baseUrl), {
+          method: "POST",
+          headers: {
+            "x-api-key": this.apiKey,
+            "content-type": "application/json",
+            accept: "application/json",
           },
-        }),
-        signal: timeoutSignal(this.timeoutMs, signal),
-      });
-    } catch (error) {
-      if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : error;
-      const timeout = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
-      return failedQuoteProviderResult({ code: timeout ? "BUYWHERE_TIMEOUT" : "BUYWHERE_NETWORK_ERROR", retryable: true, observedAt });
-    }
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: requestId,
+            method: "tools/call",
+            params: {
+              name: "find_best_price_v2",
+              arguments: {
+                product_name: canonicalQuery,
+                deliver_to: "SG",
+              },
+            },
+          }),
+          signal: timeoutSignal(this.timeoutMs, signal),
+        });
+      } catch (error) {
+        if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : error;
+        const timeout = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+        return failedQuoteProviderResult({ code: timeout ? "BUYWHERE_TIMEOUT" : "BUYWHERE_NETWORK_ERROR", retryable: true, observedAt });
+      }
 
-    let raw: unknown;
-    try {
-      raw = await response.json();
-    } catch {
-      return failedQuoteProviderResult({
-        code: response.ok ? "BUYWHERE_CONTRACT_DRIFT" : `BUYWHERE_HTTP_${response.status}`,
-        retryable: !response.ok && retryableHttpStatus(response.status),
-        observedAt,
-      });
-    }
-    if (!response.ok) {
-      return failedQuoteProviderResult({
-        code: `BUYWHERE_HTTP_${response.status}`,
-        retryable: retryableHttpStatus(response.status),
-        observedAt,
-        rawPayload: raw,
-      });
-    }
-    return parseBuyWhereMcpToolResponse(raw, observedAt);
+      let raw: unknown;
+      try {
+        raw = await response.json();
+      } catch {
+        return failedQuoteProviderResult({
+          code: response.ok ? "BUYWHERE_CONTRACT_DRIFT" : `BUYWHERE_HTTP_${response.status}`,
+          retryable: !response.ok && retryableHttpStatus(response.status),
+          observedAt,
+        });
+      }
+      if (!response.ok) {
+        return failedQuoteProviderResult({
+          code: `BUYWHERE_HTTP_${response.status}`,
+          retryable: retryableHttpStatus(response.status),
+          observedAt,
+          rawPayload: raw,
+        });
+      }
+      return parseBuyWhereMcpToolResponse(raw, observedAt);
+    });
   }
 }

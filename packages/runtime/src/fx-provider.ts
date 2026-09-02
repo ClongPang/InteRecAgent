@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { FxSnapshot } from "@interec/domain";
 
-import { observeTool, runtimeMetrics } from "./telemetry.js";
+import { observeTool, runtimeMetrics, telemetryErrorCode } from "./telemetry.js";
 
 export interface FxPort {
   getRate(base: string, signal?: AbortSignal): Promise<FxSnapshot>;
@@ -24,8 +24,9 @@ export class FxRatesClient implements FxPort {
 
   public async getRate(base: string, signal?: AbortSignal): Promise<FxSnapshot> {
     const startedAt = performance.now();
+    let outcome = "FAILED";
     try {
-      return await observeTool("resolve-exchange-rate", {
+      const result: FxSnapshot = await observeTool("resolve-exchange-rate", {
         provider: "fxratesapi",
         base: base.toUpperCase(),
         quote: "CNY",
@@ -79,11 +80,20 @@ export class FxRatesClient implements FxPort {
         quote: result.quote,
         observedAt: result.observedAt,
       }), { provider: "fxratesapi", base: base.toUpperCase(), quote: "CNY" });
+      outcome = "SUCCEEDED";
+      return result;
     } catch (error) {
-      runtimeMetrics.providerErrors.add(1, { provider: "fxratesapi" });
+      runtimeMetrics.providerErrors.add(1, {
+        provider: "fxratesapi",
+        failure_code: telemetryErrorCode(error, "FX_PROVIDER_FAILED"),
+      });
       throw error;
     } finally {
-      runtimeMetrics.providerDuration.record((performance.now() - startedAt) / 1000, { provider: "fxratesapi" });
+      runtimeMetrics.providerDuration.record((performance.now() - startedAt) / 1000, {
+        provider: "fxratesapi",
+        operation: "resolve_exchange_rate",
+        outcome,
+      });
     }
   }
 }

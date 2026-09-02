@@ -42,7 +42,14 @@ function applied(state: QuoteConversationState, operation: QuoteTurnOperation, p
     decision: "APPLIED",
     nextState: validateQuoteConversationState(state),
     effects: [],
-    receipt: { opId: operation.opId, kind: operation.kind, status, providerCalled: false, publicResult },
+    receipt: {
+      opId: operation.opId,
+      kind: operation.kind,
+      status,
+      providerInvocation: "NONE",
+      providerCalled: false,
+      publicResult,
+    },
   };
 }
 
@@ -78,10 +85,18 @@ export function decideQuoteCommand(input: DecideQuoteCommandInput): QuoteCommand
     }, operation, { confirmationRequired: true, proposedModel: operation.target.proposedModel }, "BLOCKED");
   }
   if (operation.kind === "REQUEST_QUOTE_MODEL_CONFIRMATION") {
-    return applied(state, operation, { modelRequired: true });
+    // Requesting an exact model means the current ask has no resolvable target, so any prior
+    // resolved target and its published observation are superseded. A pending confirmation set
+    // earlier in this same plan is preserved (it still describes the gap being clarified).
+    return applied({ ...clearLeadState(state), target: null }, operation, { modelRequired: true });
   }
   if (operation.kind === "DECLINE_UNSUPPORTED_QUOTE_TARGET") {
-    return applied(state, operation, { declinedReasonCode: operation.reasonCode });
+    const retain = operation.targetDisposition === "RETAIN";
+    if (retain && (!state.target || state.pendingTargetConfirmation)) {
+      throw new DomainError("QUOTE_DECLINE_RETAIN_WITHOUT_TARGET", operation.opId);
+    }
+    const nextState = retain ? state : { ...clearLeadState(state), target: null };
+    return applied(nextState, operation, { declinedReasonCode: operation.reasonCode, targetRetained: retain });
   }
   if (operation.kind === "CONFIRM_QUOTE_TARGET") {
     const pending = state.pendingTargetConfirmation;

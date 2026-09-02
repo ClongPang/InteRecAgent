@@ -56,6 +56,7 @@ export const quoteTurnOperationSchema = Type.Union([
     ...quoteOperationBase,
     kind: Type.Literal("DECLINE_UNSUPPORTED_QUOTE_TARGET"),
     reasonCode: Type.Union([Type.Literal("ACCESSORY_OR_PART"), Type.Literal("SERVICE")]),
+    targetDisposition: Type.Optional(Type.Union([Type.Literal("RETAIN"), Type.Literal("SUPERSEDE")])),
   }, { additionalProperties: false }),
   Type.Object({ ...quoteOperationBase, kind: Type.Literal("CONFIRM_QUOTE_TARGET"), confirmationId: Type.String({ minLength: 1, maxLength: 128 }) }, { additionalProperties: false }),
   Type.Object({ ...quoteOperationBase, kind: Type.Literal("LOOKUP_QUOTES") }, { additionalProperties: false }),

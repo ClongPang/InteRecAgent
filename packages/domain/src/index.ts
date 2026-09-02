@@ -18,11 +18,14 @@ export {
 } from "./quote-command-decision.js";
 export {
   applyQuoteEffectResult,
+  appliedProviderObservation,
+  liveProviderCalled,
   type QuoteEffect,
   type QuoteEffectApplication,
   type QuoteEffectResult,
   type QuoteLookupEffect,
   type QuoteOperationReceipt,
+  type QuoteProviderInvocation,
 } from "./quote-effects.js";
 export {
   PRODUCT_IDENTITY_RESOLVER_VERSION,

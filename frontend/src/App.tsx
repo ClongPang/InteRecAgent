@@ -14,6 +14,8 @@ export default function App() {
         tokenDraft={tokenDraft}
         onTokenDraftChange={conversation.setTokenDraft}
         onConnect={conversation.connect}
+        connecting={conversation.authenticating}
+        error={conversation.error}
       />
     )
   }

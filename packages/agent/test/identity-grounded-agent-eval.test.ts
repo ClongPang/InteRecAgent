@@ -138,7 +138,7 @@ async function runEval(options: EvalHarnessOptions) {
     inputMessageContents: [options.user],
     baseState,
     publicationRevision: baseState.version + 1,
-    quoteEffects: { execute: async (effect) => ({ status: "SUCCEEDED", leadSet: await lookup(effect.target) }) },
+    quoteEffects: { execute: async (effect) => ({ status: "SUCCEEDED", leadSet: await lookup(effect.target), providerInvocation: "LIVE" }) },
     identityCandidates: options.identityCandidates,
     identitySnapshot: SONY_IDENTITY_SNAPSHOT,
     onPlanReviewed: async ({ review }) => {

@@ -6,6 +6,10 @@ import { installApiErrorHandler } from "./api-errors.js";
 import type { IdentityVerifier } from "./auth.js";
 import { registerConversationEventRoutes } from "./conversation-event-routes.js";
 import { registerConversationRoutes } from "./conversation-routes.js";
+import {
+  registerDevelopmentAuthRoute,
+  type DevelopmentAuthOptions,
+} from "./development-auth.js";
 
 export interface ConversationAppOptions {
   repository: ConversationRepository;
@@ -14,6 +18,7 @@ export interface ConversationAppOptions {
   closeRepository?: boolean;
   ssePollMs?: number;
   sseMaxDurationMs?: number;
+  developmentAuth?: DevelopmentAuthOptions;
 }
 
 /** HTTP composition root; route behavior lives in focused registration modules. */
@@ -38,6 +43,7 @@ export function createConversationApp(options: ConversationAppOptions) {
     ssePollMs: options.ssePollMs ?? 250,
     sseMaxDurationMs: options.sseMaxDurationMs ?? 25_000,
   });
+  if (options.developmentAuth) registerDevelopmentAuthRoute(app, options.developmentAuth);
 
   if (options.closeRepository) {
     app.addHook("onClose", async () => options.repository.close());

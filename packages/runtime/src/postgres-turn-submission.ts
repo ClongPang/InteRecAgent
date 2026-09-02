@@ -20,13 +20,12 @@ import {
   requiredText,
   setOwnerContext,
 } from "./postgres-conversation-storage.js";
-import { telemetryTraceIdForTurn } from "./telemetry.js";
 import { recordTerminalTurn } from "./turn-terminal-metrics.js";
 
 interface TurnRequestMetadata {
   clientTurnId: string;
   deadlineSeconds: number;
-  traceId: string;
+  traceId?: string;
 }
 
 function turnRequestMetadata(input: {
@@ -41,8 +40,8 @@ function turnRequestMetadata(input: {
   if (!Number.isSafeInteger(deadlineSeconds) || deadlineSeconds < 1 || deadlineSeconds > 600) {
     throw new ConversationRepositoryError("INVALID_TURN_DEADLINE", "Turn deadline must contain 1-600 seconds");
   }
-  const traceId = input.telemetryTraceId ?? telemetryTraceIdForTurn(input.conversationId, clientTurnId);
-  if (!/^[0-9a-f]{32}$/.test(traceId) || traceId === "0".repeat(32)) {
+  const traceId = input.telemetryTraceId;
+  if (traceId !== undefined && (!/^[0-9a-f]{32}$/.test(traceId) || traceId === "0".repeat(32))) {
     throw new ConversationRepositoryError(
       "INVALID_TELEMETRY_TRACE_ID",
       "Telemetry trace ID must be a non-zero 32-character lowercase hexadecimal value",
@@ -56,7 +55,7 @@ function turnRequestMetadata(input: {
       "Telemetry root observation ID must be a non-zero 16-character lowercase hexadecimal value",
     );
   }
-  return { clientTurnId, deadlineSeconds, traceId };
+  return { clientTurnId, deadlineSeconds, ...(traceId ? { traceId } : {}) };
 }
 
 export async function acceptPostgresTurn(
@@ -165,8 +164,8 @@ export async function acceptPostgresTurn(
     }
     await client.query(
       `INSERT INTO interec_agent.turns
-         (id, conversation_id, client_turn_id, request_hash, latest_input_message_id, base_revision, status, deadline_at, trace_id, trace_root_observation_id)
-       VALUES ($1, $2, $3, $4, $5, $6, 'ACCEPTED', clock_timestamp() + make_interval(secs => $7), $8, $9)`,
+         (id, conversation_id, client_turn_id, request_hash, latest_input_message_id, base_revision, status, deadline_at, trace_id, trace_root_observation_id, trace_id_source)
+       VALUES ($1, $2, $3, $4, $5, $6, 'ACCEPTED', clock_timestamp() + make_interval(secs => $7), $8, $9, $10)`,
       [
         turnId,
         input.conversationId,
@@ -175,8 +174,9 @@ export async function acceptPostgresTurn(
         messageId,
         currentRevision,
         metadata.deadlineSeconds,
-        metadata.traceId,
+        metadata.traceId ?? null,
         input.telemetryRootObservationId ?? null,
+        metadata.traceId ? "OBSERVED_ENQUEUE_ROOT" : null,
       ],
     );
     for (const [ordinal, message] of unconsumed.rows.entries()) {
@@ -288,8 +288,8 @@ export async function retryPostgresTurn(
     const latestInputMessageId = unconsumed.rows.at(-1)!.id;
     await client.query(
       `INSERT INTO interec_agent.turns
-         (id, conversation_id, client_turn_id, request_hash, latest_input_message_id, base_revision, status, deadline_at, trace_id, trace_root_observation_id)
-       VALUES ($1, $2, $3, $4, $5, $6, 'ACCEPTED', clock_timestamp() + make_interval(secs => $7), $8, $9)`,
+         (id, conversation_id, client_turn_id, request_hash, latest_input_message_id, base_revision, status, deadline_at, trace_id, trace_root_observation_id, trace_id_source)
+       VALUES ($1, $2, $3, $4, $5, $6, 'ACCEPTED', clock_timestamp() + make_interval(secs => $7), $8, $9, $10)`,
       [
         turnId,
         input.conversationId,
@@ -298,8 +298,9 @@ export async function retryPostgresTurn(
         latestInputMessageId,
         conversation["current_revision"],
         metadata.deadlineSeconds,
-        metadata.traceId,
+        metadata.traceId ?? null,
         input.telemetryRootObservationId ?? null,
+        metadata.traceId ? "OBSERVED_ENQUEUE_ROOT" : null,
       ],
     );
     for (const [ordinal, message] of unconsumed.rows.entries()) {

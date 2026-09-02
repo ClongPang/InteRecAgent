@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import { afterEach, describe, expect, it } from "vitest";
 import { emptyQuoteConversationState, type ConversationState } from "@interec/domain";
@@ -13,10 +13,21 @@ import type {
 } from "@interec/runtime";
 
 import { createConversationApp } from "../src/app.js";
-import { HmacJwtIdentityVerifier, type IdentityVerifier } from "../src/auth.js";
+import {
+  HmacJwtIdentityVerifier,
+  issueHmacJwt,
+  type HmacJwtOptions,
+  type IdentityVerifier,
+} from "../src/auth.js";
+import { developmentAuthFromEnvironment } from "../src/development-auth.js";
 
 const owner: OwnerClaims = { tenantId: "tenant-a", ownerId: "owner-a" };
 const other: OwnerClaims = { tenantId: "tenant-a", ownerId: "owner-b" };
+const jwt: HmacJwtOptions = {
+  secret: "a-secure-test-secret-with-at-least-32-bytes",
+  issuer: "issuer",
+  audience: "audience",
+};
 
 class ApiRepositoryStub {
   public conversation: ConversationRecord | null = null;
@@ -174,13 +185,76 @@ describe("Conversation API", () => {
 
 describe("HMAC JWT identity verifier", () => {
   it("binds tenant and owner only after signature, issuer, audience and expiry verification", async () => {
-    const secret = "a-secure-test-secret-with-at-least-32-bytes";
-    const encodedHeader = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-    const encodedPayload = Buffer.from(JSON.stringify({ iss: "issuer", aud: "audience", tenant_id: "tenant-a", sub: "owner-a", exp: Math.floor(Date.now() / 1000) + 60 })).toString("base64url");
-    const signature = createHmac("sha256", secret).update(`${encodedHeader}.${encodedPayload}`).digest("base64url");
-    const authorization = `Bearer ${encodedHeader}.${encodedPayload}.${signature}`;
-    const verifier = new HmacJwtIdentityVerifier({ secret, issuer: "issuer", audience: "audience" });
+    const issued = issueHmacJwt(jwt, { owner, lifetimeSeconds: 60 });
+    const authorization = `Bearer ${issued.accessToken}`;
+    const verifier = new HmacJwtIdentityVerifier(jwt);
     expect(await verifier.verify({ headers: { authorization } } as never)).toEqual(owner);
     expect(await verifier.verify({ headers: { authorization: `${authorization}x` } } as never)).toBeNull();
+  });
+
+  it("issues deterministic expiry metadata from the shared JWT contract", () => {
+    const issued = issueHmacJwt(jwt, { owner, lifetimeSeconds: 60, nowSeconds: 1_700_000_000 });
+    expect(issued.expiresAt).toBe("2023-11-14T22:14:20.000Z");
+    expect(issued.accessToken.split(".")).toHaveLength(3);
+  });
+});
+
+describe("development authentication", () => {
+  const apps: Array<ReturnType<typeof createConversationApp>> = [];
+  afterEach(async () => Promise.all(apps.splice(0).map((app) => app.close())));
+
+  it("does not register the development route unless explicitly configured", async () => {
+    const repository = new ApiRepositoryStub();
+    const app = createConversationApp({ repository: repository as unknown as ConversationRepository, identityVerifier: verifier });
+    apps.push(app);
+    expect((await app.inject({ method: "POST", url: "/api/dev/auth" })).statusCode).toBe(404);
+  });
+
+  it("issues a verifier-compatible local token without caching it", async () => {
+    const repository = new ApiRepositoryStub();
+    const app = createConversationApp({
+      repository: repository as unknown as ConversationRepository,
+      identityVerifier: verifier,
+      developmentAuth: { jwt },
+    });
+    apps.push(app);
+    const response = await app.inject({ method: "POST", url: "/api/dev/auth" });
+    expect(response).toMatchObject({ statusCode: 200, headers: { "cache-control": "no-store" } });
+    const session = response.json().session as { accessToken: string; expiresAt: string };
+    const identity = await new HmacJwtIdentityVerifier(jwt).verify({
+      headers: { authorization: `Bearer ${session.accessToken}` },
+    } as never);
+    expect(identity).toEqual({ tenantId: "local-dev", ownerId: "local-user" });
+    expect(Date.parse(session.expiresAt)).toBeGreaterThan(Date.now());
+  });
+
+  it("hides the configured route from non-loopback clients", async () => {
+    const repository = new ApiRepositoryStub();
+    const app = createConversationApp({
+      repository: repository as unknown as ConversationRepository,
+      identityVerifier: verifier,
+      developmentAuth: { jwt },
+    });
+    apps.push(app);
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/dev/auth",
+      remoteAddress: "203.0.113.10",
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it("fails closed for production or non-loopback startup configuration", () => {
+    expect(developmentAuthFromEnvironment({}, jwt)).toBeUndefined();
+    expect(() => developmentAuthFromEnvironment({
+      INTEREC_ENABLE_DEV_AUTH: "true",
+      NODE_ENV: "production",
+      INTEREC_API_HOST: "127.0.0.1",
+    }, jwt)).toThrow("INTEREC_DEV_AUTH_FORBIDDEN_IN_PRODUCTION");
+    expect(() => developmentAuthFromEnvironment({
+      INTEREC_ENABLE_DEV_AUTH: "true",
+      NODE_ENV: "development",
+      INTEREC_API_HOST: "0.0.0.0",
+    }, jwt)).toThrow("INTEREC_DEV_AUTH_REQUIRES_LOOPBACK_HOST");
   });
 });

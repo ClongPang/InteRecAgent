@@ -1,16 +1,17 @@
 {
   "schemaVersion": 1,
+  "purpose": "Process-local OpenTelemetry instrument inventory.",
   "metrics": [
-    { "name": "rec_agent.api.enqueue.duration", "kind": "histogram", "unit": "s", "labels": ["operation", "outcome"], "slo": [{ "quantile": 0.95, "lessThan": 0.3 }] },
-    { "name": "rec_agent.api.projection.duration", "kind": "histogram", "unit": "s", "labels": ["outcome"], "slo": [{ "quantile": 0.95, "lessThan": 0.5 }] },
-    { "name": "rec_agent.sse.lag.duration", "kind": "histogram", "unit": "s", "labels": ["event_type"], "slo": [{ "quantile": 0.95, "lessThan": 1 }] },
-    { "name": "rec_agent.queue.wait.duration", "kind": "histogram", "unit": "s", "labels": ["attempt"], "slo": [{ "quantile": 0.95, "lessThan": 2 }] },
+    { "name": "rec_agent.api.enqueue.duration", "kind": "histogram", "unit": "s", "labels": ["operation", "outcome"] },
+    { "name": "rec_agent.api.projection.duration", "kind": "histogram", "unit": "s", "labels": ["outcome"] },
+    { "name": "rec_agent.sse.lag.duration", "kind": "histogram", "unit": "s", "labels": ["event_type"] },
+    { "name": "rec_agent.queue.wait.duration", "kind": "histogram", "unit": "s", "labels": ["attempt"] },
     { "name": "rec_agent.queue.depth", "kind": "observable_gauge", "unit": "{turn}", "labels": ["status"] },
-    { "name": "rec_agent.turn.duration", "kind": "histogram", "unit": "s", "labels": ["status", "route"], "slo": [{ "route": "talk|refilter|rerank|clarify", "quantile": 0.95, "lessThan": 8 }, { "route": "search", "quantile": 0.95, "lessThan": 45 }, { "route": "search", "quantile": 0.99, "lessThan": 60 }] },
+    { "name": "rec_agent.turn.duration", "kind": "histogram", "unit": "s", "labels": ["status", "route"] },
     { "name": "rec_agent.turn.terminal", "kind": "counter", "unit": "{turn}", "labels": ["status", "committed", "route"] },
     { "name": "rec_agent.sse.connections", "kind": "up_down_counter", "unit": "{connection}", "labels": [] },
-    { "name": "rec_agent.provider.request.duration", "kind": "histogram", "unit": "s", "labels": ["provider"] },
-    { "name": "rec_agent.provider.errors", "kind": "counter", "unit": "{error}", "labels": ["provider"] },
+    { "name": "rec_agent.provider.request.duration", "kind": "histogram", "unit": "s", "labels": ["provider", "operation", "outcome"] },
+    { "name": "rec_agent.provider.errors", "kind": "counter", "unit": "{error}", "labels": ["provider", "failure_code"] },
     { "name": "rec_agent.candidate_cache.lookups", "kind": "counter", "unit": "{lookup}", "labels": ["outcome"] },
     { "name": "rec_agent.candidate.admissions", "kind": "counter", "unit": "{candidate}", "labels": ["relevance_label", "admission_cohort", "status"] },
     { "name": "rec_agent.semantic_relevance.attempts", "kind": "counter", "unit": "{attempt}", "labels": ["outcome", "failure_code"] },
@@ -32,7 +33,10 @@
     { "name": "gen_ai.invoke_agent.duration", "kind": "histogram", "unit": "s", "labels": ["route"] },
     { "name": "gen_ai.invoke_agent.inference_calls", "kind": "histogram", "unit": "{call}", "labels": ["route"] },
     { "name": "gen_ai.invoke_agent.tool_calls", "kind": "histogram", "unit": "{call}", "labels": ["route", "fallback"] },
-    { "name": "rec_agent.telemetry.link_failures", "kind": "counter", "unit": "{failure}", "labels": ["operation"] }
+    { "name": "rec_agent.telemetry.link_failures", "kind": "counter", "unit": "{failure}", "labels": ["operation"] },
+    { "name": "rec_agent.telemetry.export_lifecycle", "kind": "counter", "unit": "{event}", "labels": ["action", "outcome"] },
+    { "name": "rec_agent.trace.causality_checks", "kind": "counter", "unit": "{check}", "labels": ["outcome"] },
+    { "name": "rec_agent.trace.causality_violations", "kind": "counter", "unit": "{violation}", "labels": ["failure_type"] }
   ],
   "forbiddenLabels": ["turn_id", "conversation_id", "tenant_id", "owner_id", "query", "content", "prompt", "offer_ref"]
 }

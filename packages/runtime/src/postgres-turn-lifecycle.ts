@@ -92,9 +92,9 @@ export async function claimPostgresTurn(
       );
     }
     await client.query(
-      `INSERT INTO interec_agent.turn_attempts (turn_id, attempt, fence_token, base_revision, status, trace_id)
-       VALUES ($1, $2, $3::bigint, $4, 'CLAIMED', $5)`,
-      [turn["id"], turn["attempt"], turn["fence_token"], turn["base_revision"], turn["trace_id"]],
+      `INSERT INTO interec_agent.turn_attempts (turn_id, attempt, fence_token, base_revision, status)
+       VALUES ($1, $2, $3::bigint, $4, 'CLAIMED')`,
+      [turn["id"], turn["attempt"], turn["fence_token"], turn["base_revision"]],
     );
     await appendConversationEvent(
       client,
@@ -131,9 +131,11 @@ export async function claimPostgresTurn(
       contractVersion: owner.rows[0]!.contract_version,
       inputMessages: messages.rows.map(mapMessage),
       snapshot,
-      telemetryTraceId: String(turn["trace_id"]),
+      ...(turn["trace_id"] && turn["trace_id_source"] === "OBSERVED_ENQUEUE_ROOT"
+        ? { telemetryEnqueueTraceId: String(turn["trace_id"]) }
+        : {}),
       ...(turn["trace_root_observation_id"]
-        ? { telemetryRootObservationId: String(turn["trace_root_observation_id"]) }
+        ? { telemetryEnqueueObservationId: String(turn["trace_root_observation_id"]) }
         : {}),
     };
   } catch (error) {

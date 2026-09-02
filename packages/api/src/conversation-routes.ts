@@ -4,7 +4,6 @@ import { Type } from "typebox";
 import {
   observeTurnEnqueue,
   runtimeMetrics,
-  telemetryTraceIdForTurn,
   type ConversationRepository,
   type ConversationTurnInput,
 } from "@interec/runtime";
@@ -56,9 +55,7 @@ export function registerConversationRoutes(
           expectedRevision?: number;
           input: ConversationTurnInput;
         };
-        const telemetryTraceId = telemetryTraceIdForTurn(conversationId, body.clientTurnId);
         const turn = await observeTurnEnqueue({
-          traceId: telemetryTraceId,
           conversationId,
           tenantId: owner.tenantId,
           ownerId: owner.ownerId,
@@ -68,9 +65,13 @@ export function registerConversationRoutes(
           conversationId,
           owner,
           ...body,
-          telemetryTraceId,
-          ...(active.rootObservationId
-            ? { telemetryRootObservationId: active.rootObservationId }
+          ...(active.traceId
+            ? {
+                telemetryTraceId: active.traceId,
+                ...(active.rootObservationId
+                  ? { telemetryRootObservationId: active.rootObservationId }
+                  : {}),
+              }
             : {}),
         }));
         outcome = turn.idempotentReplay ? "idempotent_replay" : "accepted";
@@ -155,9 +156,7 @@ export function registerConversationRoutes(
           turnId: string;
         };
         const body = request.body as { clientTurnId: string; expectedRevision?: number };
-        const telemetryTraceId = telemetryTraceIdForTurn(conversationId, body.clientTurnId);
         const turn = await observeTurnEnqueue({
-          traceId: telemetryTraceId,
           conversationId,
           tenantId: owner.tenantId,
           ownerId: owner.ownerId,
@@ -168,9 +167,13 @@ export function registerConversationRoutes(
           turnId,
           owner,
           ...body,
-          telemetryTraceId,
-          ...(active.rootObservationId
-            ? { telemetryRootObservationId: active.rootObservationId }
+          ...(active.traceId
+            ? {
+                telemetryTraceId: active.traceId,
+                ...(active.rootObservationId
+                  ? { telemetryRootObservationId: active.rootObservationId }
+                  : {}),
+              }
             : {}),
         }));
         outcome = turn.idempotentReplay ? "idempotent_replay" : "accepted";

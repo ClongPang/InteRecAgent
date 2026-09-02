@@ -55,14 +55,66 @@ suite("PostgreSQL quote conversation lifecycle", () => {
       clientTurnId: `client-${randomUUID()}`,
       expectedRevision: 0,
       input: { type: "MESSAGE", content: "只看准确型号，不要相近款" },
+      telemetryTraceId: "c".repeat(32),
+      telemetryRootObservationId: "d".repeat(16),
     });
     expect(await repository.getTurn(first.id, owner)).toMatchObject({ status: "SUPERSEDED" });
 
     const claimed = await repository.claimTurn(`worker-${randomUUID()}`, 30, second.id);
     expect(claimed).not.toBeNull();
     expect(claimed).toMatchObject({ contractVersion: "quote-leads-sg-v1", snapshot: { revision: 0 } });
+    expect(claimed!.telemetryEnqueueTraceId).toMatch(/^[0-9a-f]{32}$/);
+    const enqueueTrace = await repository.pool.query<{
+      trace_id: string;
+      trace_id_source: string;
+    }>(
+      "SELECT trace_id, trace_id_source FROM interec_agent.turns WHERE id = $1",
+      [second.id],
+    );
+    expect(enqueueTrace.rows[0]).toEqual({
+      trace_id: "c".repeat(32),
+      trace_id_source: "OBSERVED_ENQUEUE_ROOT",
+    });
     expect(claimed!.inputMessages).toHaveLength(2);
+    const beforeAttemptTrace = await repository.pool.query<{
+      trace_id: string | null;
+      root_observation_id: string | null;
+      trace_id_source: string | null;
+    }>(
+      "SELECT trace_id, root_observation_id, trace_id_source FROM interec_agent.turn_attempts WHERE turn_id = $1 AND attempt = $2",
+      [claimed!.id, claimed!.attempt],
+    );
+    expect(beforeAttemptTrace.rows[0]).toEqual({ trace_id: null, root_observation_id: null, trace_id_source: null });
     expect(await repository.markTurnRunning(claimed!.id, claimed!.attempt, claimed!.fenceToken)).toBe(true);
+    const attemptTraceId = "a".repeat(32);
+    const attemptRootObservationId = "b".repeat(16);
+    expect(attemptTraceId).not.toBe(claimed!.telemetryEnqueueTraceId);
+    expect(await repository.recordAttemptTelemetryLink(
+      claimed!.id,
+      claimed!.attempt,
+      claimed!.fenceToken,
+      attemptTraceId,
+      attemptRootObservationId,
+    )).toBe(true);
+    const afterAttemptTrace = await repository.pool.query<{
+      trace_id: string;
+      root_observation_id: string;
+      trace_id_source: string;
+    }>(
+      "SELECT trace_id, root_observation_id, trace_id_source FROM interec_agent.turn_attempts WHERE turn_id = $1 AND attempt = $2",
+      [claimed!.id, claimed!.attempt],
+    );
+    expect(afterAttemptTrace.rows[0]).toEqual({
+      trace_id: attemptTraceId,
+      root_observation_id: attemptRootObservationId,
+      trace_id_source: "OBSERVED_ATTEMPT_ROOT",
+    });
+    const syntheticLegacyRows = await repository.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM interec_agent.turns
+       WHERE trace_id = md5('interec-turn-trace-v1:' || conversation_id::text || ':' || client_turn_id)`,
+    );
+    expect(syntheticLegacyRows.rows[0]?.count).toBe("0");
     expect(await repository.heartbeatTurn(claimed!.id, claimed!.attempt, `${Number(claimed!.fenceToken) + 1}`, 30)).toBe(false);
     expect(await repository.failTurn(claimed!.id, claimed!.attempt, claimed!.fenceToken, "TEST_FAILURE")).toBe(true);
     expect(await repository.getTurn(claimed!.id, owner)).toMatchObject({ status: "FAILED", errorCode: "TEST_FAILURE" });

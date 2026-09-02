@@ -66,4 +66,4 @@ Agent 只提出 Command。Domain 对当前状态、命令和证据作纯决策�
 
 收益是品牌扩展、Provider 查询词、Variant 消歧和 LLM 能力可以分别演进，并且任何概率判断都不能越过确定性发布门禁。代价是需要小规模身份数据治理、兼容旧字面型号状态，并增加 trajectory 与 Agent eval 维护成本。
 
-分阶段实施和批准标准见 [identity-grounded-quote-agent-execution-plan.md](../identity-grounded-quote-agent-execution-plan.md)。最终验证和上线边界见 [Phase 6 final approval](../acceptance/identity-grounded-phase-6-final-2026-09-01.md)。
+阶段状态为 `spec/identity-grounded-quote-state.json`（phase 6 APPROVED）。实施摘要见 [identity-grounded-quote-agent-execution-plan.md](../identity-grounded-quote-agent-execution-plan.md)。审批索引见 [completed-phases.md](../acceptance/completed-phases.md)。

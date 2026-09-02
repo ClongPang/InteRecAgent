@@ -40,7 +40,7 @@ Conversation API ─────► PostgreSQL authoritative state
 - QuoteLeadSet、状态、assistant message 和事件在 PostgreSQL 中按 attempt fence 原子发布。
 - 旧推荐合同记录只读，API 返回明确退役边界，活动 Worker 永不领取。
 
-产品合同与分阶段证据见[执行与验收计划](docs/quote-lead-refactor-execution-plan.md)、[ADR-0007](docs/adr/0007-singapore-known-model-quote-leads.md)和[ADR-0008](docs/adr/0008-maintainable-module-architecture.md)。
+产品合同见 `spec/quote-lead-product-contract.json`。[ADR-0007](docs/adr/0007-singapore-known-model-quote-leads.md) 与 [ADR-0008](docs/adr/0008-maintainable-module-architecture.md) 是现行决策。[已完成阶段](docs/acceptance/completed-phases.md) 只作审批索引。
 
 ## 环境要求
 

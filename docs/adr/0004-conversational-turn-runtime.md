@@ -1,39 +1,24 @@
-# ADR-0004：以 pi-agent Conversation Turn Runtime 实现对话式推荐
+# ADR-0004：以 pi-agent Conversation Turn Runtime 实现可恢复对话
 
-- 状态：Partially superseded by ADR-0007；仅保留 durable Conversation Turn Runtime 决策
+- 状态：Partially superseded. Durable Turn runtime 仍有效；跨市场推荐产品语义由 ADR-0007 替代。
 - 日期：2026-08-26
-- 替代：ADR-0001 中仅面向报价搜索的三工具话轮协议；不替代 ADR-0003 的来源充分性准入原则
-- 被替代范围：跨市场推荐、Goal/WorkingSet 推荐业务语义及旧产品合同；现行产品边界见 ADR-0007
 
-## 决策
+## 仍有效的运行时决策
 
-InteRecAgent 的产品边界是长期 Shopping Conversation/Mission，而不是一次性推荐 run。每条用户输入形成一个可由数据库租约接管和恢复的 Turn；Turn 完成只表示已原子提交一条 AssistantMessage 和本轮状态变更，不关闭 Conversation。
+每条用户输入形成一个可由 PostgreSQL 租约接管和恢复的 Turn。Turn 完成只表示已原子提交本轮 Assistant message 和状态变更，不关闭 Conversation。
 
-每个 worker attempt 创建 fresh pi-agent。Agent 从 PostgreSQL 中指定 `baseRevision` 的受控 ConversationSnapshot 开始，依次完成：
+每个 worker attempt 创建新的 pi-agent，从指定 `baseRevision` 的受控快照开始。中间结果写入 attempt-scoped draft；失败、取消、超时或 superseded attempt 不能成为 Conversation latest。
+
+外部调用允许 at-least-once，用 stable step key 与 request hash 的 durable ledger 重放；状态晋级仍受 base revision、attempt、fence 和有效 lease 约束。
+
+## 现行话轮协议
 
 ```text
-Observe → commit_turn_plan → ordered turn actions（内部类型 `TurnAction`）→ publish_reply
+Observe → commit_quote_plan → host review / domain decide / effects → host-rendered reply
 ```
 
-Agent 负责开放语言理解、多操作 TurnPlan、受限工具编排和内部结构化回复 `AssistantEnvelope` 的组织。受策略约束的话轮执行器负责 Goal/WorkingSet reducer、引用绑定、外调策略、候选规则校验、金额、规则排序、回复声明来源一致性校验和原子状态发布。
+模型只提交受审 `QuoteTurnPlan`。宿主拥有 Provider 调用、状态变更和用户可见回复。比较、聚焦、排除和解释在已有观测足够时不得调用 Provider。
 
-普通对话、澄清、比较、解释、排除、重排、过滤和撤销在现有证据足够时不得调用 Provider。澄清、无匹配和降级是 AssistantEnvelope outcome，不是 Conversation 终态。
+## 不要从本文恢复
 
-## 状态与一致性
-
-Goal、DialogueState、WorkingSet、AssistantMessage、可选 Decision、Turn status 和 conversation events 必须在一次最终 PostgreSQL 事务中原子发布，并通过唯一约束和幂等检查避免重复最终提交。所有中间操作写入 attempt-scoped TurnDraft；失败、取消、超时或 superseded attempt 不能成为 Conversation “latest”。该保证只覆盖数据库内最终状态，不表示外部网络副作用端到端 exactly-once。
-
-外部调用允许 at-least-once。工具使用 stable step key 和 request hash 的 durable ledger；已成功步骤可重放，状态晋级仍受 base revision、attempt、fence 和有效 lease 约束。
-
-## 不兼容决策
-
-- 删除当前 `commit_turn → discover/inspect → Decision` 作为完整话轮的协议；
-- 删除每个成功 Turn 必须产生 Decision 的假设；
-- 重建支持 USER/ASSISTANT 的消息账本、ConversationRevision 和 WorkingSet；
-- 直接替换当前 `/v2` 单轮 API 和一次性前端；
-- 不恢复旧 Python/LangGraph 主链，不双写，不保留旧引擎开关；
-- 旧代码只作为产品行为证据和 trajectory 语料。
-
-## 验收依据
-
-本 ADR 仅作为 durable Conversation Turn Runtime 的历史决策记录，不再定义现行产品行为。现行权威产品合同为 `spec/quote-lead-product-contract.json`，业务边界见 ADR-0007，模块架构见 ADR-0008。
+Goal/WorkingSet 推荐合同、双工具发布协议、以及“每个成功 Turn 必须产生 Decision”的假设。现行产品合同是 `spec/quote-lead-product-contract.json`。

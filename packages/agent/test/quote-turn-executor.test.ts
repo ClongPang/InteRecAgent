@@ -65,7 +65,7 @@ function executor(baseState = emptyQuoteConversationState(), lookup = vi.fn(asyn
       inputMessageContents: [EXACT_USER],
       baseState,
       publicationRevision: baseState.version + 1,
-      quoteEffects: { execute: async (effect) => ({ status: "SUCCEEDED", leadSet: await lookup(effect.target) }) },
+      quoteEffects: { execute: async (effect) => ({ status: "SUCCEEDED", leadSet: await lookup(effect.target), providerInvocation: "LIVE" }) },
     }),
   };
 }
@@ -113,7 +113,7 @@ describe("QuoteConversationTurnExecutor", () => {
         inputMessageContents: ["Sony XM5 headphones"],
         baseState: emptyQuoteConversationState(),
         publicationRevision: 1,
-        quoteEffects: { execute: async () => ({ status: "SUCCEEDED", leadSet: resultSet() }) },
+        quoteEffects: { execute: async () => ({ status: "SUCCEEDED", leadSet: resultSet(), providerInvocation: "LIVE" }) },
       }),
     };
     const result = await setup.executor.execute({
@@ -150,6 +150,9 @@ describe("QuoteConversationTurnExecutor", () => {
     });
     expect(result.reply.outcome).toBe(outcome);
     expect(result.reply.text).toContain("不表示新加坡市场没有");
+    expect(result.receipts[1]?.publicResult["providerFailureCode"]).toBe(
+      outcome === "DEGRADED" ? "BUYWHERE_TIMEOUT" : null,
+    );
   });
 
   it("binds an exclusion before refresh and preserves the stable merchant-page lead exclusion", async () => {
@@ -166,7 +169,7 @@ describe("QuoteConversationTurnExecutor", () => {
       inputMessageContents: ["排除第一条，然后刷新报价"],
       baseState: base,
       publicationRevision: 2,
-      quoteEffects: { execute: async (effect) => ({ status: "SUCCEEDED", leadSet: await lookup(effect.target) }) },
+      quoteEffects: { execute: async (effect) => ({ status: "SUCCEEDED", leadSet: await lookup(effect.target), providerInvocation: "LIVE" }) },
     });
     const result = await instance.execute({
       userIntentSummary: "exclude first and explicitly refresh",

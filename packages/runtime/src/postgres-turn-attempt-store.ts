@@ -17,9 +17,10 @@ export async function recordPostgresAttemptTelemetryLink(
   if (!/^[0-9a-f]{16}$/.test(rootObservationId) || rootObservationId === "0".repeat(16)) return false;
   const result = await pool.query(
     `UPDATE interec_agent.turn_attempts
-     SET root_observation_id = $5, updated_at = clock_timestamp()
+     SET trace_id = $4, root_observation_id = $5,
+         trace_id_source = 'OBSERVED_ATTEMPT_ROOT', updated_at = clock_timestamp()
      WHERE turn_id = $1 AND attempt = $2 AND fence_token = $3::bigint
-       AND trace_id = $4 AND status IN ('CLAIMED', 'RUNNING')`,
+       AND status IN ('CLAIMED', 'RUNNING')`,
     [turnId, attempt, fenceToken, traceId, rootObservationId],
   );
   return result.rowCount === 1;

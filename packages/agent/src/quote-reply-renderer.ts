@@ -1,6 +1,8 @@
 import {
+  appliedProviderObservation,
   type QuoteAssistantPublication,
   type QuoteConversationState,
+  type QuoteProviderInvocation,
   type QuoteTurnOperation,
   type QuoteTurnPlan,
 } from "@interec/domain";
@@ -9,6 +11,7 @@ export interface QuoteOperationReceiptView {
   opId: string;
   kind: QuoteTurnOperation["kind"];
   status: "APPLIED" | "BLOCKED";
+  providerInvocation: QuoteProviderInvocation;
   providerCalled: boolean;
   publicResult: Record<string, unknown>;
 }
@@ -61,6 +64,15 @@ export function renderQuoteAssistantPublication(
   const requestedModel = plan.ops.some((operation) => operation.kind === "REQUEST_QUOTE_MODEL_CONFIRMATION");
   const declined = plan.ops.find((operation) => operation.kind === "DECLINE_UNSUPPORTED_QUOTE_TARGET");
   if (declined?.kind === "DECLINE_UNSUPPORTED_QUOTE_TARGET") {
+    if (state.target) {
+      const kindText = declined.reasonCode === "SERVICE" ? "维修或服务" : "配件或替换零件";
+      return {
+        outcome: "CHAT",
+        addressedOpIds,
+        disclosureCodes: [],
+        text: `这个助手不查询${kindText}报价。当前主商品仍是 ${state.target.canonicalModel}，需要的话我可以继续基于它查询或刷新报价。`,
+      };
+    }
     return {
       outcome: "CHAT",
       addressedOpIds,
@@ -87,8 +99,8 @@ export function renderQuoteAssistantPublication(
     };
   }
 
-  const providerCalled = receipts.some((receipt) => receipt.providerCalled);
-  if (providerCalled && state.leadSet?.outcome === "QUOTE_LEADS") {
+  const observedProviderResult = receipts.some((receipt) => appliedProviderObservation(receipt.providerInvocation));
+  if (observedProviderResult && state.leadSet?.outcome === "QUOTE_LEADS") {
     return {
       outcome: "QUOTE_LEADS",
       addressedOpIds,
@@ -96,7 +108,7 @@ export function renderQuoteAssistantPublication(
       text: `已记录这次报价观测，共发布 ${state.leadSet.leads.length} 个报价线索。原币价格、成色和入口见报价区；${MERCHANT_CHECK}${AFFILIATE_NOTICE}`,
     };
   }
-  if (providerCalled && state.leadSet?.outcome === "NO_QUOTE_LEADS") {
+  if (observedProviderResult && state.leadSet?.outcome === "NO_QUOTE_LEADS") {
     const allRejected = state.leadSet.reasonCodes.includes("ALL_RECORDS_REJECTED");
     return {
       outcome: "NO_QUOTE_LEADS",
@@ -107,7 +119,7 @@ export function renderQuoteAssistantPublication(
         : "本次报价服务没有返回可发布记录。这只是一次空观测，不表示新加坡市场没有该商品。",
     };
   }
-  if (providerCalled && state.leadSet?.outcome === "DEGRADED") {
+  if (observedProviderResult && state.leadSet?.outcome === "DEGRADED") {
     return {
       outcome: "DEGRADED",
       addressedOpIds,

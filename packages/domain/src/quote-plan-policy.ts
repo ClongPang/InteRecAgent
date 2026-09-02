@@ -124,6 +124,9 @@ export function reviewQuoteTurnPlan(input: ReviewQuoteTurnPlanInput): QuotePlanR
     }
     if (operation.kind === "DECLINE_UNSUPPORTED_QUOTE_TARGET") {
       if (providerOps.length > 0) return violation("UNSUPPORTED_TARGET_PROVIDER_CALL", providerOps[0]!, operation.reasonCode, ["Remove every provider operation for an unsupported target."]);
+      if (operation.targetDisposition === "RETAIN" && (!hasTarget || pendingConfirmation)) {
+        return violation("QUOTE_DECLINE_RETAIN_WITHOUT_TARGET", operation, operation.targetDisposition, ["Only RETAIN when a resolved target is currently active.", "Omit targetDisposition or use SUPERSEDE otherwise."]);
+      }
       continue;
     }
     if (operation.kind === "CONFIRM_QUOTE_TARGET") {

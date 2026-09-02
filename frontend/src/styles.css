@@ -145,6 +145,8 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .auth-card label { font-size: 11px; font-weight: 700; }
 .auth-card textarea { padding: 12px; resize: vertical; border: 1px solid #c9cec9; border-radius: 10px; background: #fff; font: 400 10px var(--mono); }
 .auth-card .primary-button { justify-self: end; }
+.auth-card .auth-status { color: var(--green); }
+.auth-card .auth-error { padding: 10px 12px; border: 1px solid #e1bab1; border-radius: 10px; background: #fff4f1; color: #7f382c; }
 
 @media (max-width: 860px) {
   .workspace { display: block; }

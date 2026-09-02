@@ -5,22 +5,30 @@ const documentationFiles = [
   "README.md",
   "docs/quote-lead-refactor-execution-plan.md",
   "docs/identity-grounded-quote-agent-execution-plan.md",
+  "docs/adr/0002-langfuse-observability.md",
+  "docs/adr/0003-source-grounded-offers.md",
+  "docs/adr/0004-conversational-turn-runtime.md",
+  "docs/adr/0005-policy-constrained-pi-agent-planning.md",
+  "docs/adr/0006-maintainability-refactor-and-quality-gates.md",
   "docs/adr/0007-singapore-known-model-quote-leads.md",
   "docs/adr/0008-maintainable-module-architecture.md",
   "docs/adr/0009-identity-grounded-agent-decision-core.md",
-  "docs/acceptance/quote-lead-phase-0-baseline-2026-09-01.md",
-  "docs/acceptance/quote-lead-phase-1-provider-2026-09-01.md",
-  "docs/acceptance/quote-lead-phase-2-domain-evidence-2026-09-01.md",
-  "docs/acceptance/quote-lead-phase-3-agent-api-ui-2026-09-01.md",
-  "docs/acceptance/quote-lead-phase-4-single-implementation-quality-2026-09-01.md",
-  "docs/acceptance/quote-lead-phase-5-live-final-2026-09-01.md",
-  "docs/acceptance/identity-grounded-phase-0-baseline-2026-09-01.md",
-  "docs/acceptance/identity-grounded-phase-1-agent-contract-2026-09-01.md",
-  "docs/acceptance/identity-grounded-phase-2-identity-kernel-2026-09-01.md",
-  "docs/acceptance/identity-grounded-phase-3-domain-effects-2026-09-01.md",
-  "docs/acceptance/identity-grounded-phase-4-llm-hypothesis-2026-09-01.md",
-  "docs/acceptance/identity-grounded-phase-5-offer-cutover-2026-09-01.md",
-  "docs/acceptance/identity-grounded-phase-6-final-2026-09-01.md",
+  "docs/adr/0010-production-provider-trace-and-export-truthfulness.md",
+  "docs/agent-trace-observability-refactor.md",
+  "docs/acceptance/completed-phases.md",
+];
+
+const livingCurrentFiles = [
+  "README.md",
+  "docs/quote-lead-refactor-execution-plan.md",
+  "docs/identity-grounded-quote-agent-execution-plan.md",
+  "docs/adr/0002-langfuse-observability.md",
+  "docs/adr/0007-singapore-known-model-quote-leads.md",
+  "docs/adr/0008-maintainable-module-architecture.md",
+  "docs/adr/0009-identity-grounded-agent-decision-core.md",
+  "docs/adr/0010-production-provider-trace-and-export-truthfulness.md",
+  "docs/agent-trace-observability-refactor.md",
+  "docs/acceptance/completed-phases.md",
 ];
 
 const retiredActiveNames = [
@@ -30,8 +38,14 @@ const retiredActiveNames = [
   "packages/runtime/src/providers.ts",
 ];
 
+const retiredProtocolNames = ["commit_turn_plan", "publish_reply"];
+
 const failures = [];
 for (const file of documentationFiles) {
+  if (!existsSync(file)) {
+    failures.push(`${file}: missing`);
+    continue;
+  }
   const content = readFileSync(file, "utf8");
   for (const retiredName of retiredActiveNames) {
     if (content.includes(retiredName)) failures.push(`${file}: retired active name ${retiredName}`);
@@ -44,6 +58,13 @@ for (const file of documentationFiles) {
     if (!path || path.includes(" ")) continue;
     const absolute = resolve(dirname(file), path);
     if (!existsSync(absolute)) failures.push(`${file}: missing local link target ${target}`);
+  }
+}
+
+for (const file of livingCurrentFiles) {
+  const content = readFileSync(file, "utf8");
+  for (const token of retiredProtocolNames) {
+    if (content.includes(token)) failures.push(`${file}: living document still names retired protocol ${token}`);
   }
 }
 

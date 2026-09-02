@@ -1,6 +1,6 @@
 import { Agent, type AgentEvent, type StreamFn } from "@earendil-works/pi-agent-core";
 import type { Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
-import type { QuoteAssistantPublication } from "@interec/domain";
+import type { QuoteAssistantPublication, QuoteConversationState, QuotePlanReview } from "@interec/domain";
 
 import type {
   AgentInferenceContext,
@@ -29,6 +29,8 @@ export interface QuoteConversationTurnAgentOptions {
 export interface QuoteConversationTurnAgentResult {
   reply: QuoteAssistantPublication;
   plan: QuoteTurnExecutionResult["plan"] | null;
+  review: QuotePlanReview | null;
+  state: QuoteConversationState | null;
   route: QuoteTurnExecutionResult["review"]["route"] | null;
   receipts: QuoteOperationReceipt[];
   modelInferences: number;
@@ -110,14 +112,19 @@ export async function executeQuoteConversationTurn(options: QuoteConversationTur
   let usedFallback = false;
   let fallbackReasonCode: string | null = null;
   let reply = protocol.result?.reply ?? null;
+  let state = protocol.result?.state ?? null;
   if (!reply) {
     usedFallback = true;
     fallbackReasonCode = protocol.lastErrorCode ?? blockedCode ?? "QUOTE_AGENT_INCOMPLETE";
-    reply = await protocol.fallback(fallbackReasonCode);
+    const fallback = await protocol.fallback(fallbackReasonCode);
+    reply = fallback.reply;
+    state = fallback.state;
   }
   return {
     reply,
     plan: protocol.result?.plan ?? null,
+    review: protocol.result?.review ?? null,
+    state,
     route: protocol.result?.review.route ?? null,
     receipts: protocol.result?.receipts ?? [],
     modelInferences,

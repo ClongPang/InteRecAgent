@@ -54,37 +54,37 @@
       "phase": 0,
       "decision": "APPROVED",
       "date": "2026-09-01",
-      "evidence": "docs/acceptance/quote-lead-phase-0-baseline-2026-09-01.md"
+      "evidence": "docs/acceptance/completed-phases.md"
     },
     {
       "phase": 1,
       "decision": "APPROVED",
       "date": "2026-09-01",
-      "evidence": "docs/acceptance/quote-lead-phase-1-provider-2026-09-01.md"
+      "evidence": "docs/acceptance/completed-phases.md"
     },
     {
       "phase": 2,
       "decision": "APPROVED",
       "date": "2026-09-01",
-      "evidence": "docs/acceptance/quote-lead-phase-2-domain-evidence-2026-09-01.md"
+      "evidence": "docs/acceptance/completed-phases.md"
     },
     {
       "phase": 3,
       "decision": "APPROVED",
       "date": "2026-09-01",
-      "evidence": "docs/acceptance/quote-lead-phase-3-agent-api-ui-2026-09-01.md"
+      "evidence": "docs/acceptance/completed-phases.md"
     },
     {
       "phase": 4,
       "decision": "APPROVED",
       "date": "2026-09-01",
-      "evidence": "docs/acceptance/quote-lead-phase-4-single-implementation-quality-2026-09-01.md"
+      "evidence": "docs/acceptance/completed-phases.md"
     },
     {
       "phase": 5,
       "decision": "APPROVED",
       "date": "2026-09-01",
-      "evidence": "docs/acceptance/quote-lead-phase-5-live-final-2026-09-01.md"
+      "evidence": "docs/acceptance/completed-phases.md"
     }
   ]
 }

@@ -78,8 +78,8 @@ export interface ClaimedConversationTurn extends ConversationTurnRecord {
   contractVersion: ConversationContractVersion;
   inputMessages: ConversationMessageRecord[];
   snapshot: ConversationState;
-  telemetryTraceId: string;
-  telemetryRootObservationId?: string;
+  telemetryEnqueueTraceId?: string;
+  telemetryEnqueueObservationId?: string;
 }
 
 export interface AcceptConversationTurnInput {

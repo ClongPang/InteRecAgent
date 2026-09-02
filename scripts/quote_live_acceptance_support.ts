@@ -144,7 +144,7 @@ async function renderPublicReply(targetInput: ResolveQuoteTargetInput, leadSet: 
     inputMessageContents: [targetInput.rawText],
     baseState: emptyQuoteConversationState(),
     publicationRevision: 1,
-    quoteEffects: { execute: async () => ({ status: "SUCCEEDED", leadSet: projectPublishedQuoteLeadSet(leadSet) }) },
+    quoteEffects: { execute: async () => ({ status: "SUCCEEDED", leadSet: projectPublishedQuoteLeadSet(leadSet), providerInvocation: "LIVE" }) },
   });
   return executor.execute({
     userIntentSummary: "acceptance exact-model quote lookup",

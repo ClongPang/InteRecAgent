@@ -19,6 +19,13 @@ async function checked(response: Response): Promise<Response> {
   throw new ApiError(payload?.error?.code ?? `HTTP_${response.status}`, response.status)
 }
 
+export async function createDevelopmentSession(): Promise<{ accessToken: string; expiresAt: string }> {
+  const response = await checked(await fetch(`${API_BASE}/api/dev/auth`, { method: 'POST' }))
+  return ((await response.json()) as {
+    session: { accessToken: string; expiresAt: string }
+  }).session
+}
+
 export async function createConversation(token: string): Promise<string> {
   const response = await checked(await fetch(`${API_BASE}/api/conversations`, {
     method: 'POST', headers: headers(token), body: '{}',

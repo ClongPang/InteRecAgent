@@ -1,10 +1,11 @@
-# Conversation Runtime observability assets
+# Conversation observability
 
-`spec/observability/metrics-contract.json` is the source contract. Runtime instruments emit OTLP metric names with dots; the Prometheus rules and Grafana dashboard assume OpenTelemetry Prometheus translation with dots converted to underscores and unit/counter suffixes enabled (for example `rec_agent.turn.duration` with unit `s` becomes `rec_agent_turn_duration_seconds`).
+可观测性主视图是 Langfuse agent trace。
 
-- Import `ops/grafana/conversation-runtime-dashboard.json` into the target Grafana project and bind its Prometheus datasource.
-- Load `ops/prometheus/conversation-alerts.yml` into the target Prometheus-compatible rule engine.
-- Configure `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` on API and worker processes.
-- Run `npm run observability:check` before deployment. It proves that every contracted metric is declared and recorded by active code, and that required dashboard/alert coverage exists.
+合同是 `spec/observability/agent-trace-contract.json`。根 I/O 是 `view`（OpenAI 消息对）。决策和目录身份在 `execute-turn-attempt` metadata。PostgreSQL 是业务事实源；导出失败不得改变 Turn 终态。
 
-Repository artifacts do not prove the target services are receiving data. Production acceptance still requires a real OTLP export smoke, non-empty dashboard panels, alert delivery to the on-call route, and an acknowledged test incident. Record those external artifacts with release/version and time window; never paste credentials, prompts, queries, tenant IDs or raw Provider payloads.
+按会话看用 Session。enqueue 与 attempt 是两条根，标签是 `turn-enqueue` / `turn-attempt`。
+
+进程内 OpenTelemetry 计数清单在 `spec/observability/metrics-contract.json`。
+
+门禁：`npm run observability:check`。发布证据：`INTEREC_LANGFUSE_SMOKE_CONFIRM=authorized-langfuse-readback npm run observability:smoke`。

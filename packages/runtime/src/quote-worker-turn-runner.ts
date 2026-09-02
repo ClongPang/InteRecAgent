@@ -16,17 +16,18 @@ import type { FxPort } from "./fx-provider.js";
 import type { PiModelRuntime } from "./model-factory.js";
 import type { PostgresProviderCallController } from "./provider-call-controller.js";
 import { PostgresProductIdentityRegistry } from "./postgres-product-identity-registry.js";
-import { createQuoteRepositoryTurnSession } from "./quote-repository-turn-session.js";
+import { createQuoteRepositoryTurnSession, type QuoteRepositoryTurnSession } from "./quote-repository-turn-session.js";
 import { QuoteTurnDataService } from "./quote-turn-data-service.js";
 import type { QuoteProvider } from "./quote-provider.js";
 import {
   createAgentEventObserver,
-  observeConversationTurn,
+  observeTurnAttempt,
   recordSafetyBoundary,
   runtimeMetrics,
   telemetryErrorCode,
   type TurnObservationOutcome,
 } from "./telemetry.js";
+import { assembleQuoteTurnDecision } from "./quote-turn-decision-provenance.js";
 
 export interface AgentTraceCorrelation {
   datasetRunId?: string;
@@ -90,16 +91,18 @@ export async function runQuoteWorkerTurn(
   const currentUserMessages = claimed.inputMessages.map((message) => (
     inputText(message.payload as unknown as ConversationTurnInput)
   ));
-  const outcome = await observeConversationTurn({
+  const outcome = await observeTurnAttempt({
     turnId: claimed.id,
     conversationId: claimed.conversationId,
     tenantId: claimed.owner.tenantId,
     ownerId: claimed.owner.ownerId,
     attempt: claimed.attempt,
     currentUserMessages,
-    traceId: claimed.telemetryTraceId,
-    ...(claimed.telemetryRootObservationId
-      ? { traceRootObservationId: claimed.telemetryRootObservationId }
+    ...(claimed.telemetryEnqueueTraceId
+      ? { causedByTraceId: claimed.telemetryEnqueueTraceId }
+      : {}),
+    ...(claimed.telemetryEnqueueObservationId
+      ? { causedByObservationId: claimed.telemetryEnqueueObservationId }
       : {}),
     ...(options.traceCorrelation ? { correlation: options.traceCorrelation } : {}),
   }, async (activeObservation) => {
@@ -117,6 +120,8 @@ export async function runQuoteWorkerTurn(
         runtimeMetrics.telemetryLinkFailures.add(1, { operation: "record_attempt_link" });
       }
     }
+    let session: QuoteRepositoryTurnSession | undefined;
+    let agentResult: Awaited<ReturnType<typeof executeQuoteConversationTurn>> | undefined;
     try {
       const timeline = await options.repository.listMessages(claimed.conversationId, claimed.owner, 0);
       const currentIds = new Set(claimed.inputMessages.map((message) => message.id));
@@ -134,14 +139,13 @@ export async function runQuoteWorkerTurn(
       const identityCandidates = findProductIdentityCandidates(identitySnapshot, currentUserMessages)
         .slice(0, 20)
         .map((candidate) => ({ ...candidate, registryVersion: identitySnapshot.registryVersion }));
-      const session = createQuoteRepositoryTurnSession(options.repository, claimed, quoteEffects, identityCandidates, identitySnapshot);
+      session = createQuoteRepositoryTurnSession(options.repository, claimed, quoteEffects, identityCandidates, identitySnapshot);
       const agentEventObserver = createAgentEventObserver({
         promptName: QUOTE_CONVERSATION_PROMPT_NAME,
         promptVersion: QUOTE_CONVERSATION_PROMPT_VERSION,
         promptSha256: QUOTE_CONVERSATION_PROMPT_SHA256,
       });
       const agentStartedAt = performance.now();
-      let agentResult;
       try {
         agentResult = await executeQuoteConversationTurn({
           model: options.pi.model,
@@ -176,7 +180,27 @@ export async function runQuoteWorkerTurn(
         );
       }
       if (!session.getCommitResult()) throw new Error("QUOTE_TURN_DID_NOT_PUBLISH");
-      return { status: "COMPLETED", committed: true };
+      return {
+        status: "COMPLETED",
+        committed: true,
+        replyText: agentResult.reply.text,
+        decision: assembleQuoteTurnDecision({
+          executionStatus: "COMPLETED",
+          before: claimed.snapshot.quote,
+          after: agentResult.state,
+          route: agentResult.route,
+          outcome: agentResult.reply.outcome,
+          disclosureCodes: agentResult.reply.disclosureCodes,
+          receipts: agentResult.receipts,
+          planOps: agentResult.plan?.ops ?? [],
+          review: agentResult.review ?? session.getLastPlanReview(),
+          modelInferences: agentResult.modelInferences,
+          toolCalls: agentResult.toolCalls,
+          usedFallback: agentResult.usedFallback,
+          fallbackReasonCode: agentResult.fallbackReasonCode,
+          attempt: claimed.attempt,
+        }),
+      };
     } catch (error) {
       const code = telemetryErrorCode(error, "TURN_EXECUTION_FAILED");
       recordSafetyBoundary(code);
@@ -187,7 +211,26 @@ export async function runQuoteWorkerTurn(
         code,
       );
       if (!failed) runtimeMetrics.fenceRejectedWrites.add(1, { operation: "fail_turn" });
-      return { status: "FAILED", committed: false, errorCode: code };
+      return {
+        status: "FAILED",
+        committed: false,
+        errorCode: code,
+        decision: assembleQuoteTurnDecision({
+          executionStatus: "FAILED",
+          before: claimed.snapshot.quote,
+          after: agentResult?.state ?? null,
+          route: agentResult?.route ?? null,
+          outcome: "NONE",
+          receipts: agentResult?.receipts ?? [],
+          planOps: agentResult?.plan?.ops ?? [],
+          review: agentResult?.review ?? session?.getLastPlanReview() ?? null,
+          modelInferences: agentResult?.modelInferences ?? 0,
+          toolCalls: agentResult?.toolCalls ?? 0,
+          usedFallback: true,
+          fallbackReasonCode: code,
+          attempt: claimed.attempt,
+        }),
+      };
     }
   });
   return { outcome, route };

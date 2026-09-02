@@ -18,6 +18,7 @@
     "scripts/run_identity_grounded_trajectories.ts",
     "scripts/run_identity_resolution_shadow_replay.ts",
     "scripts/run_identity_mutations.ts",
-    "scripts/run_quote_live_acceptance.ts"
+    "scripts/run_quote_live_acceptance.ts",
+    "scripts/observability_smoke.ts"
   ]
 }

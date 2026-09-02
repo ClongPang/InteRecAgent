@@ -167,4 +167,22 @@ describe("quote plan policy", () => {
     });
     expect(result).toMatchObject({ decision: "REPAIR_REQUIRED", violations: [{ code: "QUOTE_PRIMARY_PRODUCT_REQUIRED" }] });
   });
+
+  it("approves a decline that retains the currently active target", () => {
+    const result = reviewQuoteTurnPlan({
+      plan: { userIntentSummary: "decline accessory of active target", ops: [{ opId: "decline", kind: "DECLINE_UNSUPPORTED_QUOTE_TARGET", reasonCode: "ACCESSORY_OR_PART", targetDisposition: "RETAIN" }] },
+      state: stateWithLead(),
+      currentUserMessages: [{ messageId: "m2", content: "replacement pads for it" }],
+    });
+    expect(result).toMatchObject({ decision: "APPROVED", providerCallsAllowed: 0, route: "talk" });
+  });
+
+  it("rejects a decline that retains a target when none is active", () => {
+    const result = reviewQuoteTurnPlan({
+      plan: { userIntentSummary: "decline accessory but no target", ops: [{ opId: "decline", kind: "DECLINE_UNSUPPORTED_QUOTE_TARGET", reasonCode: "ACCESSORY_OR_PART", targetDisposition: "RETAIN" }] },
+      state: emptyQuoteConversationState(),
+      currentUserMessages: [{ messageId: "m2", content: "replacement pads" }],
+    });
+    expect(result).toMatchObject({ decision: "REPAIR_REQUIRED", violations: [{ code: "QUOTE_DECLINE_RETAIN_WITHOUT_TARGET" }] });
+  });
 });

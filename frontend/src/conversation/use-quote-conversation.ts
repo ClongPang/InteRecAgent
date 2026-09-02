@@ -11,6 +11,7 @@ import {
 } from './client'
 import { displayError } from './presentation'
 import type { ConversationEvent, ConversationProjection, QuoteLead } from './types'
+import { useDevelopmentAuth } from './use-development-auth'
 
 const TOKEN_KEY = 'interec.quote.auth-token'
 const CONVERSATION_KEY = 'interec.quote.conversation-id'
@@ -37,6 +38,16 @@ export function useQuoteConversation() {
   const [loading, setLoading] = useState(Boolean(token && conversationId))
   const streamCursor = useRef(0)
   const messageEnd = useRef<HTMLDivElement | null>(null)
+
+  const connect = useCallback((nextToken: string) => {
+    const next = nextToken.trim()
+    if (!next) return
+    sessionStorage.setItem(TOKEN_KEY, next)
+    setToken(next)
+    setTokenDraft('')
+    setError(null)
+  }, [])
+  const developmentAuth = useDevelopmentAuth(token, connect)
 
   const refresh = useCallback(async (id = conversationId, auth = token) => {
     if (!id || !auth) return null
@@ -162,15 +173,6 @@ export function useQuoteConversation() {
     await sendMessage(text)
   }
 
-  const connect = (nextToken: string) => {
-    const next = nextToken.trim()
-    if (!next) return
-    sessionStorage.setItem(TOKEN_KEY, next)
-    setToken(next)
-    setTokenDraft('')
-    setError(null)
-  }
-
   const startNew = () => {
     localStorage.removeItem(CONVERSATION_KEY)
     setConversationId(null)
@@ -232,6 +234,7 @@ export function useQuoteConversation() {
     tokenDraft,
     setTokenDraft,
     connect,
+    authenticating: developmentAuth.authenticating,
     projection,
     quote,
     composer,
@@ -241,7 +244,7 @@ export function useQuoteConversation() {
     focusedLead,
     setFocusedRef,
     events,
-    error,
+    error: error ?? developmentAuth.error,
     clearError: () => setError(null),
     loading,
     running,

@@ -3,6 +3,7 @@ import { expect, test, type Route } from "@playwright/test";
 const conversationId = "11111111-1111-4111-8111-111111111111";
 const leadA = "ql_sg";
 const leadB = "ql_us";
+const developmentAccessToken = "signed-development-token";
 
 function quoteLead(
   quoteLeadRef: string,
@@ -161,6 +162,14 @@ test("completes an exact-model quote-to-comparison flow without legacy shopping 
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
+    if (url.pathname === "/api/dev/auth" && request.method() === "POST") {
+      await fulfillJson(route, { session: {
+        accessToken: developmentAccessToken,
+        expiresAt: "2026-09-01T13:00:00.000Z",
+      } });
+      return;
+    }
+    expect(request.headers()["authorization"]).toBe(`Bearer ${developmentAccessToken}`);
     if (url.pathname.endsWith("/events")) {
       await route.abort("aborted");
       return;
@@ -191,8 +200,7 @@ test("completes an exact-model quote-to-comparison flow without legacy shopping 
   });
 
   await page.goto("/");
-  await page.getByLabel("访问令牌").fill("signed-development-token");
-  await page.getByRole("button", { name: "连接" }).click();
+  await expect(page.getByRole("heading", { name: "输入准确商品型号" })).toBeVisible();
   await page.getByLabel("给报价助手发消息").fill("Sony WH-1000XM5 headphones");
   await page.getByRole("button", { name: "开始查询" }).click();
 

@@ -47,6 +47,9 @@ export function validateQuoteAssistantPublication(
     && !plan.ops.some((operation) => operation.kind === "REQUEST_QUOTE_MODEL_CONFIRMATION")) {
     throw new DomainError("QUOTE_CLARIFICATION_WITHOUT_GAP", text);
   }
+  if (plan.ops.some((operation) => operation.kind === "REQUEST_QUOTE_MODEL_CONFIRMATION") && state.target) {
+    throw new DomainError("QUOTE_MODEL_REQUEST_WITH_ACTIVE_TARGET", state.target.targetRef);
+  }
   value.text = text;
   return value;
 }

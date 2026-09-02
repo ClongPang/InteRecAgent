@@ -20,6 +20,8 @@ import {
   type ProviderFixture,
 } from "./identity-grounded-trajectory-fixtures.js";
 import { trajectoryIdentitySnapshot } from "./identity-grounded-identity-fixture.js";
+import { buildQuoteTurnDecisionProvenance } from "../packages/runtime/src/quote-turn-decision-provenance.js";
+import { scoreQuoteTurnDecision } from "../packages/runtime/src/quote-turn-decision-score.js";
 
 function identityCandidates(rawText: string) {
   return findProductIdentityCandidates(trajectoryIdentitySnapshot, [rawText])
@@ -211,7 +213,7 @@ async function runSuccessfulTrajectories(spec: TrajectorySpec): Promise<{ turns:
           execute: async (effect) => {
             providerCalls += 1;
             assert.ok(turn.providerFixture, `${label}: unexpected provider call`);
-            return { status: "SUCCEEDED", leadSet: providerResult(effect.target, turn.providerFixture, providerCalls) };
+            return { status: "SUCCEEDED", leadSet: providerResult(effect.target, turn.providerFixture, providerCalls), providerInvocation: "LIVE" };
           },
         },
       });
@@ -222,6 +224,54 @@ async function runSuccessfulTrajectories(spec: TrajectorySpec): Promise<{ turns:
       assert.equal(providerCalls, turn.expected.providerCalls, `${label}: provider calls`);
       assert.equal(result.receipts.filter((receipt) => receipt.providerCalled).length, turn.expected.providerCalls, `${label}: provider receipts`);
       assert.equal(result.reply.outcome, turn.expected.outcome, `${label}: outcome`);
+      const provenance = buildQuoteTurnDecisionProvenance({
+        executionStatus: "COMPLETED",
+        before: state,
+        after: result.state,
+        route: result.review.route,
+        outcome: result.reply.outcome,
+        disclosureCodes: result.reply.disclosureCodes,
+        receipts: result.receipts,
+        planOps: result.plan.ops,
+        review: result.review,
+        modelInferences: 1,
+        toolCalls: 1,
+        usedFallback: false,
+        fallbackReasonCode: null,
+        attempt: 1,
+      });
+      assert.equal(provenance.route, turn.expected.route, `${label}: decision route`);
+      assert.equal(provenance.outcome, turn.expected.outcome, `${label}: decision outcome`);
+      assert.deepEqual(provenance.operationKinds, turn.expected.operationKinds, `${label}: decision operation kinds`);
+      if ("targetModel" in turn.expected.state) {
+        assert.equal(provenance.after.hasTarget, turn.expected.state.targetModel != null, `${label}: decision hasTarget`);
+      }
+      if ("pendingModel" in turn.expected.state) {
+        assert.equal(provenance.after.hasPendingConfirmation, turn.expected.state.pendingModel != null, `${label}: decision pending`);
+      }
+      if (turn.expected.state.leadOutcome !== undefined) {
+        assert.equal(provenance.after.leadOutcome, turn.expected.state.leadOutcome, `${label}: decision leadOutcome`);
+      }
+      const scores = scoreQuoteTurnDecision(provenance, {
+        route: turn.expected.route,
+        outcome: turn.expected.outcome,
+        operationKinds: turn.expected.operationKinds,
+        ...("targetModel" in turn.expected.state
+          ? { hasTarget: turn.expected.state.targetModel != null }
+          : {}),
+        ...("pendingModel" in turn.expected.state
+          ? { hasPendingConfirmation: turn.expected.state.pendingModel != null }
+          : {}),
+        ...(turn.expected.state.leadOutcome !== undefined
+          ? { leadOutcome: turn.expected.state.leadOutcome }
+          : {}),
+        ...(turn.expected.state.targetModel
+          ? { canonicalModel: turn.expected.state.targetModel }
+          : {}),
+      });
+      for (const score of scores) {
+        assert.equal(score.value, 1, `${label}: decision score ${score.name}`);
+      }
       assert.deepEqual(result.reply.addressedOpIds, result.plan.ops.map((operation) => operation.opId), `${label}: addressed operation ids`);
       assert.equal(result.state.version, priorVersion + 1, `${label}: monotone state version`);
       assertExpectedState(result.state, turn.expected.state, label);
@@ -267,7 +317,7 @@ async function runRejectedPlans(spec: TrajectorySpec): Promise<void> {
       quoteEffects: {
         execute: async (effect) => {
           providerCalls += 1;
-          return { status: "SUCCEEDED", leadSet: providerResult(effect.target, "RESULTS_ONE", providerCalls) };
+          return { status: "SUCCEEDED", leadSet: providerResult(effect.target, "RESULTS_ONE", providerCalls), providerInvocation: "LIVE" };
         },
       },
       onDraftChanged: async () => {
@@ -282,6 +332,25 @@ async function runRejectedPlans(spec: TrajectorySpec): Promise<void> {
     }
     assert.ok(caught instanceof QuotePlanReviewError, `${rejected.id}: host must reject the plan before execution`);
     assert.equal(caught.review.violations[0]?.code, rejected.expectedViolation, `${rejected.id}: violation`);
+    const rejectedDecision = buildQuoteTurnDecisionProvenance({
+      executionStatus: "FAILED",
+      before: baseState,
+      after: baseState,
+      route: null,
+      outcome: "NONE",
+      disclosureCodes: [],
+      receipts: [],
+      planOps: rejected.proposal.ops,
+      review: caught.review,
+      modelInferences: 1,
+      toolCalls: 1,
+      usedFallback: false,
+      fallbackReasonCode: caught.review.violations[0]?.code ?? "QUOTE_PLAN_REJECTED",
+      attempt: 1,
+    });
+    assert.equal(rejectedDecision.reviewDecision, "REPAIR_REQUIRED", `${rejected.id}: decision review`);
+    assert.equal(rejectedDecision.reviewViolationCodes[0], rejected.expectedViolation, `${rejected.id}: decision violation`);
+    assert.equal(rejectedDecision.targetLifecycle, "UNCHANGED", `${rejected.id}: rejected plan must not move target`);
     assert.equal(providerCalls, rejected.providerCalls, `${rejected.id}: provider calls`);
     assert.equal(draftChanged, false, `${rejected.id}: rejected plan must not publish a draft`);
     assert.equal(baseState.version, rejected.baseFixture ? 1 : 0, `${rejected.id}: base state must remain unchanged`);

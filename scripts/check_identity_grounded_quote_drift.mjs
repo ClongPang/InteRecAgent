@@ -206,7 +206,7 @@ if (completed.includes(6)) {
     "packages/domain/test/identity-properties.test.ts",
     "scripts/run_identity_mutations.ts",
     "spec/identity-grounded-buywhere-acceptance-evidence.json",
-    "docs/acceptance/identity-grounded-phase-6-final-2026-09-01.md",
+    "docs/acceptance/completed-phases.md",
   ], 6);
   if (typeof packageJson.scripts?.["identity:mutation:test"] !== "string") failures.push("completed phase 6: missing identity mutation test");
   if (!String(packageJson.scripts?.acceptance ?? "").includes("npm run identity:mutation:test")) failures.push("completed phase 6: default acceptance omits identity mutation test");

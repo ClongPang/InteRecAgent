@@ -111,10 +111,7 @@ export async function startTelemetry(
       ? [telemetryErrorCode(result.reason, "TELEMETRY_EXPORT_FAILED")]
       : []);
     if (failures.length > 0) {
-      runtimeMetrics.telemetryLinkFailures.add(
-        failures.length,
-        { operation: "export_lifecycle" },
-      );
+      runtimeMetrics.telemetryExportLifecycle.add(failures.length, { action: "export", outcome: "failed" });
     }
     if (options.strict && failures.length > 0) {
       throw new AggregateError(
@@ -125,11 +122,25 @@ export async function startTelemetry(
     return { failures };
   };
   return {
-    forceFlush: (options) => settle([
-      ...spanProcessors.map((processor) => processor.forceFlush()),
-      ...metricReaders.map((reader) => reader.forceFlush()),
-    ], options),
-    shutdown: (options) => settle([sdk.shutdown()], options),
+    forceFlush: async (options) => {
+      const result = await settle([
+        ...spanProcessors.map((processor) => processor.forceFlush()),
+        ...metricReaders.map((reader) => reader.forceFlush()),
+      ], options);
+      runtimeMetrics.telemetryExportLifecycle.add(1, {
+        action: "force_flush",
+        outcome: result.failures.length === 0 ? "succeeded" : "failed",
+      });
+      return result;
+    },
+    shutdown: async (options) => {
+      const result = await settle([sdk.shutdown()], options);
+      runtimeMetrics.telemetryExportLifecycle.add(1, {
+        action: "shutdown",
+        outcome: result.failures.length === 0 ? "succeeded" : "failed",
+      });
+      return result;
+    },
     langfuseEnabled: config.langfuseEnabled,
   };
 }

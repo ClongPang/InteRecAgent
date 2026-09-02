@@ -66,7 +66,7 @@ function executor(lookup = vi.fn(async () => leadSet())) {
     inputMessageContents: [EXACT_USER],
     baseState: emptyQuoteConversationState(),
     publicationRevision: 1,
-    quoteEffects: { execute: async (effect) => ({ status: "SUCCEEDED", leadSet: await lookup(effect.target) }) },
+    quoteEffects: { execute: async (effect) => ({ status: "SUCCEEDED", leadSet: await lookup(effect.target), providerInvocation: "LIVE" }) },
   });
 }
 

@@ -37,10 +37,18 @@ process.once("SIGINT", stop);
 process.once("SIGTERM", stop);
 try {
   while (!stopping) {
-    if (!await worker.runOnce()) await new Promise((resolve) => setTimeout(resolve, 250));
+    const completedTurn = await worker.runOnce();
+    if (completedTurn) {
+      const checkpoint = await telemetry.forceFlush({ strict: false });
+      if (checkpoint.failures.length > 0) {
+        console.error("TELEMETRY_FORCE_FLUSH_FAILED", checkpoint.failures.join(","));
+      }
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
   }
 } finally {
   operationalMetrics.close();
   await repository.close();
-  await telemetry.shutdown();
+  await telemetry.shutdown({ strict: true });
 }

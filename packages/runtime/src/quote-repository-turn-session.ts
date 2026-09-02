@@ -1,11 +1,12 @@
 import { QuoteConversationTurnExecutor, type IdentityCandidateView, type QuoteEffectExecutionPort } from "@interec/agent";
-import type { ProductIdentitySnapshot } from "@interec/domain";
+import type { ProductIdentitySnapshot, QuotePlanReview } from "@interec/domain";
 
 import type { ClaimedConversationTurn, ConversationRepository, FinalCommitResult } from "./conversation-repository-types.js";
 
 export interface QuoteRepositoryTurnSession {
   executor: QuoteConversationTurnExecutor;
   getCommitResult(): FinalCommitResult | null;
+  getLastPlanReview(): QuotePlanReview | null;
 }
 
 function naturalInput(payload: Record<string, unknown>): string {
@@ -21,6 +22,7 @@ export function createQuoteRepositoryTurnSession(
   identitySnapshot?: ProductIdentitySnapshot,
 ): QuoteRepositoryTurnSession {
   let commitResult: FinalCommitResult | null = null;
+  let lastPlanReview: QuotePlanReview | null = null;
   const fence = { turnId: claimed.id, attempt: claimed.attempt, fenceToken: claimed.fenceToken };
   const executor = new QuoteConversationTurnExecutor({
     turnId: claimed.id,
@@ -32,6 +34,7 @@ export function createQuoteRepositoryTurnSession(
     identityCandidates,
     ...(identitySnapshot ? { identitySnapshot } : {}),
     onPlanReviewed: async (observation) => {
+      lastPlanReview = observation.review;
       const recorded = await repository.recordPlanReview({ ...fence, ...observation });
       if (!recorded) throw new Error("STALE_QUOTE_PLAN_REVIEW_REJECTED");
     },
@@ -63,5 +66,5 @@ export function createQuoteRepositoryTurnSession(
       if (!commitResult) throw new Error("STALE_QUOTE_PUBLICATION_REJECTED");
     },
   });
-  return { executor, getCommitResult: () => commitResult };
+  return { executor, getCommitResult: () => commitResult, getLastPlanReview: () => lastPlanReview };
 }

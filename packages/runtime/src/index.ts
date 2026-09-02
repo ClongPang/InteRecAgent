@@ -99,11 +99,11 @@ export {
   verifyConversationSchema,
   type MigrationResult,
 } from "./schema-migrator.js";
+export { waitForTerminationSignal } from "./process-lifecycle.js";
 export {
   observeTurnEnqueue,
   runtimeMetrics,
   startTelemetry,
-  telemetryTraceIdForTurn,
   type ActiveTurnEnqueueObservation,
   type TelemetryLifecycleOptions,
   type TelemetryLifecycleResult,

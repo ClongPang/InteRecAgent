@@ -96,7 +96,13 @@ interface QuoteOperationBase {
 export type QuoteTurnOperation =
   | (QuoteOperationBase & { kind: "SET_QUOTE_TARGET"; source: OperationSource; target: QuoteTargetProposal; identityResolution?: ProductIdentityResolution })
   | (QuoteOperationBase & { kind: "REQUEST_QUOTE_MODEL_CONFIRMATION" })
-  | (QuoteOperationBase & { kind: "DECLINE_UNSUPPORTED_QUOTE_TARGET"; reasonCode: "ACCESSORY_OR_PART" | "SERVICE" })
+  | (QuoteOperationBase & {
+      kind: "DECLINE_UNSUPPORTED_QUOTE_TARGET";
+      reasonCode: "ACCESSORY_OR_PART" | "SERVICE";
+      // RETAIN keeps the active resolved target because the declined item is an accessory/service of it.
+      // SUPERSEDE (default) drops any prior target because the user moved to a separate unsupported item.
+      targetDisposition?: "RETAIN" | "SUPERSEDE";
+    })
   | (QuoteOperationBase & { kind: "CONFIRM_QUOTE_TARGET"; confirmationId: string })
   | (QuoteOperationBase & { kind: "LOOKUP_QUOTES" })
   | (QuoteOperationBase & { kind: "REFRESH_QUOTES" })
