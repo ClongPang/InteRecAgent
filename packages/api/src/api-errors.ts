@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   ConversationRepositoryError,
   type OwnerClaims,
-} from "@interec/runtime";
+} from "@retail-price/runtime";
 
 import type { IdentityVerifier } from "./auth.js";
 

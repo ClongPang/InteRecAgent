@@ -2,7 +2,7 @@
 
 - 状态：Implemented
 - 日期：2026-09-02
-- 合同：`spec/observability/agent-trace-contract.json`（`interec-agent-trace-v4`）
+- 合同：`spec/observability/agent-trace-contract.json`（`retail-price-agent-trace-v4`）
 - 决策记录：ADR-0002、ADR-0010
 
 PostgreSQL 是业务事实源。Langfuse / OTel 是诊断投影，导出失败不得改变 Turn 终态。
@@ -28,8 +28,8 @@ enqueue 与 attempt 不是父子。attempt 用 `causedByTraceId` / `causedByObse
 | 通道 | 开关 | 内容 | 给谁看 |
 | --- | --- | --- | --- |
 | `view` | 始终 | OpenAI 消息对。关正文时用户侧 `[CONTENT_NOT_CAPTURED]`，助手侧 `outcome \| route \| lifecycle \| catalogIdentity` | Langfuse 列表 / Session / 评测 I/O |
-| `decision` | 始终 | `interec-turn-decision-v5`：闭集 why + `targetRef` / `modelKey` / `canonicalModel` | 过滤、轨迹同构、跨轮改型号 |
-| `content` | `INTEREC_LANGFUSE_CAPTURE_CONTENT` | 脱敏后的用户原话、助手回复、generation/tool 正文 | 授权排障 |
+| `decision` | 始终 | `retail-price-turn-decision-v5`：闭集 why + `targetRef` / `modelKey` / `canonicalModel` | 过滤、轨迹同构、跨轮改型号 |
+| `content` | `RETAIL_PRICE_LANGFUSE_CAPTURE_CONTENT` | 脱敏后的用户原话、助手回复、generation/tool 正文 | 授权排障 |
 
 目录身份是注册表 token，不是用户原话。`Sony WH-1000XM5 headphones` 进不了 decision；`WH-1000XM5` 可以。
 

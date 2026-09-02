@@ -5,7 +5,7 @@ import type {
   QuoteConversationState,
   QuotePlanReview,
   QuoteTurnPlan,
-} from "@interec/domain";
+} from "@retail-price/domain";
 
 export interface OwnerClaims {
   tenantId: string;

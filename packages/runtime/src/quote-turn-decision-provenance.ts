@@ -1,4 +1,4 @@
-import { appliedProviderObservation, type QuoteProviderInvocation } from "@interec/domain";
+import { appliedProviderObservation, type QuoteProviderInvocation } from "@retail-price/domain";
 
 import { telemetryErrorCode } from "./telemetry-safety.js";
 import {

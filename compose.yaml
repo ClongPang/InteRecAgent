@@ -1,18 +1,18 @@
-name: interecagent
+name: retailpriceagent
 
 services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: interec
-      POSTGRES_PASSWORD: interec
-      POSTGRES_DB: interec
+      POSTGRES_USER: retail_price
+      POSTGRES_PASSWORD: retail_price
+      POSTGRES_DB: retail_price
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U interec -d interec"]
+      test: ["CMD-SHELL", "pg_isready -U retail_price -d retail_price"]
       interval: 5s
       timeout: 3s
       retries: 10

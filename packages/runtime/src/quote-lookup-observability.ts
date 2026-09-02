@@ -1,4 +1,4 @@
-import type { PublishedQuoteLeadSet, QuoteEffect } from "@interec/domain";
+import type { PublishedQuoteLeadSet, QuoteEffect } from "@retail-price/domain";
 
 import { observeTurnExecutorStep } from "./turn-observability.js";
 

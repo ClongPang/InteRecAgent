@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { QUOTE_LEAD_CONTRACT_VERSION, type ConversationState } from "@interec/domain";
+import { QUOTE_LEAD_CONTRACT_VERSION, type ConversationState } from "@retail-price/domain";
 import type pg from "pg";
 
 import type {
@@ -31,7 +31,7 @@ export async function createPostgresConversation(
   const ownerId = requiredText(owner.ownerId, "INVALID_OWNER_ID");
   return withOwnerTransaction(pool, owner, async (client) => {
     const result = await client.query<Record<string, unknown>>(
-      `INSERT INTO interec_agent.conversations (id, tenant_id, owner_id, status, contract_version)
+      `INSERT INTO retail_price_agent.conversations (id, tenant_id, owner_id, status, contract_version)
        VALUES ($1, $2, $3, 'OPEN', $4) RETURNING *`,
       [randomUUID(), tenantId, ownerId, QUOTE_LEAD_CONTRACT_VERSION],
     );
@@ -46,7 +46,7 @@ export async function getPostgresConversation(
 ): Promise<ConversationRecord | null> {
   return withOwnerTransaction(pool, owner, async (client) => {
     const result = await client.query<Record<string, unknown>>(
-      `SELECT * FROM interec_agent.conversations
+      `SELECT * FROM retail_price_agent.conversations
        WHERE id = $1 AND tenant_id = $2 AND owner_id = $3`,
       [id, owner.tenantId, owner.ownerId],
     );
@@ -61,7 +61,7 @@ export async function getPostgresConversationProjection(
 ): Promise<ConversationProjectionRecord | null> {
   return withOwnerSnapshotTransaction(pool, owner, async (client) => {
     const conversationResult = await client.query<Record<string, unknown>>(
-      `SELECT * FROM interec_agent.conversations
+      `SELECT * FROM retail_price_agent.conversations
        WHERE id = $1 AND tenant_id = $2 AND owner_id = $3`,
       [conversationId, owner.tenantId, owner.ownerId],
     );
@@ -77,21 +77,21 @@ export async function getPostgresConversationProjection(
     }
     const messages = await client.query<Record<string, unknown>>(
       `SELECT m.*, ae.envelope_json, cl.ledger_json
-       FROM interec_agent.messages m
-       LEFT JOIN interec_agent.assistant_envelopes ae ON ae.response_id = m.assistant_response_id
-       LEFT JOIN interec_agent.claim_ledgers cl ON cl.response_id = m.assistant_response_id
+       FROM retail_price_agent.messages m
+       LEFT JOIN retail_price_agent.assistant_envelopes ae ON ae.response_id = m.assistant_response_id
+       LEFT JOIN retail_price_agent.claim_ledgers cl ON cl.response_id = m.assistant_response_id
        WHERE m.conversation_id = $1 AND m.seq > $2
        ORDER BY m.seq LIMIT 200`,
       [conversationId, Math.max(0, conversation.messageCursor - 200)],
     );
     const activeTurn = conversation.activeTurnId
       ? await client.query<Record<string, unknown>>(
-          "SELECT * FROM interec_agent.turns WHERE id = $1",
+          "SELECT * FROM retail_price_agent.turns WHERE id = $1",
           [conversation.activeTurnId],
         )
       : null;
     const latestTurn = await client.query<Record<string, unknown>>(
-      `SELECT * FROM interec_agent.turns
+      `SELECT * FROM retail_price_agent.turns
        WHERE conversation_id = $1
        ORDER BY created_at DESC, id DESC LIMIT 1`,
       [conversationId],
@@ -113,7 +113,7 @@ export async function getPostgresSnapshot(
 ): Promise<ConversationState | null> {
   return withOwnerTransaction(pool, owner, async (client) => {
     const exists = await client.query(
-      "SELECT 1 FROM interec_agent.conversations WHERE id = $1 AND tenant_id = $2 AND owner_id = $3",
+      "SELECT 1 FROM retail_price_agent.conversations WHERE id = $1 AND tenant_id = $2 AND owner_id = $3",
       [conversationId, owner.tenantId, owner.ownerId],
     );
     return exists.rowCount === 1 ? hydrateSnapshot(client, conversationId) : null;
@@ -128,7 +128,7 @@ export async function getPostgresRevision(
 ): Promise<ConversationState | null> {
   return withOwnerTransaction(pool, owner, async (client) => {
     const exists = await client.query(
-      "SELECT 1 FROM interec_agent.conversations WHERE id = $1 AND tenant_id = $2 AND owner_id = $3",
+      "SELECT 1 FROM retail_price_agent.conversations WHERE id = $1 AND tenant_id = $2 AND owner_id = $3",
       [conversationId, owner.tenantId, owner.ownerId],
     );
     return exists.rowCount === 1 ? hydrateSnapshot(client, conversationId, revision) : null;
@@ -142,8 +142,8 @@ export async function getPostgresTurn(
 ): Promise<ConversationTurnRecord | null> {
   return withOwnerTransaction(pool, owner, async (client) => {
     const result = await client.query<Record<string, unknown>>(
-      `SELECT t.* FROM interec_agent.turns t
-       JOIN interec_agent.conversations c ON c.id = t.conversation_id
+      `SELECT t.* FROM retail_price_agent.turns t
+       JOIN retail_price_agent.conversations c ON c.id = t.conversation_id
        WHERE t.id = $1 AND c.tenant_id = $2 AND c.owner_id = $3`,
       [turnId, owner.tenantId, owner.ownerId],
     );
@@ -158,8 +158,8 @@ export async function getLatestPostgresTurn(
 ): Promise<ConversationTurnRecord | null> {
   return withOwnerTransaction(pool, owner, async (client) => {
     const result = await client.query<Record<string, unknown>>(
-      `SELECT t.* FROM interec_agent.turns t
-       JOIN interec_agent.conversations c ON c.id = t.conversation_id
+      `SELECT t.* FROM retail_price_agent.turns t
+       JOIN retail_price_agent.conversations c ON c.id = t.conversation_id
        WHERE t.conversation_id = $1 AND c.tenant_id = $2 AND c.owner_id = $3
        ORDER BY t.created_at DESC, t.id DESC
        LIMIT 1`,
@@ -178,10 +178,10 @@ export async function listPostgresMessages(
   return withOwnerTransaction(pool, owner, async (client) => {
     const result = await client.query<Record<string, unknown>>(
       `SELECT m.*, ae.envelope_json, cl.ledger_json
-       FROM interec_agent.messages m
-       JOIN interec_agent.conversations c ON c.id = m.conversation_id
-       LEFT JOIN interec_agent.assistant_envelopes ae ON ae.response_id = m.assistant_response_id
-       LEFT JOIN interec_agent.claim_ledgers cl ON cl.response_id = m.assistant_response_id
+       FROM retail_price_agent.messages m
+       JOIN retail_price_agent.conversations c ON c.id = m.conversation_id
+       LEFT JOIN retail_price_agent.assistant_envelopes ae ON ae.response_id = m.assistant_response_id
+       LEFT JOIN retail_price_agent.claim_ledgers cl ON cl.response_id = m.assistant_response_id
        WHERE m.conversation_id = $1 AND c.tenant_id = $2 AND c.owner_id = $3 AND m.seq > $4
        ORDER BY m.seq LIMIT 200`,
       [conversationId, owner.tenantId, owner.ownerId, afterSeq],
@@ -198,8 +198,8 @@ export async function listPostgresEvents(
 ): Promise<ConversationEventRecord[]> {
   return withOwnerTransaction(pool, owner, async (client) => {
     const result = await client.query<Record<string, unknown>>(
-      `SELECT e.* FROM interec_agent.turn_events e
-       JOIN interec_agent.conversations c ON c.id = e.conversation_id
+      `SELECT e.* FROM retail_price_agent.turn_events e
+       JOIN retail_price_agent.conversations c ON c.id = e.conversation_id
        WHERE e.conversation_id = $1 AND c.tenant_id = $2 AND c.owner_id = $3 AND e.seq > $4
        ORDER BY e.seq LIMIT 200`,
       [conversationId, owner.tenantId, owner.ownerId, afterSeq],

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { OwnerClaims } from "@interec/runtime";
+import { retailPriceEnvironmentValue, type OwnerClaims } from "@retail-price/runtime";
 
 import { issueHmacJwt, type HmacJwtOptions } from "./auth.js";
 
@@ -15,12 +15,12 @@ export function developmentAuthFromEnvironment(
   environment: NodeJS.ProcessEnv,
   jwt: HmacJwtOptions,
 ): DevelopmentAuthOptions | undefined {
-  if (environment["INTEREC_ENABLE_DEV_AUTH"]?.trim() !== "true") return undefined;
+  if (retailPriceEnvironmentValue(environment, "ENABLE_DEV_AUTH")?.trim() !== "true") return undefined;
   if (environment["NODE_ENV"]?.trim() === "production") {
-    throw new Error("INTEREC_DEV_AUTH_FORBIDDEN_IN_PRODUCTION");
+    throw new Error("RETAIL_PRICE_DEV_AUTH_FORBIDDEN_IN_PRODUCTION");
   }
-  const host = environment["INTEREC_API_HOST"]?.trim() || "127.0.0.1";
-  if (!LOOPBACK_HOSTS.has(host)) throw new Error("INTEREC_DEV_AUTH_REQUIRES_LOOPBACK_HOST");
+  const host = retailPriceEnvironmentValue(environment, "API_HOST")?.trim() || "127.0.0.1";
+  if (!LOOPBACK_HOSTS.has(host)) throw new Error("RETAIL_PRICE_DEV_AUTH_REQUIRES_LOOPBACK_HOST");
   return { jwt };
 }
 

@@ -1,4 +1,4 @@
-# InteRecAgent
+# RetailPriceAgent
 
 面向新加坡市场、针对已知商品型号的对话式报价线索助手。
 
@@ -51,15 +51,17 @@ Conversation API ─────► PostgreSQL authoritative state
 本地配置至少需要：
 
 ```text
-INTEREC_DATABASE_URL
-INTEREC_AUTH_HMAC_SECRET
-INTEREC_AUTH_ISSUER
-INTEREC_AUTH_AUDIENCE
-INTEREC_MODEL_PROVIDER
-INTEREC_MODEL_ID
-INTEREC_MODEL_API_KEY
-INTEREC_PROVIDER_BUYWHERE_API_KEY
+RETAIL_PRICE_DATABASE_URL
+RETAIL_PRICE_AUTH_HMAC_SECRET
+RETAIL_PRICE_AUTH_ISSUER
+RETAIL_PRICE_AUTH_AUDIENCE
+RETAIL_PRICE_MODEL_PROVIDER
+RETAIL_PRICE_MODEL_ID
+RETAIL_PRICE_MODEL_API_KEY
+RETAIL_PRICE_PROVIDER_BUYWHERE_API_KEY
 ```
+
+升级期间仍接受同后缀的 `INTEREC_*` 环境变量；若新旧名称同时存在，以 `RETAIL_PRICE_*` 为准。数据库迁移会将旧 Schema 原位改名，不复制或丢弃既有数据。
 
 安装、迁移和启动：
 
@@ -99,7 +101,7 @@ npm run test:e2e
 真实 BuyWhere 验收会产生外部调用，必须显式授权；报告会脱敏且不保存 API key：
 
 ```powershell
-$env:INTEREC_QUOTE_LIVE_ACCEPTANCE_CONFIRM='authorized-buywhere-multi-case-read'
+$env:RETAIL_PRICE_QUOTE_LIVE_ACCEPTANCE_CONFIRM='authorized-buywhere-multi-case-read'
 npm run quote:live:acceptance
 ```
 

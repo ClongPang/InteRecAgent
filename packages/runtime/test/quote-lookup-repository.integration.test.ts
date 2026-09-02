@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { resolveQuoteTarget } from "@interec/domain";
+import { resolveQuoteTarget } from "@retail-price/domain";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -9,6 +9,7 @@ import {
   QUOTE_PROVIDER_CONTRACT_VERSION,
   QuoteLookupService,
   buildQuoteProvenance,
+  retailPriceEnvironmentValue,
   runConversationMigrations,
   type ClaimedConversationTurn,
   type OwnerClaims,
@@ -18,7 +19,8 @@ import {
 
 const enabled = process.env["RUN_CONVERSATION_PG_INTEGRATION"] === "1";
 const suite = enabled ? describe : describe.skip;
-const databaseUrl = process.env["INTEREC_DATABASE_URL"] ?? "postgresql://interec:interec@127.0.0.1:5432/interec";
+const databaseUrl = retailPriceEnvironmentValue(process.env, "DATABASE_URL")
+  ?? "postgresql://retail_price:retail_price@127.0.0.1:5432/retail_price";
 
 function providerResult(): QuoteProviderResult {
   const records = [
@@ -97,8 +99,8 @@ suite("PostgreSQL quote lookup repository", () => {
   });
 
   afterAll(async () => {
-    await conversations.pool.query("UPDATE interec_agent.conversations SET active_turn_id = NULL WHERE tenant_id = $1 AND owner_id = $2", [owner.tenantId, owner.ownerId]);
-    await conversations.pool.query("DELETE FROM interec_agent.conversations WHERE tenant_id = $1 AND owner_id = $2", [owner.tenantId, owner.ownerId]);
+    await conversations.pool.query("UPDATE retail_price_agent.conversations SET active_turn_id = NULL WHERE tenant_id = $1 AND owner_id = $2", [owner.tenantId, owner.ownerId]);
+    await conversations.pool.query("DELETE FROM retail_price_agent.conversations WHERE tenant_id = $1 AND owner_id = $2", [owner.tenantId, owner.ownerId]);
     await conversations.close();
   });
 
@@ -115,12 +117,12 @@ suite("PostgreSQL quote lookup repository", () => {
 
     const counts = await conversations.pool.query<Record<string, unknown>>(
       `SELECT
-         (SELECT count(*)::int FROM interec_agent.quote_observations WHERE lead_set_id = $1) AS observations,
-         (SELECT count(*)::int FROM interec_agent.quote_observations WHERE lead_set_id = $1 AND admission_status = 'REJECTED') AS rejected,
-         (SELECT count(*)::int FROM interec_agent.quote_leads WHERE lead_set_id = $1) AS leads,
-         (SELECT count(*)::int FROM interec_agent.quote_lead_observations WHERE lead_set_id = $1) AS memberships,
-         (SELECT count(*)::int FROM interec_agent.quote_claims WHERE lead_set_id = $1) AS claims,
-         (SELECT count(*)::int FROM interec_agent.quote_claim_evidence WHERE lead_set_id = $1) AS evidence`,
+         (SELECT count(*)::int FROM retail_price_agent.quote_observations WHERE lead_set_id = $1) AS observations,
+         (SELECT count(*)::int FROM retail_price_agent.quote_observations WHERE lead_set_id = $1 AND admission_status = 'REJECTED') AS rejected,
+         (SELECT count(*)::int FROM retail_price_agent.quote_leads WHERE lead_set_id = $1) AS leads,
+         (SELECT count(*)::int FROM retail_price_agent.quote_lead_observations WHERE lead_set_id = $1) AS memberships,
+         (SELECT count(*)::int FROM retail_price_agent.quote_claims WHERE lead_set_id = $1) AS claims,
+         (SELECT count(*)::int FROM retail_price_agent.quote_claim_evidence WHERE lead_set_id = $1) AS evidence`,
       [saved.quoteLeadSetId],
     );
     expect(counts.rows[0]).toMatchObject({ observations: 3, rejected: 1, leads: 1, memberships: 2 });
@@ -136,7 +138,7 @@ suite("PostgreSQL quote lookup repository", () => {
     const stale = { ...claimed, fenceToken: (BigInt(claimed.fenceToken) + 1n).toString() };
     await expect(quotes.saveQuoteLookup(stale, result, buildQuoteProvenance(result.leadSet))).rejects.toThrow("QUOTE_LOOKUP_FENCE_REJECTED");
     const count = await conversations.pool.query<{ count: number }>(
-      "SELECT count(*)::int AS count FROM interec_agent.quote_lead_sets WHERE turn_id = $1",
+      "SELECT count(*)::int AS count FROM retail_price_agent.quote_lead_sets WHERE turn_id = $1",
       [claimed.id],
     );
     expect(count.rows[0]?.count).toBe(0);
@@ -150,7 +152,7 @@ suite("PostgreSQL quote lookup repository", () => {
     provenance.sourceFacts.at(-1)!.canonicalValue = undefined;
     await expect(quotes.saveQuoteLookup(claimed, result, provenance)).rejects.toThrow("QUOTE_PAYLOAD_NOT_JSON_SERIALIZABLE");
     const count = await conversations.pool.query<{ count: number }>(
-      "SELECT count(*)::int AS count FROM interec_agent.quote_lead_sets WHERE turn_id = $1",
+      "SELECT count(*)::int AS count FROM retail_price_agent.quote_lead_sets WHERE turn_id = $1",
       [claimed.id],
     );
     expect(count.rows[0]?.count).toBe(0);
@@ -164,12 +166,12 @@ suite("PostgreSQL quote lookup repository", () => {
     const client = await conversations.pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query("ALTER TABLE interec_agent.quote_lead_sets FORCE ROW LEVEL SECURITY");
+      await client.query("ALTER TABLE retail_price_agent.quote_lead_sets FORCE ROW LEVEL SECURITY");
       await client.query(
-        "SELECT set_config('interec.tenant_id', $1, true), set_config('interec.owner_id', $2, true)",
+        "SELECT set_config('retail_price.tenant_id', $1, true), set_config('retail_price.owner_id', $2, true)",
         [owner.tenantId, `other-${randomUUID()}`],
       );
-      const hidden = await client.query("SELECT id FROM interec_agent.quote_lead_sets WHERE id = $1", [saved.quoteLeadSetId]);
+      const hidden = await client.query("SELECT id FROM retail_price_agent.quote_lead_sets WHERE id = $1", [saved.quoteLeadSetId]);
       expect(hidden.rows).toEqual([]);
       await client.query("ROLLBACK");
     } catch (error) {

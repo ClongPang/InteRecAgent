@@ -1,4 +1,4 @@
-import type { FxSnapshot } from "@interec/domain";
+import type { FxSnapshot } from "@retail-price/domain";
 
 import type { ConversationRepository } from "./conversation-repository-types.js";
 import type { FxPort } from "./fx-provider.js";

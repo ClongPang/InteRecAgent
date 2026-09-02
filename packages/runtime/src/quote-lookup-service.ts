@@ -12,7 +12,7 @@ import {
   type QuoteLeadSet,
   type QuoteProviderSummary,
   type QuoteTargetResolution,
-} from "@interec/domain";
+} from "@retail-price/domain";
 
 import type { FxPort } from "./fx-provider.js";
 import { recordIdentityResolution } from "./identity-resolution-observability.js";

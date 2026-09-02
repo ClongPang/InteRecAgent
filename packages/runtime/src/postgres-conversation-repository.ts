@@ -1,4 +1,4 @@
-import type { ConversationState } from "@interec/domain";
+import type { ConversationState } from "@retail-price/domain";
 import pg from "pg";
 
 import type {

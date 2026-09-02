@@ -3,6 +3,7 @@ import {
   resolveTelemetryConfig,
   startTelemetry,
 } from "../packages/runtime/src/telemetry.js";
+import { retailPriceEnvironmentValue } from "../packages/runtime/src/environment.js";
 
 const CONFIRM = "authorized-langfuse-readback";
 
@@ -13,12 +14,12 @@ function skip(reason: string): never {
 
 const config = resolveTelemetryConfig();
 if (!config.langfuseEnabled) skip("LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are unset");
-if (process.env["INTEREC_LANGFUSE_SMOKE_CONFIRM"] !== CONFIRM) {
-  skip(`set INTEREC_LANGFUSE_SMOKE_CONFIRM=${CONFIRM} to write and read back one probe trace`);
+if (retailPriceEnvironmentValue(process.env, "LANGFUSE_SMOKE_CONFIRM") !== CONFIRM) {
+  skip(`set RETAIL_PRICE_LANGFUSE_SMOKE_CONFIRM=${CONFIRM} to write and read back one probe trace`);
 }
 
 const probeId = `smoke-${Date.now().toString(16)}`;
-const telemetry = await startTelemetry("interec-observability-smoke");
+const telemetry = await startTelemetry("retail-price-observability-smoke");
 let traceId: string | undefined;
 try {
   await observeTurnAttempt({

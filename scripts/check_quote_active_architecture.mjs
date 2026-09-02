@@ -3,9 +3,9 @@ import { extname, join, relative } from "node:path";
 
 const layers = [
   { name: "domain", root: "packages/domain/src", manifest: "packages/domain/package.json", allowedInternal: [] },
-  { name: "agent", root: "packages/agent/src", manifest: "packages/agent/package.json", allowedInternal: ["@interec/domain"] },
-  { name: "runtime", root: "packages/runtime/src", manifest: "packages/runtime/package.json", allowedInternal: ["@interec/agent", "@interec/domain"] },
-  { name: "api", root: "packages/api/src", manifest: "packages/api/package.json", allowedInternal: ["@interec/domain", "@interec/runtime"] },
+  { name: "agent", root: "packages/agent/src", manifest: "packages/agent/package.json", allowedInternal: ["@retail-price/domain"] },
+  { name: "runtime", root: "packages/runtime/src", manifest: "packages/runtime/package.json", allowedInternal: ["@retail-price/agent", "@retail-price/domain"] },
+  { name: "api", root: "packages/api/src", manifest: "packages/api/package.json", allowedInternal: ["@retail-price/domain", "@retail-price/runtime"] },
   { name: "frontend", root: "frontend/src", manifest: "frontend/package.json", allowedInternal: [] },
 ];
 
@@ -134,7 +134,7 @@ for (const layer of layers) {
     const content = read(file);
     for (const match of content.matchAll(importPattern)) {
       const specifier = match[1];
-      if (specifier?.startsWith("@interec/") && !allowed.has(specifier)) {
+      if (specifier?.startsWith("@retail-price/") && !allowed.has(specifier)) {
         failures.push(`${relative(".", file)}: ${layer.name} cannot import ${specifier}`);
       }
       if (specifier?.includes("/packages/") || specifier?.includes("\\packages\\")) {
@@ -148,7 +148,7 @@ for (const layer of layers) {
     ...(packageJson.dependencies ?? {}),
     ...(packageJson.devDependencies ?? {}),
     ...(packageJson.peerDependencies ?? {}),
-  }).filter((name) => name.startsWith("@interec/")).sort();
+  }).filter((name) => name.startsWith("@retail-price/")).sort();
   const expectedInternal = [...allowed].sort();
   if (JSON.stringify(declaredInternal) !== JSON.stringify(expectedInternal)) {
     failures.push(`${layer.manifest}: internal dependencies ${JSON.stringify(declaredInternal)} must equal ${JSON.stringify(expectedInternal)}`);

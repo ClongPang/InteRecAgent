@@ -1,6 +1,6 @@
-# InteRecAgent 简历量化评测设计
+# RetailPriceAgent 简历量化评测设计
 
-本文定义 `resume-interec-agent-target.md` 中所有指标的任务、运行、判分和投递口径。目标是在复用现有 Conversation、Turn、WorkingSet、Claim–Evidence、Provider 治理和 PostgreSQL attempt 机制的前提下，形成真实可运行、可复现且能直接支撑简历主张的评测。
+本文定义 `resume-retail-price-agent-target.md` 中所有指标的任务、运行、判分和投递口径。目标是在复用现有 Conversation、Turn、WorkingSet、Claim–Evidence、Provider 治理和 PostgreSQL attempt 机制的前提下，形成真实可运行、可复现且能直接支撑简历主张的评测。
 
 ## 一、评测原则
 
@@ -354,7 +354,7 @@ scheduling_seed
 7. 固定 `model id + 参数 + prompt/build hash + 运行窗口`，运行 117 个真实模型 trial，完成全部最终消息事实标注和所需人工复核并生成失败报告；
 8. 实现 80 行 fault manifest、独立可计数 Provider stub 和八类故障注入；
 9. 输出机器可读 JSON、Markdown 汇总、原始轨迹、版本清单和复现命令；
-10. 只有审核通过的指标才能回填 `resume-interec-agent-target.md`。
+10. 只有审核通过的指标才能回填 `resume-retail-price-agent-target.md`。
 
 每个简历数字必须能定位到：定义、分子、分母、模型/代码/数据版本、运行时间、判分方式、失败样本和复现入口。
 

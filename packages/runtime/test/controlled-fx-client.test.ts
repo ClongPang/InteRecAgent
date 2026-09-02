@@ -1,4 +1,4 @@
-import type { FxSnapshot } from "@interec/domain";
+import type { FxSnapshot } from "@retail-price/domain";
 import { describe, expect, it, vi } from "vitest";
 
 import { ControlledFxClient } from "../src/controlled-fx-client.js";

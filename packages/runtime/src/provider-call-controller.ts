@@ -55,8 +55,8 @@ export class PostgresProviderCallController {
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`provider:${context.provider}`]);
       const valid = await client.query(
         `SELECT t.id
-         FROM interec_agent.turns t
-         JOIN interec_agent.conversations c ON c.id = t.conversation_id
+         FROM retail_price_agent.turns t
+         JOIN retail_price_agent.conversations c ON c.id = t.conversation_id
          WHERE t.id = $1 AND t.attempt = $2 AND t.fence_token = $3::bigint
            AND t.status = 'RUNNING' AND t.lease_expires_at > clock_timestamp()
            AND t.deadline_at > clock_timestamp() AND c.tenant_id = $4
@@ -65,19 +65,19 @@ export class PostgresProviderCallController {
       );
       if (valid.rowCount !== 1) throw new ProviderCallControlError("PROVIDER_FENCE_REJECTED");
       await client.query(
-        `UPDATE interec_agent.provider_permits
+        `UPDATE retail_price_agent.provider_permits
          SET status = 'EXPIRED', completed_at = clock_timestamp(), error_code = 'PERMIT_EXPIRED'
          WHERE provider = $1 AND status = 'ACTIVE' AND expires_at <= clock_timestamp()`,
         [context.provider],
       );
       await client.query(
-        `INSERT INTO interec_agent.provider_circuits (provider) VALUES ($1)
+        `INSERT INTO retail_price_agent.provider_circuits (provider) VALUES ($1)
          ON CONFLICT (provider) DO NOTHING`,
         [context.provider],
       );
       const circuit = await client.query<{ open: boolean }>(
         `SELECT open_until IS NOT NULL AND open_until > clock_timestamp() AS open
-         FROM interec_agent.provider_circuits WHERE provider = $1 FOR UPDATE`,
+         FROM retail_price_agent.provider_circuits WHERE provider = $1 FOR UPDATE`,
         [context.provider],
       );
       if (circuit.rows[0]?.open) throw new ProviderCallControlError("PROVIDER_CIRCUIT_OPEN");
@@ -88,7 +88,7 @@ export class PostgresProviderCallController {
            count(*) FILTER (WHERE tenant_id = $2 AND acquired_at >= clock_timestamp() - interval '1 minute') AS minute_requests,
            count(*) FILTER (WHERE tenant_id = $2 AND acquired_at >= date_trunc('day', clock_timestamp())) AS day_requests,
            count(*) FILTER (WHERE turn_id = $3 AND is_retry) AS turn_retries
-         FROM interec_agent.provider_permits WHERE provider = $1`,
+         FROM retail_price_agent.provider_permits WHERE provider = $1`,
         [context.provider, context.tenantId, context.turnId],
       );
       const count = counts.rows[0]!;
@@ -99,7 +99,7 @@ export class PostgresProviderCallController {
       if (context.isRetry && Number(count.turn_retries) >= this.limits.retryBudgetPerTurn) throw new ProviderCallControlError("PROVIDER_RETRY_BUDGET_EXHAUSTED");
       const id = randomUUID();
       await client.query(
-        `INSERT INTO interec_agent.provider_permits
+        `INSERT INTO retail_price_agent.provider_permits
            (id, tenant_id, provider, turn_id, attempt, step_key, is_retry, status, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVE', clock_timestamp() + make_interval(secs => $8))`,
         [id, context.tenantId, context.provider, context.turnId, context.attempt, context.stepKey, context.isRetry, this.limits.permitSeconds],
@@ -119,7 +119,7 @@ export class PostgresProviderCallController {
     try {
       await client.query("BEGIN");
       const permit = await client.query<{ provider: string }>(
-        `UPDATE interec_agent.provider_permits
+        `UPDATE retail_price_agent.provider_permits
          SET status = $2, error_code = $3, completed_at = clock_timestamp()
          WHERE id = $1 AND status = 'ACTIVE' RETURNING provider`,
         [permitId, outcome.success ? "SUCCEEDED" : "FAILED", outcome.errorCode ?? null],
@@ -129,14 +129,14 @@ export class PostgresProviderCallController {
         await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`provider:${provider}`]);
         if (outcome.success) {
           await client.query(
-            `UPDATE interec_agent.provider_circuits
+            `UPDATE retail_price_agent.provider_circuits
              SET consecutive_failures = 0, open_until = NULL, updated_at = clock_timestamp()
              WHERE provider = $1`,
             [provider],
           );
         } else {
           await client.query(
-            `UPDATE interec_agent.provider_circuits
+            `UPDATE retail_price_agent.provider_circuits
              SET consecutive_failures = consecutive_failures + 1,
                  open_until = CASE WHEN consecutive_failures + 1 >= $2
                    THEN clock_timestamp() + make_interval(secs => $3) ELSE open_until END,

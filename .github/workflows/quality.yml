@@ -12,15 +12,15 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: interec
-          POSTGRES_PASSWORD: interec
-          POSTGRES_DB: interec_test
+          POSTGRES_USER: retail_price
+          POSTGRES_PASSWORD: retail_price
+          POSTGRES_DB: retail_price_test
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U interec -d interec_test"
+          --health-cmd "pg_isready -U retail_price -d retail_price_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      INTEREC_DATABASE_URL: postgresql://interec:interec@127.0.0.1:5432/interec_test
+      RETAIL_PRICE_DATABASE_URL: postgresql://retail_price:retail_price@127.0.0.1:5432/retail_price_test
       RUN_CONVERSATION_PG_INTEGRATION: "1"
     steps:
       - uses: actions/checkout@v4

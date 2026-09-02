@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "contractVersion": "quote-leads-sg-v1",
-  "product": "InteRecAgent",
+  "product": "RetailPriceAgent",
   "positioning": "A durable, evidence-grounded conversational assistant for finding quote leads and merchant-page entry points for known product models in the Singapore service market.",
   "serviceMarket": "SG",
   "conversationBoundary": "QUOTE_LOOKUP_MISSION",

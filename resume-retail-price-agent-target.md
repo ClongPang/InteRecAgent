@@ -1,8 +1,8 @@
-# InteRecAgent 简历目标版（内部）
+# RetailPriceAgent 简历目标版（内部）
 
-> 本文件包含尚未完成的评测指标占位符。所有 `【待回填】` 必须依据 `resume-interec-agent-evaluation-design.md` 实测并通过证据审核后才能用于投递；当前可投递事实稿仍为 `resume-interec-agent.md`。
+> 本文件包含尚未完成的评测指标占位符。所有 `【待回填】` 必须依据 `resume-retail-price-agent-evaluation-design.md` 实测并通过证据审核后才能用于投递；当前可投递事实稿仍为 `resume-retail-price-agent.md`。
 
-**InteRecAgent｜跨市场比价与推荐 Agent**　个人项目 / Agent 开发　2026.07–至今
+**RetailPriceAgent｜商品报价查询 Agent**　个人项目 / Agent 开发　2026.07–至今
 
 **项目描述**：面向跨市场购物中的多轮需求澄清、报价检索与候选比较，构建具备需求状态跟踪、受控工具调用、候选资格校验、事实溯源与任务恢复能力的对话 Agent；对校验规则完整的品类输出正式推荐，其余品类仅提供带验证边界的候选线索。
 

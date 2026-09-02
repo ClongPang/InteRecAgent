@@ -5,13 +5,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   ConversationRepositoryError,
   PostgresConversationRepository,
+  retailPriceEnvironmentValue,
   runConversationMigrations,
   type OwnerClaims,
 } from "../src/index.js";
 
 const enabled = process.env["RUN_CONVERSATION_PG_INTEGRATION"] === "1";
 const suite = enabled ? describe : describe.skip;
-const databaseUrl = process.env["INTEREC_DATABASE_URL"] ?? "postgresql://interec:interec@127.0.0.1:5432/interec";
+const databaseUrl = retailPriceEnvironmentValue(process.env, "DATABASE_URL")
+  ?? "postgresql://retail_price:retail_price@127.0.0.1:5432/retail_price";
 
 suite("PostgreSQL quote conversation lifecycle", () => {
   const repository = new PostgresConversationRepository(databaseUrl, 4);
@@ -23,11 +25,11 @@ suite("PostgreSQL quote conversation lifecycle", () => {
 
   afterAll(async () => {
     await repository.pool.query(
-      "UPDATE interec_agent.conversations SET active_turn_id = NULL WHERE tenant_id = $1 AND owner_id = $2",
+      "UPDATE retail_price_agent.conversations SET active_turn_id = NULL WHERE tenant_id = $1 AND owner_id = $2",
       [owner.tenantId, owner.ownerId],
     );
     await repository.pool.query(
-      "DELETE FROM interec_agent.conversations WHERE tenant_id = $1 AND owner_id = $2",
+      "DELETE FROM retail_price_agent.conversations WHERE tenant_id = $1 AND owner_id = $2",
       [owner.tenantId, owner.ownerId],
     );
     await repository.close();
@@ -68,7 +70,7 @@ suite("PostgreSQL quote conversation lifecycle", () => {
       trace_id: string;
       trace_id_source: string;
     }>(
-      "SELECT trace_id, trace_id_source FROM interec_agent.turns WHERE id = $1",
+      "SELECT trace_id, trace_id_source FROM retail_price_agent.turns WHERE id = $1",
       [second.id],
     );
     expect(enqueueTrace.rows[0]).toEqual({
@@ -81,7 +83,7 @@ suite("PostgreSQL quote conversation lifecycle", () => {
       root_observation_id: string | null;
       trace_id_source: string | null;
     }>(
-      "SELECT trace_id, root_observation_id, trace_id_source FROM interec_agent.turn_attempts WHERE turn_id = $1 AND attempt = $2",
+      "SELECT trace_id, root_observation_id, trace_id_source FROM retail_price_agent.turn_attempts WHERE turn_id = $1 AND attempt = $2",
       [claimed!.id, claimed!.attempt],
     );
     expect(beforeAttemptTrace.rows[0]).toEqual({ trace_id: null, root_observation_id: null, trace_id_source: null });
@@ -101,7 +103,7 @@ suite("PostgreSQL quote conversation lifecycle", () => {
       root_observation_id: string;
       trace_id_source: string;
     }>(
-      "SELECT trace_id, root_observation_id, trace_id_source FROM interec_agent.turn_attempts WHERE turn_id = $1 AND attempt = $2",
+      "SELECT trace_id, root_observation_id, trace_id_source FROM retail_price_agent.turn_attempts WHERE turn_id = $1 AND attempt = $2",
       [claimed!.id, claimed!.attempt],
     );
     expect(afterAttemptTrace.rows[0]).toEqual({
@@ -111,8 +113,8 @@ suite("PostgreSQL quote conversation lifecycle", () => {
     });
     const syntheticLegacyRows = await repository.pool.query<{ count: string }>(
       `SELECT count(*)::text AS count
-       FROM interec_agent.turns
-       WHERE trace_id = md5('interec-turn-trace-v1:' || conversation_id::text || ':' || client_turn_id)`,
+       FROM retail_price_agent.turns
+       WHERE trace_id = md5('retail-price-turn-trace-v1:' || conversation_id::text || ':' || client_turn_id)`,
     );
     expect(syntheticLegacyRows.rows[0]?.count).toBe("0");
     expect(await repository.heartbeatTurn(claimed!.id, claimed!.attempt, `${Number(claimed!.fenceToken) + 1}`, 30)).toBe(false);
@@ -123,7 +125,7 @@ suite("PostgreSQL quote conversation lifecycle", () => {
   it("makes persisted legacy conversations explicitly read-only and unclaimable", async () => {
     const legacyId = randomUUID();
     await repository.pool.query(
-      `INSERT INTO interec_agent.conversations
+      `INSERT INTO retail_price_agent.conversations
          (id, tenant_id, owner_id, status, contract_version)
        VALUES ($1, $2, $3, 'OPEN', 'legacy-shopping-v1')`,
       [legacyId, owner.tenantId, owner.ownerId],

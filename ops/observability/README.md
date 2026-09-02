@@ -8,4 +8,4 @@
 
 进程内 OpenTelemetry 计数清单在 `spec/observability/metrics-contract.json`。
 
-门禁：`npm run observability:check`。发布证据：`INTEREC_LANGFUSE_SMOKE_CONFIRM=authorized-langfuse-readback npm run observability:smoke`。
+门禁：`npm run observability:check`。发布证据：`RETAIL_PRICE_LANGFUSE_SMOKE_CONFIRM=authorized-langfuse-readback npm run observability:smoke`。

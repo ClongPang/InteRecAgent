@@ -17,7 +17,7 @@ import {
   type QuotePlanReview,
   type QuoteTurnOperation,
   type QuoteTurnPlan,
-} from "@interec/domain";
+} from "@retail-price/domain";
 
 import {
   reviewIdentityHypothesis,

@@ -8,10 +8,11 @@ import {
   PostgresProviderCallController,
   PostgresQuoteLookupRepository,
   QUOTE_PROVIDER_CONTRACT_VERSION,
+  retailPriceEnvironmentValue,
   runConversationMigrations,
   type OwnerClaims,
   type QuoteProviderResult,
-} from "@interec/runtime";
+} from "@retail-price/runtime";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createConversationApp } from "../src/app.js";
@@ -19,7 +20,8 @@ import type { IdentityVerifier } from "../src/auth.js";
 
 const enabled = process.env["RUN_CONVERSATION_PG_INTEGRATION"] === "1";
 const suite = enabled ? describe : describe.skip;
-const databaseUrl = process.env["INTEREC_DATABASE_URL"] ?? "postgresql://interec:interec@127.0.0.1:5432/interec";
+const databaseUrl = retailPriceEnvironmentValue(process.env, "DATABASE_URL")
+  ?? "postgresql://retail_price:retail_price@127.0.0.1:5432/retail_price";
 
 function quoteProviderResult(): QuoteProviderResult {
   const records = [{
@@ -58,8 +60,8 @@ suite("PostgreSQL quote Conversation API vertical slice", () => {
   beforeAll(async () => runConversationMigrations(repository.pool));
   afterAll(async () => {
     await app.close();
-    await repository.pool.query("UPDATE interec_agent.conversations SET active_turn_id = NULL WHERE tenant_id = $1", [owner.tenantId]);
-    await repository.pool.query("DELETE FROM interec_agent.conversations WHERE tenant_id = $1", [owner.tenantId]);
+    await repository.pool.query("UPDATE retail_price_agent.conversations SET active_turn_id = NULL WHERE tenant_id = $1", [owner.tenantId]);
+    await repository.pool.query("DELETE FROM retail_price_agent.conversations WHERE tenant_id = $1", [owner.tenantId]);
     await repository.close();
   });
 

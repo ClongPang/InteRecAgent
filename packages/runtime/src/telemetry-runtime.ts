@@ -41,7 +41,7 @@ export async function inSpan<T>(
   attributes: Attributes,
   operation: () => Promise<T>,
 ): Promise<T> {
-  return trace.getTracer("interec-agent", SERVICE_VERSION).startActiveSpan(
+  return trace.getTracer("retail-price-agent", SERVICE_VERSION).startActiveSpan(
     name,
     { attributes },
     async (span) => {
@@ -76,7 +76,7 @@ export async function startTelemetry(
       mediaUploadEnabled: false,
       mask: ({ data }) => redactTelemetryData(data),
       shouldExportSpan: ({ otelSpan }) => (
-        isDefaultExportSpan(otelSpan) || otelSpan.instrumentationScope.name.startsWith("interec-")
+        isDefaultExportSpan(otelSpan) || otelSpan.instrumentationScope.name.startsWith("retail-price-")
       ),
     }));
   }

@@ -76,7 +76,7 @@ const requireText = (source, token, location) => {
   requireCondition(source.includes(token), `${location} is missing ${JSON.stringify(token)}`);
 };
 
-requireCondition(contract.schemaVersion === "interec-agent-trace-v4", "trace contract must use v4");
+requireCondition(contract.schemaVersion === "retail-price-agent-trace-v4", "trace contract must use v4");
 requireCondition(contract.traceBoundary === "TURN_ATTEMPT", "trace boundary must be TURN_ATTEMPT");
 requireCondition(contract.enqueueTrace?.separateFromAttempt === true, "enqueue and attempt traces must be separate");
 requireCondition(contract.enqueueTrace?.mustBeActualRoot === true, "enqueue must be an actual root");
@@ -89,14 +89,14 @@ requireCondition(contract.hierarchy?.providerExecutionType === "TOOL", "provider
 requireCondition(contract.hierarchy?.buyWhereProviderObservation === "tool.provider.buywhere.find_best_price_v2", "production BuyWhere observation name drifted");
 requireCondition(contract.exportReliability?.workerCheckpoint === "FORCE_FLUSH_AFTER_COMPLETED_TURN", "worker export checkpoint is not frozen");
 requireCondition(contract.exportReliability?.shutdownStrict === true, "shutdown export failures must be surfaced");
-requireCondition(contract.decisionProvenance?.schemaVersion === "interec-turn-decision-v5", "decision provenance schema must version catalog identity");
+requireCondition(contract.decisionProvenance?.schemaVersion === "retail-price-turn-decision-v5", "decision provenance schema must version catalog identity");
 requireCondition(contract.viewProjection?.inputFormat === "OPENAI_COMPATIBLE_CHAT_MESSAGES", "root I/O must stay OpenAI messages");
 requireCondition(contract.viewProjection?.contentOffAssistant === "DECISION_SCAN_LINE", "content-off assistant I/O must stay a decision scan line");
 requireCondition(contract.decisionProvenance?.stateSnapshotFields?.includes("modelKey"), "decision snapshot must carry catalog modelKey");
 requireCondition(contract.decisionProvenance?.filterMetadata?.includes("decisionAfterModelKey"), "decision metadata must expose after modelKey");
 requireCondition(contract.privacy?.contentDefault === "ENABLED", "content capture must default on");
 requireText(telemetrySafety, 'flag !== "false"', "telemetry-safety.ts");
-requireCondition(!telemetrySafety.includes("INTEREC_LANGFUSE_CAPTURE_CONSENT_REQUIRED"), "content capture must not require a second consent latch");
+requireCondition(!telemetrySafety.includes("RETAIL_PRICE_LANGFUSE_CAPTURE_CONSENT_REQUIRED"), "content capture must not require a second consent latch");
 
 requireText(turnObservability, "traceName: \"conversation-turn-enqueue\"", "turn-observability.ts");
 requireText(turnObservability, "traceName: \"conversation-turn-attempt\"", "turn-observability.ts");
@@ -167,7 +167,7 @@ for (const field of contract.toolCausality.failureFields) {
 requireText(traceModel, "canonicalTraceJson", "agent-trace-model.ts");
 requireText(traceModel, "consumption.inferenceIndex >", "agent-trace-model.ts");
 requireText(traceModel, "consumption.resultSha256 ===", "agent-trace-model.ts");
-requireText(lifecycle, "INSERT INTO interec_agent.turn_attempts (turn_id, attempt, fence_token, base_revision, status)", "postgres-turn-lifecycle.ts");
+requireText(lifecycle, "INSERT INTO retail_price_agent.turn_attempts (turn_id, attempt, fence_token, base_revision, status)", "postgres-turn-lifecycle.ts");
 requireCondition(!lifecycle.includes("turn[\"trace_id\"]],\n    );"), "claim must not copy enqueue trace id into an attempt");
 requireText(migration, "ALTER COLUMN trace_id DROP NOT NULL", "0023_attempt_trace_boundary.sql");
 requireText(enqueueMigration, "ALTER TABLE interec_agent.turns", "0024_enqueue_trace_truthfulness.sql");
@@ -194,14 +194,14 @@ requireText(traceTests, "object key order", "agent-trace-model.test.ts");
 requireText(traceTests, "uses a keyed digest", "agent-trace-model.test.ts");
 requireCondition(packageJson.scripts?.["observability:check"] === "node scripts/check_agent_trace_observability.mjs", "package.json observability:check is missing or drifted");
 requireCondition(typeof packageJson.scripts?.["observability:smoke"] === "string", "package.json observability:smoke is missing");
-requireText(await textFile("scripts/observability_smoke.ts"), "INTEREC_LANGFUSE_SMOKE_CONFIRM", "observability_smoke.ts");
+requireText(await textFile("scripts/observability_smoke.ts"), "RETAIL_PRICE_LANGFUSE_SMOKE_CONFIRM", "observability_smoke.ts");
 requireText(await textFile("scripts/observability_smoke.ts"), "/api/public/traces/", "observability_smoke.ts");
 requireText(await textFile("packages/runtime/src/quote-turn-decision-score.ts"), "scoreQuoteTurnDecision", "quote-turn-decision-score.ts");
 
 for (const metricName of [
-  "rec_agent.trace.causality_checks",
-  "rec_agent.trace.causality_violations",
-  "rec_agent.telemetry.export_lifecycle",
+  "retail_price_agent.trace.causality_checks",
+  "retail_price_agent.trace.causality_violations",
+  "retail_price_agent.telemetry.export_lifecycle",
 ]) {
   requireCondition(metricsContract.metrics.some((metric) => metric.name === metricName), `metrics contract is missing ${metricName}`);
   requireText(runtimeMetrics, metricName, "runtime-metrics.ts");

@@ -1,6 +1,6 @@
 import { Agent, type AgentEvent, type StreamFn } from "@earendil-works/pi-agent-core";
 import type { Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
-import type { QuoteAssistantPublication, QuoteConversationState, QuotePlanReview } from "@interec/domain";
+import type { QuoteAssistantPublication, QuoteConversationState, QuotePlanReview } from "@retail-price/domain";
 
 import type {
   AgentInferenceContext,

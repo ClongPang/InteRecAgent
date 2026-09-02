@@ -13,8 +13,8 @@ import { displayError } from './presentation'
 import type { ConversationEvent, ConversationProjection, QuoteLead } from './types'
 import { useDevelopmentAuth } from './use-development-auth'
 
-const TOKEN_KEY = 'interec.quote.auth-token'
-const CONVERSATION_KEY = 'interec.quote.conversation-id'
+const TOKEN_KEY = 'retail_price.quote.auth-token'
+const CONVERSATION_KEY = 'retail_price.quote.conversation-id'
 const TERMINAL_FAILURES = new Set(['FAILED', 'CANCELLED', 'TIMED_OUT', 'DEAD_LETTER'])
 
 function tokenFromEnvironment(): string {

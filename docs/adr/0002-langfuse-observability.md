@@ -1,6 +1,6 @@
 # ADR-0002：使用 Langfuse v5 作为 pi-agent 可观测性主视图
 
-- 状态：Accepted。Trace 边界、Provider 层级与导出生命周期由 ADR-0010 修订。根 I/O 与决策身份由 `interec-agent-trace-v4` / `interec-turn-decision-v5` 修订。
+- 状态：Accepted。Trace 边界、Provider 层级与导出生命周期由 ADR-0010 修订。根 I/O 与决策身份由 `retail-price-agent-trace-v4` / `retail-price-turn-decision-v5` 修订。
 - 日期：2026-08-26
 
 ## 背景

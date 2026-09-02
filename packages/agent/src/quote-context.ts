@@ -1,4 +1,4 @@
-import { validateQuoteConversationState, type QuoteConversationState } from "@interec/domain";
+import { validateQuoteConversationState, type QuoteConversationState } from "@retail-price/domain";
 
 import { validateIdentityCandidates, type IdentityCandidateView } from "./identity-hypothesis.js";
 

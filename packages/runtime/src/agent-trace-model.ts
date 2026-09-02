@@ -4,7 +4,7 @@ import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import type {
   AgentModelCallObservation,
   AgentToolCallObservation,
-} from "@interec/agent";
+} from "@retail-price/agent";
 
 type JsonScalar = boolean | number | string | null;
 type CanonicalValue = JsonScalar | CanonicalValue[] | { [key: string]: CanonicalValue };

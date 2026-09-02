@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { FxSnapshot } from "@interec/domain";
+import type { FxSnapshot } from "@retail-price/domain";
 
 import { observeTool, runtimeMetrics, telemetryErrorCode } from "./telemetry.js";
 

@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 
-import type { ConversationRepository } from "@interec/runtime";
+import type { ConversationRepository } from "@retail-price/runtime";
 
 import { installApiErrorHandler } from "./api-errors.js";
 import type { IdentityVerifier } from "./auth.js";
@@ -26,7 +26,7 @@ export function createConversationApp(options: ConversationAppOptions) {
   const app = Fastify({ logger: false });
   installApiErrorHandler(app);
 
-  app.get("/health/live", async () => ({ status: "ok", service: "interec-conversation-api" }));
+  app.get("/health/live", async () => ({ status: "ok", service: "retail-price-conversation-api" }));
   app.get("/health/ready", async (_request, reply) => {
     try {
       await options.readiness?.();

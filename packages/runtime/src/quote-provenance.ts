@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { QuoteLeadSet, QuoteObservation } from "@interec/domain";
+import type { QuoteLeadSet, QuoteObservation } from "@retail-price/domain";
 
 export const QUOTE_PROVENANCE_POLICY_VERSION = "quote-provenance-v1" as const;
 

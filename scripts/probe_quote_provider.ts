@@ -2,15 +2,16 @@ import { createHash } from "node:crypto";
 
 import { normalizeMerchantTargetUrl, validatedQuoteWebUrl } from "../packages/domain/src/index.js";
 import { BuyWhereMcpQuoteClient } from "../packages/runtime/src/buywhere-mcp-quote-client.js";
+import { retailPriceEnvironmentValue } from "../packages/runtime/src/environment.js";
 import { resolveBuyWhereRuntimeConfig } from "../packages/runtime/src/runtime-config.js";
 
-if (process.env["INTEREC_QUOTE_LIVE_CONFIRM"] !== "authorized-buywhere-read") {
-  throw new Error("INTEREC_QUOTE_LIVE_CONFIRM_MUST_BE_authorized-buywhere-read");
+if (retailPriceEnvironmentValue(process.env, "QUOTE_LIVE_CONFIRM") !== "authorized-buywhere-read") {
+  throw new Error("RETAIL_PRICE_QUOTE_LIVE_CONFIRM_MUST_BE_authorized-buywhere-read");
 }
 
 const config = resolveBuyWhereRuntimeConfig();
-const canonicalQuery = (process.env["INTEREC_QUOTE_PROBE_MODEL"] ?? "Sony WH-1000XM5").normalize("NFKC").trim();
-if (!canonicalQuery) throw new Error("INTEREC_QUOTE_PROBE_MODEL_REQUIRED");
+const canonicalQuery = (retailPriceEnvironmentValue(process.env, "QUOTE_PROBE_MODEL") ?? "Sony WH-1000XM5").normalize("NFKC").trim();
+if (!canonicalQuery) throw new Error("RETAIL_PRICE_QUOTE_PROBE_MODEL_REQUIRED");
 
 const result = await new BuyWhereMcpQuoteClient(config.apiKey, { timeoutMs: config.timeoutMs }).lookup({ canonicalQuery });
 
@@ -81,13 +82,13 @@ process.stdout.write(`${JSON.stringify({
   providerContractVersion: result.providerContractVersion,
   artifactRef: result.artifactRef,
   observedAt: result.observedAt,
-  ...(process.env["INTEREC_QUOTE_PROBE_INCLUDE_SHAPE"] === "1"
+  ...(retailPriceEnvironmentValue(process.env, "QUOTE_PROBE_INCLUDE_SHAPE") === "1"
     ? {
         payloadShape: payloadShape(result.rawPayload),
         parsedTextPayloadShape: payloadShape(parsedTextPayload(result.rawPayload)),
       }
     : {}),
-  ...(process.env["INTEREC_QUOTE_PROBE_INCLUDE_SANITIZED_RECORDS"] === "1"
+  ...(retailPriceEnvironmentValue(process.env, "QUOTE_PROBE_INCLUDE_SANITIZED_RECORDS") === "1"
     ? {
         sanitization: "selected commerce fields; provider ids hashed; tracking and outbound redirects removed",
         records: result.records.map(sanitizedRecord),

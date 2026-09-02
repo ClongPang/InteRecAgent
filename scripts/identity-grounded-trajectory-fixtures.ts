@@ -3,7 +3,7 @@ import {
   type PublishedQuoteLead,
   type PublishedQuoteLeadSet,
   type QuoteTarget,
-} from "@interec/domain";
+} from "@retail-price/domain";
 
 export type ProviderFixture = "RESULTS_ONE" | "RESULTS_TWO" | "GROUPED_NO_FX" | "EMPTY" | "DEGRADED";
 

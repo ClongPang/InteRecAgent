@@ -1,5 +1,5 @@
 {
-  "name": "@interec/api",
+  "name": "@retail-price/api",
   "version": "0.2.0",
   "private": true,
   "type": "module",
@@ -7,8 +7,8 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@interec/domain": "0.2.0",
-    "@interec/runtime": "0.2.0",
+    "@retail-price/domain": "0.2.0",
+    "@retail-price/runtime": "0.2.0",
     "fastify": "5.12.1",
     "typebox": "1.3.7"
   }

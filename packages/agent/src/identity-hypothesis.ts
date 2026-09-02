@@ -2,7 +2,7 @@ import {
   identityLexicalKey,
   type QuotePlanPolicyViolation,
   type QuoteTargetProposal,
-} from "@interec/domain";
+} from "@retail-price/domain";
 
 export interface IdentitySourceSpan {
   start: number;

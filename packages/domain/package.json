@@ -1,5 +1,5 @@
 {
-  "name": "@interec/domain",
+  "name": "@retail-price/domain",
   "version": "0.2.0",
   "private": true,
   "type": "module",

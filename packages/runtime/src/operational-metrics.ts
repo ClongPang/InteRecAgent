@@ -23,7 +23,7 @@ export function registerPostgresOperationalMetrics(
     try {
       const query = await pool.query<{ status: string; count: number }>(
         `SELECT status, count(*)::int AS count
-         FROM interec_agent.turns
+         FROM retail_price_agent.turns
          WHERE status = ANY($1::text[])
          GROUP BY status`,
         [["ACCEPTED", "CLAIMED", "RUNNING", "COMMITTING"]],
@@ -42,7 +42,7 @@ export function registerPostgresOperationalMetrics(
         `SELECT
            count(*) FILTER (WHERE published_at IS NULL AND dead_lettered_at IS NULL)::int AS pending,
            count(*) FILTER (WHERE dead_lettered_at IS NOT NULL)::int AS dead_lettered
-         FROM interec_agent.outbox`,
+         FROM retail_price_agent.outbox`,
       );
       result.observe(Number(query.rows[0]?.pending ?? 0), { state: "pending" });
       result.observe(Number(query.rows[0]?.dead_lettered ?? 0), { state: "dead_lettered" });

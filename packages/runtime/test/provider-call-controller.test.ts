@@ -46,9 +46,9 @@ function acquirePool(fixture: AcquireFixture = {}) {
     ...fixture.counts,
   };
   return fakePool((sql) => {
-    if (sql.includes("FROM interec_agent.turns t")) return { rowCount: fixture.validRowCount ?? 1, rows: [{ id: "turn-1" }] };
-    if (sql.includes("FROM interec_agent.provider_circuits")) return { rowCount: 1, rows: [{ open: fixture.circuitOpen ?? false }] };
-    if (sql.includes("FROM interec_agent.provider_permits WHERE")) return { rowCount: 1, rows: [counts] };
+    if (sql.includes("FROM retail_price_agent.turns t")) return { rowCount: fixture.validRowCount ?? 1, rows: [{ id: "turn-1" }] };
+    if (sql.includes("FROM retail_price_agent.provider_circuits")) return { rowCount: 1, rows: [{ open: fixture.circuitOpen ?? false }] };
+    if (sql.includes("FROM retail_price_agent.provider_permits WHERE")) return { rowCount: 1, rows: [counts] };
     return { rowCount: 1, rows: [] };
   });
 }
@@ -64,7 +64,7 @@ describe("PostgresProviderCallController", () => {
     expect(fixture.query).toHaveBeenCalledWith("BEGIN");
     expect(fixture.query).toHaveBeenCalledWith("COMMIT");
     expect(fixture.query).not.toHaveBeenCalledWith("ROLLBACK");
-    const insertion = fixture.query.mock.calls.find(([sql]) => String(sql).includes("INSERT INTO interec_agent.provider_permits"));
+    const insertion = fixture.query.mock.calls.find(([sql]) => String(sql).includes("INSERT INTO retail_price_agent.provider_permits"));
     expect(insertion?.[1]).toEqual([
       permitId,
       "tenant-1",
@@ -104,7 +104,7 @@ describe("PostgresProviderCallController", () => {
     { success: false, errorCode: "BUYWHERE_TIMEOUT", expectedStatus: "FAILED", expectedSql: "consecutive_failures = consecutive_failures + 1" },
   ])("releases a permit and updates circuit health for success=$success", async ({ success, errorCode, expectedStatus, expectedSql }) => {
     const fixture = fakePool((sql) => {
-      if (sql.includes("UPDATE interec_agent.provider_permits")) return { rowCount: 1, rows: [{ provider: "buywhere-quote-v2" }] };
+      if (sql.includes("UPDATE retail_price_agent.provider_permits")) return { rowCount: 1, rows: [{ provider: "buywhere-quote-v2" }] };
       return { rowCount: 1, rows: [] };
     });
     const controller = new PostgresProviderCallController(fixture.pool, {
@@ -115,7 +115,7 @@ describe("PostgresProviderCallController", () => {
     await controller.release("permit-1", { success, ...(errorCode ? { errorCode } : {}) });
 
     expect(fixture.query).toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE interec_agent.provider_permits"),
+      expect.stringContaining("UPDATE retail_price_agent.provider_permits"),
       ["permit-1", expectedStatus, errorCode ?? null],
     );
     expect(fixture.query.mock.calls.some(([sql]) => String(sql).includes(expectedSql))).toBe(true);
@@ -124,7 +124,7 @@ describe("PostgresProviderCallController", () => {
   });
 
   it("commits an idempotent no-op when the permit was already released", async () => {
-    const fixture = fakePool((sql) => sql.includes("UPDATE interec_agent.provider_permits")
+    const fixture = fakePool((sql) => sql.includes("UPDATE retail_price_agent.provider_permits")
       ? { rowCount: 0, rows: [] }
       : { rowCount: 1, rows: [] });
     const controller = new PostgresProviderCallController(fixture.pool);
@@ -137,7 +137,7 @@ describe("PostgresProviderCallController", () => {
 
   it("rolls back and releases the connection when a release transaction fails", async () => {
     const fixture = fakePool((sql) => {
-      if (sql.includes("UPDATE interec_agent.provider_permits")) throw new Error("DB_UNAVAILABLE");
+      if (sql.includes("UPDATE retail_price_agent.provider_permits")) throw new Error("DB_UNAVAILABLE");
       return { rowCount: 1, rows: [] };
     });
     const controller = new PostgresProviderCallController(fixture.pool);

@@ -1,4 +1,4 @@
-import { validateProductIdentitySnapshot, type ProductIdentitySnapshot } from "@interec/domain";
+import { validateProductIdentitySnapshot, type ProductIdentitySnapshot } from "@retail-price/domain";
 
 const registryVersion = 1;
 const sourceRef = "identity-grounded-trajectory-fixture-v1";

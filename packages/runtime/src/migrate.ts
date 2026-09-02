@@ -1,9 +1,9 @@
 import pg from "pg";
 
+import { requiredRetailPriceEnvironmentValue } from "./environment.js";
 import { runConversationMigrations } from "./schema-migrator.js";
 
-const databaseUrl = process.env["INTEREC_DATABASE_URL"];
-if (!databaseUrl) throw new Error("INTEREC_DATABASE_URL is required");
+const databaseUrl = requiredRetailPriceEnvironmentValue(process.env, "DATABASE_URL");
 
 const pool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
 try {

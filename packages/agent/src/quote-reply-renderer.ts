@@ -5,7 +5,7 @@ import {
   type QuoteProviderInvocation,
   type QuoteTurnOperation,
   type QuoteTurnPlan,
-} from "@interec/domain";
+} from "@retail-price/domain";
 
 export interface QuoteOperationReceiptView {
   opId: string;

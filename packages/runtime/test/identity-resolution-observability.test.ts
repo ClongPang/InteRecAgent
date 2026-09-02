@@ -1,4 +1,4 @@
-import type { QuoteAdmissionDecision } from "@interec/domain";
+import type { QuoteAdmissionDecision } from "@retail-price/domain";
 import { describe, expect, it } from "vitest";
 
 import { compareIdentityResolutionShadow } from "../src/identity-resolution-observability.js";

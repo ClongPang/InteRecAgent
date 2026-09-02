@@ -1,5 +1,5 @@
-import { QuoteConversationTurnExecutor, type IdentityCandidateView, type QuoteEffectExecutionPort } from "@interec/agent";
-import type { ProductIdentitySnapshot, QuotePlanReview } from "@interec/domain";
+import { QuoteConversationTurnExecutor, type IdentityCandidateView, type QuoteEffectExecutionPort } from "@retail-price/agent";
+import type { ProductIdentitySnapshot, QuotePlanReview } from "@retail-price/domain";
 
 import type { ClaimedConversationTurn, ConversationRepository, FinalCommitResult } from "./conversation-repository-types.js";
 

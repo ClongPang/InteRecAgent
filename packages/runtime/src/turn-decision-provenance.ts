@@ -7,7 +7,7 @@
  * `catalogIdentityCode` because those are registry tokens, not user utterances.
  */
 
-export const DECISION_PROVENANCE_SCHEMA_VERSION = "interec-turn-decision-v5" as const;
+export const DECISION_PROVENANCE_SCHEMA_VERSION = "retail-price-turn-decision-v5" as const;
 
 const CODE_VALUE = /^[A-Za-z0-9_.:-]*$/;
 

@@ -8,7 +8,9 @@ import {
 import type {
   AgentModelCallObservation,
   ObserveAgentToolCall,
-} from "@interec/agent";
+} from "@retail-price/agent";
+
+import { retailPriceEnvironmentValue } from "./environment.js";
 
 import {
   recordGuardrailDecision,
@@ -86,7 +88,7 @@ function generationUsage(message: AssistantMessage): {
 export function createAgentEventObserver(options: AgentEventObserverOptions): AgentEventObserver {
   let generation: LangfuseGeneration | null = null;
   let activeCall: AgentModelCallObservation | null = null;
-  const digestKey = process.env["INTEREC_TELEMETRY_PSEUDONYM_KEY"];
+  const digestKey = retailPriceEnvironmentValue(process.env, "TELEMETRY_PSEUDONYM_KEY");
   const causality = new AgentCausalityLedger(digestKey);
   const finishGeneration = (message?: AgentEventMessage): void => {
     if (!generation) return;

@@ -1,4 +1,4 @@
-import type { QuoteAdmissionDecision } from "@interec/domain";
+import type { QuoteAdmissionDecision } from "@retail-price/domain";
 
 import { runtimeMetrics } from "./runtime-metrics.js";
 

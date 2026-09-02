@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 import {
   BuyWhereMcpQuoteClient,
+  retailPriceEnvironmentValue,
   resolveBuyWhereRuntimeConfig,
 } from "../packages/runtime/src/index.js";
 import {
@@ -24,14 +25,14 @@ import {
 } from "./quote_live_acceptance_history.js";
 
 const AUTHORIZATION = "authorized-buywhere-multi-case-read";
-if (process.env["INTEREC_QUOTE_LIVE_ACCEPTANCE_CONFIRM"] !== AUTHORIZATION) {
-  throw new Error(`INTEREC_QUOTE_LIVE_ACCEPTANCE_CONFIRM_MUST_BE_${AUTHORIZATION}`);
+if (retailPriceEnvironmentValue(process.env, "QUOTE_LIVE_ACCEPTANCE_CONFIRM") !== AUTHORIZATION) {
+  throw new Error(`RETAIL_PRICE_QUOTE_LIVE_ACCEPTANCE_CONFIRM_MUST_BE_${AUTHORIZATION}`);
 }
 
 const startedAt = new Date().toISOString();
 const config = resolveBuyWhereRuntimeConfig();
-const delayText = process.env["INTEREC_QUOTE_LIVE_ACCEPTANCE_DELAY_MS"]?.trim() ?? "3000";
-if (!/^\d+$/u.test(delayText) || Number(delayText) > 10_000) throw new Error("INTEREC_QUOTE_LIVE_ACCEPTANCE_DELAY_MS_INVALID");
+const delayText = retailPriceEnvironmentValue(process.env, "QUOTE_LIVE_ACCEPTANCE_DELAY_MS")?.trim() ?? "3000";
+if (!/^\d+$/u.test(delayText) || Number(delayText) > 10_000) throw new Error("RETAIL_PRICE_QUOTE_LIVE_ACCEPTANCE_DELAY_MS_INVALID");
 const interRequestDelayMs = Number(delayText);
 const invocationAudits: ProviderInvocationAudit[] = [];
 

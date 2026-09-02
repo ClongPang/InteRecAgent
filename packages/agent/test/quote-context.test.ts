@@ -2,7 +2,7 @@ import {
   emptyQuoteConversationState,
   resolveQuoteTarget,
   type PublishedQuoteLeadSet,
-} from "@interec/domain";
+} from "@retail-price/domain";
 import { describe, expect, it } from "vitest";
 
 import { projectQuoteConversationContext } from "../src/quote-context.js";

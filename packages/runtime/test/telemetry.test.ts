@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InMemorySpanExporter } from "@opentelemetry/sdk-trace-base";
 import { InMemoryMetricExporter, PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
-import { projectPublishedQuoteLeadSet, resolveQuoteTarget } from "@interec/domain";
+import { projectPublishedQuoteLeadSet, resolveQuoteTarget } from "@retail-price/domain";
 
 import { BuyWhereMcpQuoteClient } from "../src/buywhere-mcp-quote-client.js";
 import { observeQuoteLookupHost } from "../src/quote-lookup-observability.js";
@@ -79,7 +79,7 @@ describe("Langfuse telemetry", () => {
       LANGFUSE_SECRET_KEY: "sk-lf-test",
       LANGFUSE_BASE_URL: "https://langfuse.example.test",
       LANGFUSE_TRACING_ENVIRONMENT: "Staging CN",
-      INTEREC_TELEMETRY_PSEUDONYM_KEY: "test-pseudonym-key-with-at-least-32-bytes",
+      RETAIL_PRICE_TELEMETRY_PSEUDONYM_KEY: "test-pseudonym-key-with-at-least-32-bytes",
       OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "http://collector:4318/v1/metrics",
     })).toMatchObject({
       langfuseEnabled: true,
@@ -89,7 +89,7 @@ describe("Langfuse telemetry", () => {
       metricsEndpoint: "http://collector:4318/v1/metrics",
     });
     expect(resolveTelemetryConfig({
-      INTEREC_LANGFUSE_CAPTURE_CONTENT: "false",
+      RETAIL_PRICE_LANGFUSE_CAPTURE_CONTENT: "false",
     })).toMatchObject({ captureContent: false });
   });
 
@@ -107,7 +107,7 @@ describe("Langfuse telemetry", () => {
     expect(JSON.stringify(redacted)).not.toContain("buyer@example.com");
     expect(JSON.stringify(redacted)).not.toContain("4111 1111 1111 1111");
     expect(telemetryContent({ query: "private query" }, {})).toEqual({ query: "private query" });
-    expect(telemetryContent({ query: "private query" }, { INTEREC_LANGFUSE_CAPTURE_CONTENT: "false" })).toEqual({
+    expect(telemetryContent({ query: "private query" }, { RETAIL_PRICE_LANGFUSE_CAPTURE_CONTENT: "false" })).toEqual({
       contentCaptured: false,
     });
     expect(telemetryErrorCode(new Error("provider echoed private query"))).toBe("UNEXPECTED_ERROR");
@@ -123,18 +123,18 @@ describe("Langfuse telemetry", () => {
 
   it("exports one correlated agent tree without raw content", async () => {
     vi.stubEnv("LANGFUSE_TRACING_ENVIRONMENT", "test");
-    vi.stubEnv("INTEREC_LANGFUSE_CAPTURE_CONTENT", "false");
-    vi.stubEnv("INTEREC_TELEMETRY_PSEUDONYM_KEY", "test-pseudonym-key-with-at-least-32-bytes");
+    vi.stubEnv("RETAIL_PRICE_LANGFUSE_CAPTURE_CONTENT", "false");
+    vi.stubEnv("RETAIL_PRICE_TELEMETRY_PSEUDONYM_KEY", "test-pseudonym-key-with-at-least-32-bytes");
     const exporter = new InMemorySpanExporter();
     const metricExporter = new InMemoryMetricExporter();
     const metricReader = new PeriodicExportingMetricReader({ exporter: metricExporter, exportIntervalMillis: 60_000 });
     const telemetry = await startTelemetry(
-      "interec-telemetry-test",
+      "retail-price-telemetry-test",
       {
         LANGFUSE_PUBLIC_KEY: "pk-lf-test-value",
         LANGFUSE_SECRET_KEY: "sk-lf-test-value",
         LANGFUSE_TRACING_ENVIRONMENT: "test",
-        INTEREC_TELEMETRY_PSEUDONYM_KEY: "test-pseudonym-key-with-at-least-32-bytes",
+        RETAIL_PRICE_TELEMETRY_PSEUDONYM_KEY: "test-pseudonym-key-with-at-least-32-bytes",
       },
       { langfuseExporter: exporter, metricReader },
     );
@@ -356,14 +356,14 @@ describe("Langfuse telemetry", () => {
       expect(JSON.stringify(agentRoot?.attributes)).toContain("ESTABLISHED");
       expect(resourceAttributes).not.toContain("process.command_args");
       expect(resourceAttributes).not.toContain("process.command_line");
-      expect(resourceAttributes).toContain("interec-telemetry-test");
+      expect(resourceAttributes).toContain("retail-price-telemetry-test");
       const metricNames = metricExporter.getMetrics().flatMap((resource) =>
         resource.scopeMetrics.flatMap((scope) => scope.metrics.map((metric) => metric.descriptor.name)));
-      expect(metricNames).toContain("rec_agent.api.enqueue.duration");
-      expect(metricNames).toContain("rec_agent.provider.request.duration");
-      expect(metricNames).toContain("rec_agent.provider.errors");
-      expect(metricNames).toContain("rec_agent.telemetry.export_lifecycle");
-      expect(metricNames).toContain("rec_agent.trace.causality_checks");
+      expect(metricNames).toContain("retail_price_agent.api.enqueue.duration");
+      expect(metricNames).toContain("retail_price_agent.provider.request.duration");
+      expect(metricNames).toContain("retail_price_agent.provider.errors");
+      expect(metricNames).toContain("retail_price_agent.telemetry.export_lifecycle");
+      expect(metricNames).toContain("retail_price_agent.trace.causality_checks");
     } finally {
       await telemetry.shutdown();
     }
@@ -585,7 +585,7 @@ describe("turn view projection", () => {
       replyText: "商家页有两条报价",
       status: "COMPLETED",
       decision,
-      environment: { INTEREC_LANGFUSE_CAPTURE_CONTENT: "false" },
+      environment: { RETAIL_PRICE_LANGFUSE_CAPTURE_CONTENT: "false" },
     });
     expect(view.input).toEqual([{ role: "user", content: "[CONTENT_NOT_CAPTURED]" }]);
     expect(view.output).toEqual([{ role: "assistant", content: "QUOTE_LEADS | quote_lookup | ESTABLISHED | WH-1000XM5" }]);

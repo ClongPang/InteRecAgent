@@ -75,7 +75,7 @@ function linkEnqueueCause(causedByTraceId?: string, causedByObservationId?: stri
       spanId: causedByObservationId.toLowerCase(),
       traceFlags: TraceFlags.SAMPLED,
     },
-    attributes: { "interec.causality": "enqueue_to_attempt" },
+    attributes: { "retail_price.causality": "enqueue_to_attempt" },
   });
 }
 

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import { resolveQuoteTarget } from "@interec/domain";
+import { resolveQuoteTarget } from "@retail-price/domain";
 import { describe, expect, it } from "vitest";
 
 import {

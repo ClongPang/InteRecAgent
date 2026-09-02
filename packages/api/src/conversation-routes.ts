@@ -6,7 +6,7 @@ import {
   runtimeMetrics,
   type ConversationRepository,
   type ConversationTurnInput,
-} from "@interec/runtime";
+} from "@retail-price/runtime";
 
 import { ApiError, ownerFor } from "./api-errors.js";
 import type { IdentityVerifier } from "./auth.js";

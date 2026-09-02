@@ -7,7 +7,7 @@ import {
   type PublishedQuoteLeadSet,
   type QuoteAssistantOutcome,
   type QuoteConversationState,
-} from "@interec/domain";
+} from "@retail-price/domain";
 import {
   QuoteConversationTurnExecutor,
   QuotePlanReviewError,

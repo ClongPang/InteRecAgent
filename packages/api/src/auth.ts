@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import type { FastifyRequest } from "fastify";
-import type { OwnerClaims } from "@interec/runtime";
+import type { OwnerClaims } from "@retail-price/runtime";
 
 export interface IdentityVerifier {
   verify(request: FastifyRequest): Promise<OwnerClaims | null>;
@@ -38,9 +38,9 @@ function normalizeHmacJwtOptions(options: HmacJwtOptions): NormalizedHmacJwtOpti
   const secret = options.secret.trim();
   const issuer = options.issuer.trim();
   const audience = options.audience.trim();
-  if (secret.length < 32) throw new Error("INTEREC_AUTH_HMAC_SECRET_TOO_SHORT");
-  if (!issuer) throw new Error("INTEREC_AUTH_ISSUER_REQUIRED");
-  if (!audience) throw new Error("INTEREC_AUTH_AUDIENCE_REQUIRED");
+  if (secret.length < 32) throw new Error("RETAIL_PRICE_AUTH_HMAC_SECRET_TOO_SHORT");
+  if (!issuer) throw new Error("RETAIL_PRICE_AUTH_ISSUER_REQUIRED");
+  if (!audience) throw new Error("RETAIL_PRICE_AUTH_AUDIENCE_REQUIRED");
   return { secret, issuer, audience };
 }
 
@@ -51,10 +51,10 @@ export function issueHmacJwt(
 ): IssuedHmacJwt {
   const normalized = normalizeHmacJwtOptions(options);
   if (!Number.isSafeInteger(issue.lifetimeSeconds) || issue.lifetimeSeconds < 1) {
-    throw new Error("INTEREC_AUTH_TOKEN_LIFETIME_INVALID");
+    throw new Error("RETAIL_PRICE_AUTH_TOKEN_LIFETIME_INVALID");
   }
   const now = issue.nowSeconds ?? Math.floor(Date.now() / 1000);
-  if (!Number.isSafeInteger(now) || now < 0) throw new Error("INTEREC_AUTH_TOKEN_TIME_INVALID");
+  if (!Number.isSafeInteger(now) || now < 0) throw new Error("RETAIL_PRICE_AUTH_TOKEN_TIME_INVALID");
   const expiresAtSeconds = now + issue.lifetimeSeconds;
   const encodedHeader = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
   const encodedPayload = Buffer.from(JSON.stringify({

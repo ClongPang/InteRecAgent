@@ -24,7 +24,7 @@ export async function reservePostgresToolExecution(
   try {
     await client.query("BEGIN");
     const turn = await client.query<Record<string, unknown>>(
-      `SELECT * FROM interec_agent.turns
+      `SELECT * FROM retail_price_agent.turns
        WHERE id = $1 AND attempt = $2 AND fence_token = $3::bigint AND status = 'RUNNING'
          AND lease_expires_at > clock_timestamp() AND deadline_at > clock_timestamp()
        FOR UPDATE`,
@@ -35,7 +35,7 @@ export async function reservePostgresToolExecution(
       return null;
     }
     const existing = await client.query<Record<string, unknown>>(
-      "SELECT * FROM interec_agent.tool_executions WHERE turn_id = $1 AND step_key = $2 FOR UPDATE",
+      "SELECT * FROM retail_price_agent.tool_executions WHERE turn_id = $1 AND step_key = $2 FOR UPDATE",
       [turnId, normalizedStepKey],
     );
     const row = existing.rows[0];
@@ -55,7 +55,7 @@ export async function reservePostgresToolExecution(
         return { action: "WAIT", execution: mapToolExecution(row) };
       }
       const recovered = await client.query<Record<string, unknown>>(
-        `UPDATE interec_agent.tool_executions
+        `UPDATE retail_price_agent.tool_executions
          SET attempt = $3, status = 'RUNNING', result_json = NULL, error_code = NULL,
              started_at = clock_timestamp(), completed_at = NULL
          WHERE turn_id = $1 AND step_key = $2 RETURNING *`,
@@ -65,7 +65,7 @@ export async function reservePostgresToolExecution(
       return { action: "CALL", execution: mapToolExecution(recovered.rows[0]!) };
     }
     const inserted = await client.query<Record<string, unknown>>(
-      `INSERT INTO interec_agent.tool_executions
+      `INSERT INTO retail_price_agent.tool_executions
          (id, turn_id, attempt, step_key, request_hash, status, request_json, started_at)
        VALUES ($1, $2, $3, $4, $5, 'RUNNING', $6::jsonb, clock_timestamp()) RETURNING *`,
       [randomUUID(), turnId, attempt, normalizedStepKey, requestHash, JSON.stringify(request)],
@@ -90,9 +90,9 @@ export async function completePostgresToolExecution(
   result: Record<string, unknown>,
 ): Promise<boolean> {
   const completed = await pool.query(
-    `UPDATE interec_agent.tool_executions te
+    `UPDATE retail_price_agent.tool_executions te
      SET status = 'SUCCEEDED', result_json = $6::jsonb, error_code = NULL, completed_at = clock_timestamp()
-     FROM interec_agent.turns t
+     FROM retail_price_agent.turns t
      WHERE te.turn_id = t.id AND te.turn_id = $1 AND te.attempt = $2 AND te.step_key = $4 AND te.request_hash = $5
        AND te.status = 'RUNNING' AND t.attempt = $2 AND t.fence_token = $3::bigint AND t.status = 'RUNNING'
        AND t.lease_expires_at > clock_timestamp() AND t.deadline_at > clock_timestamp()`,
@@ -111,9 +111,9 @@ export async function failPostgresToolExecution(
   errorCode: string,
 ): Promise<boolean> {
   const failed = await pool.query(
-    `UPDATE interec_agent.tool_executions te
+    `UPDATE retail_price_agent.tool_executions te
      SET status = 'FAILED', error_code = $6, completed_at = clock_timestamp()
-     FROM interec_agent.turns t
+     FROM retail_price_agent.turns t
      WHERE te.turn_id = t.id AND te.turn_id = $1 AND te.attempt = $2 AND te.step_key = $4 AND te.request_hash = $5
        AND te.status = 'RUNNING' AND t.attempt = $2 AND t.fence_token = $3::bigint AND t.status = 'RUNNING'
        AND t.lease_expires_at > clock_timestamp() AND t.deadline_at > clock_timestamp()`,

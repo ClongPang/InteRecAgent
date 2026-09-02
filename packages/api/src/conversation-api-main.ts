@@ -1,35 +1,31 @@
 import {
   PostgresConversationRepository,
+  requiredRetailPriceEnvironmentValue,
+  retailPriceEnvironmentValue,
   startTelemetry,
   verifyConversationSchema,
   waitForTerminationSignal,
-} from "@interec/runtime";
+} from "@retail-price/runtime";
 
 import { createConversationApp } from "./app.js";
 import { HmacJwtIdentityVerifier, type HmacJwtOptions } from "./auth.js";
 import { developmentAuthFromEnvironment } from "./development-auth.js";
 
-function required(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name}_REQUIRED`);
-  return value;
-}
-
 function portFromEnvironment(): number {
-  const value = Number(process.env["INTEREC_API_PORT"] ?? "8081");
-  if (!Number.isSafeInteger(value) || value < 1 || value > 65_535) throw new Error("INTEREC_API_PORT_INVALID");
+  const value = Number(retailPriceEnvironmentValue(process.env, "API_PORT") ?? "8081");
+  if (!Number.isSafeInteger(value) || value < 1 || value > 65_535) throw new Error("RETAIL_PRICE_API_PORT_INVALID");
   return value;
 }
 
-const repository = new PostgresConversationRepository(required("INTEREC_DATABASE_URL"));
+const repository = new PostgresConversationRepository(requiredRetailPriceEnvironmentValue(process.env, "DATABASE_URL"));
 const jwt: HmacJwtOptions = {
-  secret: required("INTEREC_AUTH_HMAC_SECRET"),
-  issuer: required("INTEREC_AUTH_ISSUER"),
-  audience: required("INTEREC_AUTH_AUDIENCE"),
+  secret: requiredRetailPriceEnvironmentValue(process.env, "AUTH_HMAC_SECRET"),
+  issuer: requiredRetailPriceEnvironmentValue(process.env, "AUTH_ISSUER"),
+  audience: requiredRetailPriceEnvironmentValue(process.env, "AUTH_AUDIENCE"),
 };
 const identityVerifier = new HmacJwtIdentityVerifier(jwt);
 const developmentAuth = developmentAuthFromEnvironment(process.env, jwt);
-const telemetry = await startTelemetry("interec-conversation-api");
+const telemetry = await startTelemetry("retail-price-conversation-api");
 const app = createConversationApp({
   repository,
   identityVerifier,
@@ -47,7 +43,7 @@ const app = createConversationApp({
 });
 
 await app.listen({
-  host: process.env["INTEREC_API_HOST"]?.trim() || "127.0.0.1",
+  host: retailPriceEnvironmentValue(process.env, "API_HOST")?.trim() || "127.0.0.1",
   port: portFromEnvironment(),
 });
 

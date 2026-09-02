@@ -3,8 +3,8 @@ import {
   QUOTE_CONVERSATION_PROMPT_SHA256,
   QUOTE_CONVERSATION_PROMPT_VERSION,
   executeQuoteConversationTurn,
-} from "@interec/agent";
-import { findProductIdentityCandidates } from "@interec/domain";
+} from "@retail-price/agent";
+import { findProductIdentityCandidates } from "@retail-price/domain";
 
 import type {
   ClaimedConversationTurn,

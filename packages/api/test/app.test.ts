@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { afterEach, describe, expect, it } from "vitest";
-import { emptyQuoteConversationState, type ConversationState } from "@interec/domain";
+import { emptyQuoteConversationState, type ConversationState } from "@retail-price/domain";
 import type {
   AcceptedConversationTurn,
   ConversationEventRecord,
@@ -10,7 +10,7 @@ import type {
   ConversationRepository,
   ConversationTurnRecord,
   OwnerClaims,
-} from "@interec/runtime";
+} from "@retail-price/runtime";
 
 import { createConversationApp } from "../src/app.js";
 import {
@@ -247,14 +247,14 @@ describe("development authentication", () => {
   it("fails closed for production or non-loopback startup configuration", () => {
     expect(developmentAuthFromEnvironment({}, jwt)).toBeUndefined();
     expect(() => developmentAuthFromEnvironment({
-      INTEREC_ENABLE_DEV_AUTH: "true",
+      RETAIL_PRICE_ENABLE_DEV_AUTH: "true",
       NODE_ENV: "production",
-      INTEREC_API_HOST: "127.0.0.1",
-    }, jwt)).toThrow("INTEREC_DEV_AUTH_FORBIDDEN_IN_PRODUCTION");
+      RETAIL_PRICE_API_HOST: "127.0.0.1",
+    }, jwt)).toThrow("RETAIL_PRICE_DEV_AUTH_FORBIDDEN_IN_PRODUCTION");
     expect(() => developmentAuthFromEnvironment({
-      INTEREC_ENABLE_DEV_AUTH: "true",
+      RETAIL_PRICE_ENABLE_DEV_AUTH: "true",
       NODE_ENV: "development",
-      INTEREC_API_HOST: "0.0.0.0",
-    }, jwt)).toThrow("INTEREC_DEV_AUTH_REQUIRES_LOOPBACK_HOST");
+      RETAIL_PRICE_API_HOST: "0.0.0.0",
+    }, jwt)).toThrow("RETAIL_PRICE_DEV_AUTH_REQUIRES_LOOPBACK_HOST");
   });
 });

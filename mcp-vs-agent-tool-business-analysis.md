@@ -1,4 +1,4 @@
-# InteRecAgent：MCP 与自定义 Agent Tool 业务架构分析
+# RetailPriceAgent：MCP 与自定义 Agent Tool 业务架构分析
 
 ## 1. 结论
 
@@ -9,7 +9,7 @@ MCP 和 Agent Tool 不属于同一个架构层次，不应被理解为互斥选�
 - **领域端口** 隔离业务语义与具体 Provider；
 - **Provider Adapter** 负责把领域请求映射为 MCP、REST 或其他外部协议。
 
-InteRecAgent 当前采用的是组合方案，而不是用 MCP 取代自定义 Agent Tool：
+RetailPriceAgent 当前采用的是组合方案，而不是用 MCP 取代自定义 Agent Tool：
 
 ```text
 LLM

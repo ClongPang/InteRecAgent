@@ -476,7 +476,7 @@ Issue 已按“重建 Agent 因果图”而不是“继续堆 metadata”的目�
 - Trace 形成 `conversation-turn CHAIN → execute-turn-attempt AGENT → Generation / agent.tool.* TOOL → Host SPAN → Provider TOOL` 的可读层级；Host 内部步骤不再伪装成模型 Tool。
 - API 入队创建真实 `conversation-turn` 根 Observation，并把 trace/root observation ID 持久化到 Turn；Worker 跨异步边界继续使用同一棵树。遥测关闭或导出失败时不影响业务提交。
 - Experiment wrapper 与每条业务 Turn Trace 通过 Dataset Run、Dataset Item、trial、task、run、turn 等字段双向关联；原生 Prompt 版本绑定在 Generation，资格评分使用 Scores v3 回读。
-- 内容默认采集经脱敏的正文；设 `INTEREC_LANGFUSE_CAPTURE_CONTENT=false` 则只留结构。隐藏思维链始终不采集。
+- 内容默认采集经脱敏的正文；设 `RETAIL_PRICE_LANGFUSE_CAPTURE_CONTENT=false` 则只留结构。隐藏思维链始终不采集。
 
 真实服务验收执行 `gbv1-compare_existing-01`，由 `deepseek-v4-flash` 完成 1 个两轮 Trial：
 

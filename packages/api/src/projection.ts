@@ -4,8 +4,8 @@ import type {
   ConversationRepository,
   ConversationTurnRecord,
   OwnerClaims,
-} from "@interec/runtime";
-import type { ConversationState } from "@interec/domain";
+} from "@retail-price/runtime";
+import type { ConversationState } from "@retail-price/domain";
 
 export interface ConversationProjection {
   conversation: Pick<ConversationRecord, "id" | "status" | "contractVersion" | "currentRevision" | "createdAt" | "updatedAt">;

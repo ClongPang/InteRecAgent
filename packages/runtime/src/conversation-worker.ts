@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { QUOTE_LEAD_CONTRACT_VERSION } from "@interec/domain";
+import { QUOTE_LEAD_CONTRACT_VERSION } from "@retail-price/domain";
 
 import type { ClaimedConversationTurn, ConversationRepository } from "./conversation-repository-types.js";
 import type { FxPort } from "./fx-provider.js";

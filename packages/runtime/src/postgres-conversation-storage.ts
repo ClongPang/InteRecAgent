@@ -5,7 +5,7 @@ import {
   QUOTE_LEAD_CONTRACT_VERSION,
   validateQuoteConversationState,
   type ConversationState,
-} from "@interec/domain";
+} from "@retail-price/domain";
 import pg from "pg";
 
 import type {
@@ -138,7 +138,7 @@ export function mapToolExecution(row: Record<string, unknown>): ToolExecutionRec
 
 export async function allocateMessageSeq(client: Queryable, conversationId: string): Promise<number> {
   const result = await client.query<{ seq: string }>(
-    `UPDATE interec_agent.conversations
+    `UPDATE retail_price_agent.conversations
      SET next_message_seq = next_message_seq + 1, updated_at = clock_timestamp()
      WHERE id = $1 RETURNING next_message_seq AS seq`,
     [conversationId],
@@ -155,7 +155,7 @@ export async function appendConversationEvent(
   publicPayload: Record<string, unknown>,
 ): Promise<number> {
   const sequence = await client.query<{ seq: string }>(
-    `UPDATE interec_agent.conversations
+    `UPDATE retail_price_agent.conversations
      SET next_event_seq = next_event_seq + 1, updated_at = clock_timestamp()
      WHERE id = $1 RETURNING next_event_seq AS seq`,
     [conversationId],
@@ -164,12 +164,12 @@ export async function appendConversationEvent(
   const seq = Number(sequence.rows[0].seq);
   const eventId = randomUUID();
   await client.query(
-    `INSERT INTO interec_agent.turn_events (id, conversation_id, turn_id, seq, event_type, public_payload)
+    `INSERT INTO retail_price_agent.turn_events (id, conversation_id, turn_id, seq, event_type, public_payload)
      VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
     [eventId, conversationId, turnId, seq, eventType, JSON.stringify(publicPayload)],
   );
   await client.query(
-    `INSERT INTO interec_agent.outbox (id, event_id, topic, payload)
+    `INSERT INTO retail_price_agent.outbox (id, event_id, topic, payload)
      VALUES ($1, $2, 'conversation.events', $3::jsonb)`,
     [randomUUID(), eventId, JSON.stringify({ conversationId, turnId, seq, eventType, ...publicPayload })],
   );
@@ -178,7 +178,7 @@ export async function appendConversationEvent(
 
 export async function inputMessageIds(client: Queryable, turnId: string): Promise<string[]> {
   const result = await client.query<{ message_id: string }>(
-    "SELECT message_id FROM interec_agent.turn_input_messages WHERE turn_id = $1 ORDER BY ordinal",
+    "SELECT message_id FROM retail_price_agent.turn_input_messages WHERE turn_id = $1 ORDER BY ordinal",
     [turnId],
   );
   return result.rows.map((row) => row.message_id);
@@ -186,7 +186,7 @@ export async function inputMessageIds(client: Queryable, turnId: string): Promis
 
 export async function hydrateSnapshot(client: Queryable, conversationId: string, requestedRevision?: number): Promise<ConversationState | null> {
   const conversation = await client.query<Record<string, unknown>>(
-    "SELECT current_revision, status, contract_version FROM interec_agent.conversations WHERE id = $1",
+    "SELECT current_revision, status, contract_version FROM retail_price_agent.conversations WHERE id = $1",
     [conversationId],
   );
   const current = conversation.rows[0];
@@ -209,8 +209,8 @@ export async function hydrateSnapshot(client: Queryable, conversationId: string,
   }
   const result = await client.query<Record<string, unknown>>(
     `SELECT cr.revision, qsv.state_json AS quote_state_json
-     FROM interec_agent.conversation_revisions cr
-     JOIN interec_agent.quote_state_versions qsv ON qsv.id = cr.quote_state_version_id
+     FROM retail_price_agent.conversation_revisions cr
+     JOIN retail_price_agent.quote_state_versions qsv ON qsv.id = cr.quote_state_version_id
      WHERE cr.conversation_id = $1 AND cr.revision = $2`,
     [conversationId, revision],
   );
@@ -228,10 +228,10 @@ export async function hydrateSnapshot(client: Queryable, conversationId: string,
 }
 
 export async function lockConversationForTurn(client: Queryable, turnId: string): Promise<Record<string, unknown> | null> {
-  const located = await client.query<{ conversation_id: string }>("SELECT conversation_id FROM interec_agent.turns WHERE id = $1", [turnId]);
+  const located = await client.query<{ conversation_id: string }>("SELECT conversation_id FROM retail_price_agent.turns WHERE id = $1", [turnId]);
   if (!located.rows[0]) return null;
   const locked = await client.query<Record<string, unknown>>(
-    "SELECT * FROM interec_agent.conversations WHERE id = $1 FOR UPDATE",
+    "SELECT * FROM retail_price_agent.conversations WHERE id = $1 FOR UPDATE",
     [located.rows[0].conversation_id],
   );
   return locked.rows[0] ?? null;
@@ -239,7 +239,7 @@ export async function lockConversationForTurn(client: Queryable, turnId: string)
 
 export async function setOwnerContext(client: Queryable, owner: OwnerClaims): Promise<void> {
   await client.query(
-    "SELECT set_config('interec.tenant_id', $1, true), set_config('interec.owner_id', $2, true)",
+    "SELECT set_config('retail_price.tenant_id', $1, true), set_config('retail_price.owner_id', $2, true)",
     [requiredText(owner.tenantId, "INVALID_TENANT_ID"), requiredText(owner.ownerId, "INVALID_OWNER_ID")],
   );
 }

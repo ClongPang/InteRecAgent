@@ -1,15 +1,17 @@
-import { findProductIdentityCandidates, resolveProductIdentity } from "@interec/domain";
+import { findProductIdentityCandidates, resolveProductIdentity } from "@retail-price/domain";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   PostgresConversationRepository,
   PostgresProductIdentityRegistry,
+  retailPriceEnvironmentValue,
   runConversationMigrations,
 } from "../src/index.js";
 
 const enabled = process.env["RUN_CONVERSATION_PG_INTEGRATION"] === "1";
 const suite = enabled ? describe : describe.skip;
-const databaseUrl = process.env["INTEREC_DATABASE_URL"] ?? "postgresql://interec:interec@127.0.0.1:5432/interec";
+const databaseUrl = retailPriceEnvironmentValue(process.env, "DATABASE_URL")
+  ?? "postgresql://retail_price:retail_price@127.0.0.1:5432/retail_price";
 
 suite("PostgreSQL product identity registry", () => {
   const conversations = new PostgresConversationRepository(databaseUrl, 2);
@@ -82,7 +84,7 @@ suite("PostgreSQL product identity registry", () => {
 
   it("makes an active registry immutable and exposes the expected database guards", async () => {
     await expect(conversations.pool.query(
-      `INSERT INTO interec_agent.product_aliases
+      `INSERT INTO retail_price_agent.product_aliases
          (registry_version, alias_ref, variant_ref, purpose, display_value, normalized_key, approval_status, priority, source_ref)
        VALUES (1, 'alias_illegal_active_insert', 'variant_sony_wh1000xm5', 'USER_INPUT', 'illegal', 'ILLEGAL', 'APPROVED', 99, 'test')`,
     )).rejects.toThrow("PRODUCT_IDENTITY_VERSION_NOT_DRAFT");
@@ -90,10 +92,10 @@ suite("PostgreSQL product identity registry", () => {
     const schema = await conversations.pool.query<{ rls_count: number; index_count: number }>(
       `SELECT
          (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-          WHERE n.nspname = 'interec_agent' AND c.relname IN
+          WHERE n.nspname = 'retail_price_agent' AND c.relname IN
             ('product_identity_registry_versions', 'product_brands', 'canonical_products', 'product_variants', 'product_identifiers', 'product_aliases', 'product_relationships')
             AND c.relrowsecurity) AS rls_count,
-         (SELECT count(*)::int FROM pg_indexes WHERE schemaname = 'interec_agent' AND indexname IN
+         (SELECT count(*)::int FROM pg_indexes WHERE schemaname = 'retail_price_agent' AND indexname IN
             ('product_identifiers_approved_gtin_unique_idx', 'product_identifiers_approved_brand_mpn_unique_idx', 'product_aliases_resolution_idx')) AS index_count`,
     );
     expect(schema.rows[0]).toEqual({ rls_count: 7, index_count: 3 });

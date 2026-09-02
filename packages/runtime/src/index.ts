@@ -25,6 +25,10 @@ export {
   type AgentTraceCorrelation,
   type ConversationWorkerOptions,
 } from "./conversation-worker.js";
+export {
+  requiredRetailPriceEnvironmentValue,
+  retailPriceEnvironmentValue,
+} from "./environment.js";
 export { createPiModelRuntime, type PiModelRuntime } from "./model-factory.js";
 export {
   registerPostgresOperationalMetrics,

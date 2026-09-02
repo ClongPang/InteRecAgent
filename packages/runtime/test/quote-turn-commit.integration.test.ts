@@ -7,7 +7,7 @@ import {
   type QuoteAssistantPublication,
   type QuoteConversationState,
   type QuoteTurnPlan,
-} from "@interec/domain";
+} from "@retail-price/domain";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -16,6 +16,7 @@ import {
   QUOTE_PROVIDER_CONTRACT_VERSION,
   QuoteLookupService,
   buildQuoteProvenance,
+  retailPriceEnvironmentValue,
   runConversationMigrations,
   type OwnerClaims,
   type QuoteProviderResult,
@@ -23,7 +24,8 @@ import {
 
 const enabled = process.env["RUN_CONVERSATION_PG_INTEGRATION"] === "1";
 const suite = enabled ? describe : describe.skip;
-const databaseUrl = process.env["INTEREC_DATABASE_URL"] ?? "postgresql://interec:interec@127.0.0.1:5432/interec";
+const databaseUrl = retailPriceEnvironmentValue(process.env, "DATABASE_URL")
+  ?? "postgresql://retail_price:retail_price@127.0.0.1:5432/retail_price";
 
 function providerResult(): QuoteProviderResult {
   const records = [{
@@ -123,8 +125,8 @@ suite("PostgreSQL quote turn atomic publication", () => {
 
   beforeAll(async () => runConversationMigrations(repository.pool));
   afterAll(async () => {
-    await repository.pool.query("UPDATE interec_agent.conversations SET active_turn_id = NULL WHERE tenant_id = $1", [owner.tenantId]);
-    await repository.pool.query("DELETE FROM interec_agent.conversations WHERE tenant_id = $1", [owner.tenantId]);
+    await repository.pool.query("UPDATE retail_price_agent.conversations SET active_turn_id = NULL WHERE tenant_id = $1", [owner.tenantId]);
+    await repository.pool.query("DELETE FROM retail_price_agent.conversations WHERE tenant_id = $1", [owner.tenantId]);
     await repository.close();
   });
 
@@ -146,9 +148,9 @@ suite("PostgreSQL quote turn atomic publication", () => {
     })).resolves.toMatchObject({ committed: true, conversationRevision: 1 });
     const graph = await repository.pool.query<Record<string, unknown>>(
       `SELECT qls.status, qls.published_revision, cr.quote_state_version_id,
-              (SELECT count(*)::int FROM interec_agent.assistant_responses WHERE turn_id = $2) AS responses
-       FROM interec_agent.quote_lead_sets qls
-       JOIN interec_agent.conversation_revisions cr ON cr.conversation_id = qls.conversation_id AND cr.revision = 1
+              (SELECT count(*)::int FROM retail_price_agent.assistant_responses WHERE turn_id = $2) AS responses
+       FROM retail_price_agent.quote_lead_sets qls
+       JOIN retail_price_agent.conversation_revisions cr ON cr.conversation_id = qls.conversation_id AND cr.revision = 1
        WHERE qls.id = $1`,
       [value.saved.quoteLeadSetId, value.claimed.id],
     );
@@ -186,10 +188,10 @@ suite("PostgreSQL quote turn atomic publication", () => {
     })).rejects.toMatchObject({ code: "QUOTE_PUBLIC_FIELD_FORBIDDEN" });
     const result = await repository.pool.query<Record<string, unknown>>(
       `SELECT c.current_revision, qls.status,
-              (SELECT count(*)::int FROM interec_agent.quote_state_versions WHERE conversation_id = c.id) AS quote_states,
-              (SELECT count(*)::int FROM interec_agent.assistant_responses WHERE turn_id = $2) AS responses
-       FROM interec_agent.conversations c
-       JOIN interec_agent.quote_lead_sets qls ON qls.conversation_id = c.id
+              (SELECT count(*)::int FROM retail_price_agent.quote_state_versions WHERE conversation_id = c.id) AS quote_states,
+              (SELECT count(*)::int FROM retail_price_agent.assistant_responses WHERE turn_id = $2) AS responses
+       FROM retail_price_agent.conversations c
+       JOIN retail_price_agent.quote_lead_sets qls ON qls.conversation_id = c.id
        WHERE qls.id = $1`,
       [value.saved.quoteLeadSetId, value.claimed.id],
     );

@@ -1,5 +1,5 @@
 {
-  "name": "@interec/runtime",
+  "name": "@retail-price/runtime",
   "version": "0.2.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,8 @@
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.84.3",
     "@earendil-works/pi-ai": "0.84.3",
-    "@interec/agent": "0.2.0",
-    "@interec/domain": "0.2.0",
+    "@retail-price/agent": "0.2.0",
+    "@retail-price/domain": "0.2.0",
     "@langfuse/client": "5.10.1",
     "@langfuse/otel": "5.10.1",
     "@langfuse/tracing": "5.10.1",

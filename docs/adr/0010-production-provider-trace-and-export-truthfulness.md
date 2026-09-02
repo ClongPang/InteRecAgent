@@ -15,7 +15,7 @@
 
 1. `BuyWhereMcpQuoteClient` 的物理 `find_best_price_v2` 调用是 `tool.provider.buywhere.find_best_price_v2` TOOL；输出只记录闭集状态、失败码、retryable、记录数和契约版本，不记录原始响应。
 2. `QuoteTurnDataService` 的逻辑 lookup 是 `turn_executor.quote-lookup` SPAN，覆盖缓存、permit、归一化、FX 和持久化。Host 与 receipt 共用 `providerInvocation: LIVE | ATTEMPT_REPLAY`，不再用布尔 `providerCalled` 同时表示“应用了报价观测”和“这次发了 HTTP”。
-3. `providerFailureCode` 从 Published lead set 进入 operation receipt、DecisionProviderRecord 和根 Trace metadata；这是闭集诊断码，不依赖正文采集授权。`providerInvocation` 进入同一收据与决策记录，因此 provenance 契约当时升级为 `interec-turn-decision-v4`；现行决策身份字段见 `interec-turn-decision-v5`。物理 BuyWhere TOOL 记录 JSON-RPC `providerRequestId`，只作供应商对账，不进入决策通道。
+3. `providerFailureCode` 从 Published lead set 进入 operation receipt、DecisionProviderRecord 和根 Trace metadata；这是闭集诊断码，不依赖正文采集授权。`providerInvocation` 进入同一收据与决策记录，因此 provenance 契约当时升级为 `retail-price-turn-decision-v4`；现行决策身份字段见 `retail-price-turn-decision-v5`。物理 BuyWhere TOOL 记录 JSON-RPC `providerRequestId`，只作供应商对账，不进入决策通道。
 4. Worker 每完成一个 durable turn 执行一次非严格 `forceFlush`：导出失败不得回滚已提交业务结果，但必须产生 metric 和 stderr 证据。Worker/API 的最终 shutdown 使用 strict 模式；API 主流程直接等待 signal 后顺序 await close 与 shutdown。
 5. 数据库为 Trace ID 增加来源：`OBSERVED_ENQUEUE_ROOT` 或 `OBSERVED_ATTEMPT_ROOT`。迁移 0025 清除 0012 的合成 MD5 enqueue ID和复制到 attempt 的 enqueue ID；没有实际 Observation 的值保持 NULL。
 

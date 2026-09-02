@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { resolveQuoteTarget, type FxSnapshot, type QuoteTargetResolution } from "@interec/domain";
+import { resolveQuoteTarget, type FxSnapshot, type QuoteTargetResolution } from "@retail-price/domain";
 import { describe, expect, it, vi } from "vitest";
 
 import {

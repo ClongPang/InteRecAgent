@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import type { QuoteLeadSet } from "@interec/domain";
+import type { QuoteLeadSet } from "@retail-price/domain";
 import type pg from "pg";
 
 import type { ClaimedConversationTurn, OwnerClaims } from "./conversation-repository-types.js";
@@ -68,13 +68,13 @@ export class PostgresQuoteLookupRepository {
     try {
       await client.query("BEGIN");
       await client.query(
-        "SELECT set_config('interec.tenant_id', $1, true), set_config('interec.owner_id', $2, true)",
+        "SELECT set_config('retail_price.tenant_id', $1, true), set_config('retail_price.owner_id', $2, true)",
         [claimed.owner.tenantId, claimed.owner.ownerId],
       );
       const valid = await client.query(
         `SELECT t.id
-         FROM interec_agent.turns t
-         JOIN interec_agent.turn_attempts ta ON ta.turn_id = t.id AND ta.attempt = t.attempt
+         FROM retail_price_agent.turns t
+         JOIN retail_price_agent.turn_attempts ta ON ta.turn_id = t.id AND ta.attempt = t.attempt
          WHERE t.id = $1 AND t.conversation_id = $2 AND t.attempt = $3 AND t.fence_token = $4::bigint
            AND t.status = 'RUNNING' AND ta.status = 'RUNNING'
            AND t.lease_expires_at > clock_timestamp() AND t.deadline_at > clock_timestamp()
@@ -84,7 +84,7 @@ export class PostgresQuoteLookupRepository {
       if (valid.rowCount !== 1) throw new Error("QUOTE_LOOKUP_FENCE_REJECTED");
 
       const existing = await client.query<{ id: string }>(
-        `SELECT id FROM interec_agent.quote_lead_sets
+        `SELECT id FROM retail_price_agent.quote_lead_sets
          WHERE turn_id = $1 AND attempt = $2 AND quote_lead_set_ref = $3`,
         [claimed.id, claimed.attempt, execution.leadSet.quoteLeadSetRef],
       );
@@ -100,7 +100,7 @@ export class PostgresQuoteLookupRepository {
       const leadSetId = randomUUID();
       const { artifact, leadSet } = execution;
       await client.query(
-        `INSERT INTO interec_agent.quote_lead_sets
+        `INSERT INTO retail_price_agent.quote_lead_sets
            (id, conversation_id, turn_id, attempt, quote_lead_set_ref, target_ref, target_json,
             canonical_query, contract_version, outcome, reason_codes, provider_status,
             provider_failure_code, provider_retryable, provider_meta_json, provider_contract_version,
@@ -132,7 +132,7 @@ export class PostgresQuoteLookupRepository {
 
       const artifactId = randomUUID();
       await client.query(
-        `INSERT INTO interec_agent.quote_provider_artifacts
+        `INSERT INTO retail_price_agent.quote_provider_artifacts
            (id, conversation_id, lead_set_id, artifact_ref, provider, provider_contract_version,
             payload_json, payload_sha256, observed_at, expires_at, retention_policy)
          VALUES ($1, $2, $3, $4, 'buywhere', $5, $6::jsonb, $7, $8,
@@ -145,7 +145,7 @@ export class PostgresQuoteLookupRepository {
         const id = randomUUID();
         fxIds.set(snapshot.id, id);
         await client.query(
-          `INSERT INTO interec_agent.quote_fx_snapshots
+          `INSERT INTO retail_price_agent.quote_fx_snapshots
              (id, conversation_id, lead_set_id, fx_snapshot_ref, base, quote, rate, provider,
               observed_at, expires_at, snapshot_json)
            VALUES ($1, $2, $3, $4, $5, $6, $7::numeric, $8, $9, $10, $11::jsonb)`,
@@ -160,7 +160,7 @@ export class PostgresQuoteLookupRepository {
         const id = randomUUID();
         observationIds.set(observation.observationRef, id);
         await client.query(
-          `INSERT INTO interec_agent.quote_observations
+          `INSERT INTO retail_price_agent.quote_observations
              (id, conversation_id, lead_set_id, artifact_id, observation_ref, record_index, json_path,
               raw_record_json, observation_json, admission_status, admission_reason_codes,
               admission_policy_version, observed_at)
@@ -174,14 +174,14 @@ export class PostgresQuoteLookupRepository {
         const id = randomUUID();
         leadIds.set(lead.quoteLeadRef, id);
         await client.query(
-          `INSERT INTO interec_agent.quote_leads
+          `INSERT INTO retail_price_agent.quote_leads
              (id, conversation_id, lead_set_id, quote_lead_ref, merchant_target_url, condition, lead_json)
            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
           [id, claimed.conversationId, leadSetId, lead.quoteLeadRef, lead.merchantTargetUrl, lead.condition, json(lead)],
         );
         for (const [index, observationRef] of lead.observationRefs.entries()) {
           await client.query(
-            `INSERT INTO interec_agent.quote_lead_observations
+            `INSERT INTO retail_price_agent.quote_lead_observations
                (conversation_id, lead_set_id, quote_lead_id, observation_id, ordinal)
              VALUES ($1, $2, $3, $4, $5)`,
             [claimed.conversationId, leadSetId, id, observationIds.get(observationRef), index + 1],
@@ -194,7 +194,7 @@ export class PostgresQuoteLookupRepository {
         const id = randomUUID();
         sourceFactIds.set(fact.sourceFactRef, id);
         await client.query(
-          `INSERT INTO interec_agent.quote_source_facts
+          `INSERT INTO retail_price_agent.quote_source_facts
              (id, conversation_id, lead_set_id, quote_lead_id, observation_id, source_fact_ref,
               fact_kind, json_path, canonical_value, evidence_status, observed_at, derivation, policy_version)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13)`,
@@ -205,14 +205,14 @@ export class PostgresQuoteLookupRepository {
       for (const claim of provenance.claims) {
         const claimId = randomUUID();
         await client.query(
-          `INSERT INTO interec_agent.quote_claims
+          `INSERT INTO retail_price_agent.quote_claims
              (id, conversation_id, lead_set_id, quote_lead_id, claim_ref, kind, canonical_value)
            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
           [claimId, claimed.conversationId, leadSetId, leadIds.get(claim.quoteLeadRef), claim.claimRef, claim.kind, json(claim.canonicalValue)],
         );
         for (const evidence of claim.evidenceRefs) {
           await client.query(
-            `INSERT INTO interec_agent.quote_claim_evidence
+            `INSERT INTO retail_price_agent.quote_claim_evidence
                (conversation_id, lead_set_id, quote_claim_id, source_fact_id, quote_fx_snapshot_id)
              VALUES ($1, $2, $3, $4, $5)`,
             [claimed.conversationId, leadSetId, claimId, sourceFactIds.get(evidence.sourceFactRef), evidence.fxSnapshotId === null ? null : fxIds.get(evidence.fxSnapshotId)],
@@ -233,7 +233,7 @@ export class PostgresQuoteLookupRepository {
   public async loadQuoteLeadSet(owner: OwnerClaims, conversationId: string, quoteLeadSetRef: string): Promise<QuoteLeadSet | null> {
     return withOwnerSnapshotTransaction(this.pool, owner, async (client) => {
       const result = await client.query<{ lead_set_json: QuoteLeadSet }>(
-        `SELECT lead_set_json FROM interec_agent.quote_lead_sets
+        `SELECT lead_set_json FROM retail_price_agent.quote_lead_sets
          WHERE conversation_id = $1 AND quote_lead_set_ref = $2
          ORDER BY observed_at DESC LIMIT 1`,
         [conversationId, quoteLeadSetRef],

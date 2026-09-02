@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { QUOTE_LEAD_CONTRACT_VERSION } from "@interec/domain";
+import { QUOTE_LEAD_CONTRACT_VERSION } from "@retail-price/domain";
 import type pg from "pg";
 
 import type {
@@ -74,7 +74,7 @@ export async function acceptPostgresTurn(
     await client.query("BEGIN");
     await setOwnerContext(client, input.owner);
     const owner = await client.query<Record<string, unknown>>(
-      `SELECT * FROM interec_agent.conversations
+      `SELECT * FROM retail_price_agent.conversations
        WHERE id = $1 AND tenant_id = $2 AND owner_id = $3 FOR UPDATE`,
       [input.conversationId, input.owner.tenantId, input.owner.ownerId],
     );
@@ -93,7 +93,7 @@ export async function acceptPostgresTurn(
     }
 
     const existing = await client.query<Record<string, unknown>>(
-      "SELECT * FROM interec_agent.turns WHERE conversation_id = $1 AND client_turn_id = $2",
+      "SELECT * FROM retail_price_agent.turns WHERE conversation_id = $1 AND client_turn_id = $2",
       [input.conversationId, metadata.clientTurnId],
     );
     if (existing.rows[0]) {
@@ -119,7 +119,7 @@ export async function acceptPostgresTurn(
     const activeTurnId = conversation["active_turn_id"] === null ? null : String(conversation["active_turn_id"]);
     if (activeTurnId) {
       const superseded = await client.query(
-        `UPDATE interec_agent.turns
+        `UPDATE retail_price_agent.turns
          SET status = 'SUPERSEDED', fence_token = fence_token + 1, lease_expires_at = NULL,
              completed_at = clock_timestamp(), updated_at = clock_timestamp()
          WHERE id = $1 AND status = ANY($2::text[])`,
@@ -128,7 +128,7 @@ export async function acceptPostgresTurn(
       if (superseded.rowCount === 1) {
         supersededExisting = true;
         await client.query(
-          `UPDATE interec_agent.turn_attempts SET status = 'ABANDONED', updated_at = clock_timestamp()
+          `UPDATE retail_price_agent.turn_attempts SET status = 'ABANDONED', updated_at = clock_timestamp()
            WHERE turn_id = $1 AND status IN ('CLAIMED', 'RUNNING')`,
           [activeTurnId],
         );
@@ -145,13 +145,13 @@ export async function acceptPostgresTurn(
     const messageId = randomUUID();
     const messageSeq = await allocateMessageSeq(client, input.conversationId);
     await client.query(
-      `INSERT INTO interec_agent.messages
+      `INSERT INTO retail_price_agent.messages
          (id, conversation_id, seq, role, payload_json, client_turn_id, request_hash)
        VALUES ($1, $2, $3, 'USER', $4::jsonb, $5, $6)`,
       [messageId, input.conversationId, messageSeq, JSON.stringify(input.input), metadata.clientTurnId, requestHash],
     );
     const unconsumed = await client.query<{ id: string; payload_json: ConversationTurnInput }>(
-      `SELECT id, payload_json FROM interec_agent.messages
+      `SELECT id, payload_json FROM retail_price_agent.messages
        WHERE conversation_id = $1 AND role = 'USER' AND consumed_by_turn_id IS NULL
        ORDER BY seq`,
       [input.conversationId],
@@ -163,7 +163,7 @@ export async function acceptPostgresTurn(
       );
     }
     await client.query(
-      `INSERT INTO interec_agent.turns
+      `INSERT INTO retail_price_agent.turns
          (id, conversation_id, client_turn_id, request_hash, latest_input_message_id, base_revision, status, deadline_at, trace_id, trace_root_observation_id, trace_id_source)
        VALUES ($1, $2, $3, $4, $5, $6, 'ACCEPTED', clock_timestamp() + make_interval(secs => $7), $8, $9, $10)`,
       [
@@ -181,12 +181,12 @@ export async function acceptPostgresTurn(
     );
     for (const [ordinal, message] of unconsumed.rows.entries()) {
       await client.query(
-        "INSERT INTO interec_agent.turn_input_messages (turn_id, message_id, ordinal) VALUES ($1, $2, $3)",
+        "INSERT INTO retail_price_agent.turn_input_messages (turn_id, message_id, ordinal) VALUES ($1, $2, $3)",
         [turnId, message.id, ordinal],
       );
     }
     await client.query(
-      "UPDATE interec_agent.conversations SET active_turn_id = $2, updated_at = clock_timestamp() WHERE id = $1",
+      "UPDATE retail_price_agent.conversations SET active_turn_id = $2, updated_at = clock_timestamp() WHERE id = $1",
       [input.conversationId, turnId],
     );
     await appendConversationEvent(
@@ -197,7 +197,7 @@ export async function acceptPostgresTurn(
       { messageSeq, baseRevision: currentRevision },
     );
     const created = await client.query<Record<string, unknown>>(
-      "SELECT * FROM interec_agent.turns WHERE id = $1",
+      "SELECT * FROM retail_price_agent.turns WHERE id = $1",
       [turnId],
     );
     await client.query("COMMIT");
@@ -226,7 +226,7 @@ export async function retryPostgresTurn(
     await client.query("BEGIN");
     await setOwnerContext(client, input.owner);
     const owner = await client.query<Record<string, unknown>>(
-      `SELECT * FROM interec_agent.conversations
+      `SELECT * FROM retail_price_agent.conversations
        WHERE id = $1 AND tenant_id = $2 AND owner_id = $3 FOR UPDATE`,
       [input.conversationId, input.owner.tenantId, input.owner.ownerId],
     );
@@ -244,7 +244,7 @@ export async function retryPostgresTurn(
       );
     }
     const existing = await client.query<Record<string, unknown>>(
-      "SELECT * FROM interec_agent.turns WHERE conversation_id = $1 AND client_turn_id = $2",
+      "SELECT * FROM retail_price_agent.turns WHERE conversation_id = $1 AND client_turn_id = $2",
       [input.conversationId, metadata.clientTurnId],
     );
     if (existing.rows[0]) {
@@ -268,7 +268,7 @@ export async function retryPostgresTurn(
       throw new ConversationRepositoryError("CONVERSATION_TURN_ACTIVE", "A retry cannot start while another Turn is active");
     }
     const source = await client.query<Record<string, unknown>>(
-      `SELECT * FROM interec_agent.turns
+      `SELECT * FROM retail_price_agent.turns
        WHERE id = $1 AND conversation_id = $2 AND status IN ('FAILED', 'CANCELLED', 'TIMED_OUT', 'DEAD_LETTER')`,
       [input.turnId, input.conversationId],
     );
@@ -276,7 +276,7 @@ export async function retryPostgresTurn(
       throw new ConversationRepositoryError("TURN_NOT_RETRYABLE", `Turn is not retryable: ${input.turnId}`);
     }
     const unconsumed = await client.query<{ id: string }>(
-      `SELECT id FROM interec_agent.messages
+      `SELECT id FROM retail_price_agent.messages
        WHERE conversation_id = $1 AND role = 'USER' AND consumed_by_turn_id IS NULL
        ORDER BY seq`,
       [input.conversationId],
@@ -287,7 +287,7 @@ export async function retryPostgresTurn(
     const turnId = randomUUID();
     const latestInputMessageId = unconsumed.rows.at(-1)!.id;
     await client.query(
-      `INSERT INTO interec_agent.turns
+      `INSERT INTO retail_price_agent.turns
          (id, conversation_id, client_turn_id, request_hash, latest_input_message_id, base_revision, status, deadline_at, trace_id, trace_root_observation_id, trace_id_source)
        VALUES ($1, $2, $3, $4, $5, $6, 'ACCEPTED', clock_timestamp() + make_interval(secs => $7), $8, $9, $10)`,
       [
@@ -305,12 +305,12 @@ export async function retryPostgresTurn(
     );
     for (const [ordinal, message] of unconsumed.rows.entries()) {
       await client.query(
-        "INSERT INTO interec_agent.turn_input_messages (turn_id, message_id, ordinal) VALUES ($1, $2, $3)",
+        "INSERT INTO retail_price_agent.turn_input_messages (turn_id, message_id, ordinal) VALUES ($1, $2, $3)",
         [turnId, message.id, ordinal],
       );
     }
     await client.query(
-      "UPDATE interec_agent.conversations SET active_turn_id = $2, updated_at = clock_timestamp() WHERE id = $1",
+      "UPDATE retail_price_agent.conversations SET active_turn_id = $2, updated_at = clock_timestamp() WHERE id = $1",
       [input.conversationId, turnId],
     );
     await appendConversationEvent(
@@ -321,7 +321,7 @@ export async function retryPostgresTurn(
       { retryOfTurnId: input.turnId, baseRevision: Number(conversation["current_revision"]) },
     );
     const created = await client.query<Record<string, unknown>>(
-      "SELECT * FROM interec_agent.turns WHERE id = $1",
+      "SELECT * FROM retail_price_agent.turns WHERE id = $1",
       [turnId],
     );
     await client.query("COMMIT");

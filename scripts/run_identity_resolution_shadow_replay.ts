@@ -7,7 +7,7 @@ import {
   resolveProductIdentity,
   resolveQuoteTarget,
   type QuoteAdmissionDecision,
-} from "@interec/domain";
+} from "@retail-price/domain";
 import {
   compareIdentityResolutionShadow,
   type FrozenLegacyAdmissionStatus,

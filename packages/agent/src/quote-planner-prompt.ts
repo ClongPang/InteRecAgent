@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const QUOTE_CONVERSATION_PROMPT_NAME = "interec-sg-known-model-quote-planner";
+export const QUOTE_CONVERSATION_PROMPT_NAME = "retail-price-sg-known-model-quote-planner";
 export const QUOTE_CONVERSATION_PROMPT_VERSION = "2026-09-01.2";
 export const QUOTE_CONVERSATION_SYSTEM_PROMPT = `You are the intent planner for a Singapore known-model quote lead assistant.
 You must call commit_quote_plan; never answer in free text. The host owns every user-facing sentence and every quote fact.

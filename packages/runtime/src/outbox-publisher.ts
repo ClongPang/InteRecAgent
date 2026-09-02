@@ -54,13 +54,13 @@ export class PostgresOutboxPublisher {
     try {
       await client.query("BEGIN");
       await client.query(
-        `UPDATE interec_agent.outbox
+        `UPDATE retail_price_agent.outbox
          SET locked_by = NULL, locked_until = NULL
          WHERE published_at IS NULL AND dead_lettered_at IS NULL
            AND locked_until <= clock_timestamp()`,
       );
       const selected = await client.query<{ id: string }>(
-        `SELECT id FROM interec_agent.outbox
+        `SELECT id FROM retail_price_agent.outbox
          WHERE published_at IS NULL AND dead_lettered_at IS NULL AND topic = ANY($3::text[])
            AND available_at <= clock_timestamp() AND locked_by IS NULL
            AND attempt_count < $1
@@ -71,7 +71,7 @@ export class PostgresOutboxPublisher {
       const claimed: OutboxMessage[] = [];
       for (const row of selected.rows) {
         const result = await client.query<Record<string, unknown>>(
-          `UPDATE interec_agent.outbox
+          `UPDATE retail_price_agent.outbox
            SET locked_by = $2, locked_until = clock_timestamp() + make_interval(secs => $3),
                attempt_count = attempt_count + 1
            WHERE id = $1 RETURNING *`,
@@ -105,7 +105,7 @@ export class PostgresOutboxPublisher {
       try {
         await this.sink.publish(message);
         const result = await this.pool.query(
-          `UPDATE interec_agent.outbox
+          `UPDATE retail_price_agent.outbox
            SET published_at = clock_timestamp(), locked_by = NULL, locked_until = NULL, last_error = NULL
            WHERE id = $1 AND locked_by = $2 AND published_at IS NULL AND dead_lettered_at IS NULL`,
           [message.id, this.options.workerId],
@@ -115,7 +115,7 @@ export class PostgresOutboxPublisher {
         const terminal = message.attemptCount >= this.maxAttempts;
         const delay = Math.min(this.retryBaseSeconds * 2 ** Math.max(message.attemptCount - 1, 0), 300);
         const result = await this.pool.query(
-          `UPDATE interec_agent.outbox
+          `UPDATE retail_price_agent.outbox
            SET locked_by = NULL, locked_until = NULL, last_error = $3,
                dead_lettered_at = CASE WHEN $4 THEN clock_timestamp() ELSE NULL END,
                available_at = CASE WHEN $4 THEN available_at ELSE clock_timestamp() + make_interval(secs => $5) END
@@ -139,7 +139,7 @@ export class PostgresOutboxPublisher {
       `SELECT
          count(*) FILTER (WHERE published_at IS NULL AND dead_lettered_at IS NULL)::int AS pending,
          count(*) FILTER (WHERE dead_lettered_at IS NOT NULL)::int AS dead_lettered
-       FROM interec_agent.outbox`,
+       FROM retail_price_agent.outbox`,
     );
     return { pending: result.rows[0]?.pending ?? 0, deadLettered: result.rows[0]?.dead_lettered ?? 0 };
   }

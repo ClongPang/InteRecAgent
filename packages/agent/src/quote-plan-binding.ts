@@ -5,7 +5,7 @@ import {
   type ProductIdentitySnapshot,
   type QuoteTurnOperation,
   type QuoteTurnPlan,
-} from "@interec/domain";
+} from "@retail-price/domain";
 
 import type { IdentityHypothesis } from "./identity-hypothesis.js";
 

@@ -1,5 +1,5 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { QuoteAssistantPublication, QuoteConversationState } from "@interec/domain";
+import type { QuoteAssistantPublication, QuoteConversationState } from "@retail-price/domain";
 
 import type { AgentInferenceContext, ObserveAgentToolCall } from "./agent-observation.js";
 import {

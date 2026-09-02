@@ -1,6 +1,6 @@
 # Agent Trace observability refactor research source
 
-- Audience: InteRecAgent maintainers
+- Audience: RetailPriceAgent maintainers
 - Date: 2026-09-02
 - Scope: trace identity, asynchronous boundaries, Agent tool causality, model-boundary manifests, Langfuse rendering, privacy and operational detection
 - Assumption: PostgreSQL remains the durable business source of truth; Langfuse/OTel are diagnostic projections and must not change Turn outcomes

@@ -5,8 +5,8 @@ import {
   type QuoteEffectResult,
   type ProductIdentityRegistry,
   type QuoteTarget,
-} from "@interec/domain";
-import type { QuoteEffectExecutionPort } from "@interec/agent";
+} from "@retail-price/domain";
+import type { QuoteEffectExecutionPort } from "@retail-price/agent";
 
 import { ControlledFxClient } from "./controlled-fx-client.js";
 import type { ClaimedConversationTurn, ConversationRepository } from "./conversation-repository-types.js";
@@ -121,7 +121,7 @@ export class QuoteTurnDataService implements QuoteEffectExecutionPort {
     const ref = await withOwnerSnapshotTransaction(this.lookupRepository.pool, this.claimed.owner, async (client) => {
       const result = await client.query<{ quote_lead_set_ref: string }>(
         `SELECT quote_lead_set_ref
-         FROM interec_agent.quote_lead_sets
+         FROM retail_price_agent.quote_lead_sets
          WHERE conversation_id = $1 AND turn_id = $2 AND attempt = $3 AND target_ref = $4
          ORDER BY observed_at DESC LIMIT 1`,
         [this.claimed.conversationId, this.claimed.id, this.claimed.attempt, targetRef],

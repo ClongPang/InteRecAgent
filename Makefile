@@ -1,8 +1,8 @@
-# InteRecAgent active commands: TypeScript + pi-agent only.
+# RetailPriceAgent active commands: TypeScript + pi-agent only.
 
 NPM := npm
 COMPOSE := docker compose
-TEST_DATABASE_URL ?= postgresql://interec:interec@127.0.0.1:5432/interec_test
+TEST_DATABASE_URL ?= postgresql://retail_price:retail_price@127.0.0.1:5432/retail_price_test
 
 help: ## List available commands
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
@@ -36,7 +36,7 @@ unit: ## Run deterministic tests without PostgreSQL
 	$(NPM) run test:unit
 
 integration: ## Run PostgreSQL integration tests against an isolated database
-	RUN_CONVERSATION_PG_INTEGRATION=1 INTEREC_DATABASE_URL=$(TEST_DATABASE_URL) $(NPM) run test:integration
+	RUN_CONVERSATION_PG_INTEGRATION=1 RETAIL_PRICE_DATABASE_URL=$(TEST_DATABASE_URL) $(NPM) run test:integration
 
 build: ## Build all workspaces and the production UI
 	$(NPM) run build

@@ -4,7 +4,7 @@ import {
   emptyQuoteConversationState,
   resolveQuoteTarget,
   type PublishedQuoteLeadSet,
-} from "@interec/domain";
+} from "@retail-price/domain";
 import { describe, expect, it, vi } from "vitest";
 
 import {

@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 
 import { startObservation } from "@langfuse/tracing";
 
+import { retailPriceEnvironmentValue } from "./environment.js";
 import { runtimeMetrics } from "./runtime-metrics.js";
 
 const MAX_CAPTURED_CONTENT_CHARS = 20_000;
@@ -34,7 +35,7 @@ function normalizeEnvironment(value: string | undefined): string {
 }
 
 function contentCaptureEnabled(environment: NodeJS.ProcessEnv): boolean {
-  const flag = environment["INTEREC_LANGFUSE_CAPTURE_CONTENT"]?.trim().toLowerCase();
+  const flag = retailPriceEnvironmentValue(environment, "LANGFUSE_CAPTURE_CONTENT")?.trim().toLowerCase();
   return flag !== "false" && flag !== "0" && flag !== "off";
 }
 
@@ -45,8 +46,8 @@ export function resolveTelemetryConfig(environment: NodeJS.ProcessEnv = process.
   const baseUrl = optionalValue(environment["LANGFUSE_BASE_URL"]);
   const release = optionalValue(environment["LANGFUSE_RELEASE"]);
   const metricsEndpoint = optionalValue(environment["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"]);
-  const pseudonymKey = optionalValue(environment["INTEREC_TELEMETRY_PSEUDONYM_KEY"]);
-  if (publicKey && secretKey && !pseudonymKey) throw new Error("INTEREC_TELEMETRY_PSEUDONYM_KEY_REQUIRED");
+  const pseudonymKey = optionalValue(retailPriceEnvironmentValue(environment, "TELEMETRY_PSEUDONYM_KEY"));
+  if (publicKey && secretKey && !pseudonymKey) throw new Error("RETAIL_PRICE_TELEMETRY_PSEUDONYM_KEY_REQUIRED");
   return {
     langfuseEnabled: Boolean(publicKey && secretKey),
     ...(publicKey ? { publicKey } : {}),
@@ -107,7 +108,7 @@ export function telemetryContent(
 }
 
 export function pseudonymousUserId(tenantId: string, ownerId: string, key: string): string {
-  if (key.length < 32) throw new Error("INTEREC_TELEMETRY_PSEUDONYM_KEY_INVALID");
+  if (key.length < 32) throw new Error("RETAIL_PRICE_TELEMETRY_PSEUDONYM_KEY_INVALID");
   return createHmac("sha256", key).update(tenantId).update("\0").update(ownerId).digest("hex").slice(0, 32);
 }
 

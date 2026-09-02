@@ -6,6 +6,8 @@ import type pg from "pg";
 
 const MIGRATION_NAME = /^(\d{4})_[a-z0-9_]+\.sql$/;
 const MIGRATION_LOCK_ID = "497281340126";
+const CURRENT_SCHEMA = "retail_price_agent";
+const LEGACY_SCHEMA = "interec_agent";
 const REQUIRED_TABLES: Readonly<Record<string, readonly string[]>> = {
   conversations: ["id", "tenant_id", "owner_id", "contract_version", "current_revision", "next_message_seq", "next_event_seq", "active_turn_id"],
   conversation_revisions: ["conversation_id", "revision", "parent_revision", "base_revision", "goal_version_id", "dialogue_state_version_id", "working_set_id", "quote_state_version_id"],
@@ -211,25 +213,46 @@ export interface MigrationResult {
   verifiedTables: number;
 }
 
-async function bootstrapMigrationLedger(client: pg.PoolClient): Promise<void> {
-  const schema = await client.query<{ exists: boolean }>("SELECT to_regnamespace('interec_agent') IS NOT NULL AS exists");
-  if (!schema.rows[0]?.exists) await client.query("CREATE SCHEMA interec_agent");
-  const ledger = await client.query<{ exists: boolean }>("SELECT to_regclass('interec_agent.schema_migrations') IS NOT NULL AS exists");
+async function locateMigrationSchema(client: pg.PoolClient): Promise<string | null> {
+  const result = await client.query<{ current_exists: boolean; legacy_exists: boolean }>(
+    `SELECT to_regnamespace($1) IS NOT NULL AS current_exists,
+            to_regnamespace($2) IS NOT NULL AS legacy_exists`,
+    [CURRENT_SCHEMA, LEGACY_SCHEMA],
+  );
+  const row = result.rows[0];
+  if (row?.current_exists && row.legacy_exists) throw new Error("AMBIGUOUS_RETAIL_PRICE_AGENT_SCHEMA");
+  if (row?.current_exists) return CURRENT_SCHEMA;
+  if (row?.legacy_exists) return LEGACY_SCHEMA;
+  return null;
+}
+
+async function bootstrapMigrationLedger(client: pg.PoolClient): Promise<string> {
+  let schema = await locateMigrationSchema(client);
+  // Migrations 0001-0025 retain their original checksums and are renamed as a unit by 0026.
+  if (!schema) {
+    await client.query(`CREATE SCHEMA ${LEGACY_SCHEMA}`);
+    schema = LEGACY_SCHEMA;
+  }
+  const ledger = await client.query<{ exists: boolean }>(
+    "SELECT to_regclass($1) IS NOT NULL AS exists",
+    [`${schema}.schema_migrations`],
+  );
   if (!ledger.rows[0]?.exists) {
-    await client.query(`CREATE TABLE interec_agent.schema_migrations (
+    await client.query(`CREATE TABLE ${schema}.schema_migrations (
       version integer PRIMARY KEY,
       filename text NOT NULL UNIQUE,
       checksum text NOT NULL,
       applied_at timestamptz NOT NULL DEFAULT clock_timestamp()
     )`);
   }
+  return schema;
 }
 
 export async function verifyConversationSchema(client: pg.PoolClient): Promise<number> {
   const result = await client.query<{ table_name: string; column_name: string }>(
     `SELECT table_name, column_name
      FROM information_schema.columns
-     WHERE table_schema = 'interec_agent'`,
+     WHERE table_schema = 'retail_price_agent'`,
   );
   const found = new Map<string, Set<string>>();
   for (const row of result.rows) {
@@ -239,47 +262,47 @@ export async function verifyConversationSchema(client: pg.PoolClient): Promise<n
   }
   for (const [table, columns] of Object.entries(REQUIRED_TABLES)) {
     const actual = found.get(table);
-    if (!actual) throw new Error(`SCHEMA_DRIFT: missing table interec_agent.${table}`);
+    if (!actual) throw new Error(`SCHEMA_DRIFT: missing table retail_price_agent.${table}`);
     for (const column of columns) {
-      if (!actual.has(column)) throw new Error(`SCHEMA_DRIFT: missing column interec_agent.${table}.${column}`);
+      if (!actual.has(column)) throw new Error(`SCHEMA_DRIFT: missing column retail_price_agent.${table}.${column}`);
     }
   }
   const constraints = await client.query<{ conname: string }>(
     `SELECT c.conname
      FROM pg_constraint c
      JOIN pg_namespace n ON n.oid = c.connamespace
-     WHERE n.nspname = 'interec_agent'`,
+     WHERE n.nspname = 'retail_price_agent'`,
   );
   const constraintNames = new Set(constraints.rows.map((row) => row.conname));
   for (const constraint of REQUIRED_CONSTRAINTS) {
-    if (!constraintNames.has(constraint)) throw new Error(`SCHEMA_DRIFT: missing constraint interec_agent.${constraint}`);
+    if (!constraintNames.has(constraint)) throw new Error(`SCHEMA_DRIFT: missing constraint retail_price_agent.${constraint}`);
   }
   const indexes = await client.query<{ indexname: string }>(
-    "SELECT indexname FROM pg_indexes WHERE schemaname = 'interec_agent'",
+    "SELECT indexname FROM pg_indexes WHERE schemaname = 'retail_price_agent'",
   );
   const indexNames = new Set(indexes.rows.map((row) => row.indexname));
   for (const index of REQUIRED_INDEXES) {
-    if (!indexNames.has(index)) throw new Error(`SCHEMA_DRIFT: missing index interec_agent.${index}`);
+    if (!indexNames.has(index)) throw new Error(`SCHEMA_DRIFT: missing index retail_price_agent.${index}`);
   }
   const triggers = await client.query<{ tgname: string }>(
     `SELECT t.tgname
      FROM pg_trigger t
      JOIN pg_class c ON c.oid = t.tgrelid
      JOIN pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname = 'interec_agent' AND NOT t.tgisinternal`,
+     WHERE n.nspname = 'retail_price_agent' AND NOT t.tgisinternal`,
   );
   const triggerNames = new Set(triggers.rows.map((row) => row.tgname));
   for (const trigger of REQUIRED_TRIGGERS) {
-    if (!triggerNames.has(trigger)) throw new Error(`SCHEMA_DRIFT: missing trigger interec_agent.${trigger}`);
+    if (!triggerNames.has(trigger)) throw new Error(`SCHEMA_DRIFT: missing trigger retail_price_agent.${trigger}`);
   }
   const rls = await client.query<{ relname: string }>(
     `SELECT c.relname FROM pg_class c
      JOIN pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname = 'interec_agent' AND c.relrowsecurity`,
+     WHERE n.nspname = 'retail_price_agent' AND c.relrowsecurity`,
   );
   const rlsTables = new Set(rls.rows.map((row) => row.relname));
   for (const table of REQUIRED_RLS_TABLES) {
-    if (!rlsTables.has(table)) throw new Error(`SCHEMA_DRIFT: RLS is disabled on interec_agent.${table}`);
+    if (!rlsTables.has(table)) throw new Error(`SCHEMA_DRIFT: RLS is disabled on retail_price_agent.${table}`);
   }
   return Object.keys(REQUIRED_TABLES).length;
 }
@@ -292,7 +315,7 @@ export async function runConversationMigrations(pool: pg.Pool, migrationUrl = ne
   const applied: string[] = [];
   await client.query("SELECT pg_advisory_lock($1::bigint)", [MIGRATION_LOCK_ID]);
   try {
-    await bootstrapMigrationLedger(client);
+    let migrationSchema = await bootstrapMigrationLedger(client);
     for (const filename of files) {
       const match = filename.match(MIGRATION_NAME);
       if (!match) throw new Error(`INVALID_MIGRATION_FILENAME: ${filename}`);
@@ -300,7 +323,7 @@ export async function runConversationMigrations(pool: pg.Pool, migrationUrl = ne
       const sql = await readFile(new URL(filename, migrationUrl), "utf8");
       const checksum = createHash("sha256").update(sql).digest("hex");
       const recorded = await client.query<{ checksum: string; filename: string }>(
-        "SELECT checksum, filename FROM interec_agent.schema_migrations WHERE version = $1",
+        `SELECT checksum, filename FROM ${migrationSchema}.schema_migrations WHERE version = $1`,
         [version],
       );
       if (recorded.rows[0]) {
@@ -312,8 +335,9 @@ export async function runConversationMigrations(pool: pg.Pool, migrationUrl = ne
       await client.query("BEGIN");
       try {
         await client.query(sql);
+        migrationSchema = await locateMigrationSchema(client) ?? migrationSchema;
         await client.query(
-          "INSERT INTO interec_agent.schema_migrations (version, filename, checksum) VALUES ($1, $2, $3)",
+          `INSERT INTO ${migrationSchema}.schema_migrations (version, filename, checksum) VALUES ($1, $2, $3)`,
           [version, filename, checksum],
         );
         await client.query("COMMIT");

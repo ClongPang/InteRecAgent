@@ -7,7 +7,7 @@ import {
   type QuoteConversationState,
   type QuotePlanReview,
   type QuoteTarget,
-} from "@interec/domain";
+} from "@retail-price/domain";
 import { describe, expect, it, vi } from "vitest";
 
 import {

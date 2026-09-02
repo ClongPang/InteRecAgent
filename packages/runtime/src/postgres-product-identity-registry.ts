@@ -8,7 +8,7 @@ import {
   type ProductIdentitySnapshot,
   type ProductRelationship,
   type ProductVariant,
-} from "@interec/domain";
+} from "@retail-price/domain";
 import type pg from "pg";
 
 interface RegistryVersionRow {
@@ -50,12 +50,12 @@ export class PostgresProductIdentityRegistry implements ProductIdentityRegistry 
       const versionResult = requestedVersion === null
         ? await client.query<RegistryVersionRow>(
             `SELECT registry_version, checksum
-             FROM interec_agent.product_identity_registry_versions
+             FROM retail_price_agent.product_identity_registry_versions
              WHERE status = 'ACTIVE'`,
           )
         : await client.query<RegistryVersionRow>(
             `SELECT registry_version, checksum
-             FROM interec_agent.product_identity_registry_versions
+             FROM retail_price_agent.product_identity_registry_versions
              WHERE registry_version = $1 AND status IN ('ACTIVE', 'RETIRED')`,
             [requestedVersion],
           );
@@ -69,35 +69,35 @@ export class PostgresProductIdentityRegistry implements ProductIdentityRegistry 
         registry_version: number; brand_ref: string; canonical_name: string; aliases_json: unknown; source_ref: string;
       }>(
         `SELECT registry_version, brand_ref, canonical_name, aliases_json, source_ref
-         FROM interec_agent.product_brands WHERE registry_version = $1 ORDER BY brand_ref`, values,
+         FROM retail_price_agent.product_brands WHERE registry_version = $1 ORDER BY brand_ref`, values,
       );
       const products = await client.query<CanonicalProduct & { registry_version: number; product_ref: string; brand_ref: string; canonical_name: string; product_type: string; source_ref: string }>(
         `SELECT registry_version, product_ref, brand_ref, canonical_name, product_type, source_ref
-         FROM interec_agent.canonical_products WHERE registry_version = $1 ORDER BY product_ref`, values,
+         FROM retail_price_agent.canonical_products WHERE registry_version = $1 ORDER BY product_ref`, values,
       );
       const variants = await client.query<{
         registry_version: number; variant_ref: string; product_ref: string; canonical_model: string; attributes_json: unknown; status: ProductVariant["status"]; source_ref: string;
       }>(
         `SELECT registry_version, variant_ref, product_ref, canonical_model, attributes_json, status, source_ref
-         FROM interec_agent.product_variants WHERE registry_version = $1 ORDER BY variant_ref`, values,
+         FROM retail_price_agent.product_variants WHERE registry_version = $1 ORDER BY variant_ref`, values,
       );
       const identifiers = await client.query<{
         registry_version: number; identifier_ref: string; variant_ref: string; brand_ref: string; scheme: ProductIdentifier["scheme"]; normalized_value: string; approval_status: ProductIdentifier["approvalStatus"]; source_ref: string;
       }>(
         `SELECT registry_version, identifier_ref, variant_ref, brand_ref, scheme, normalized_value, approval_status, source_ref
-         FROM interec_agent.product_identifiers WHERE registry_version = $1 ORDER BY identifier_ref`, values,
+         FROM retail_price_agent.product_identifiers WHERE registry_version = $1 ORDER BY identifier_ref`, values,
       );
       const aliases = await client.query<{
         registry_version: number; alias_ref: string; variant_ref: string; purpose: ProductAlias["purpose"]; display_value: string; normalized_key: string; approval_status: ProductAlias["approvalStatus"]; priority: number; source_ref: string;
       }>(
         `SELECT registry_version, alias_ref, variant_ref, purpose, display_value, normalized_key, approval_status, priority, source_ref
-         FROM interec_agent.product_aliases WHERE registry_version = $1 ORDER BY alias_ref`, values,
+         FROM retail_price_agent.product_aliases WHERE registry_version = $1 ORDER BY alias_ref`, values,
       );
       const relationships = await client.query<{
         registry_version: number; relationship_ref: string; from_variant_ref: string; to_variant_ref: string; kind: ProductRelationship["kind"]; source_ref: string;
       }>(
         `SELECT registry_version, relationship_ref, from_variant_ref, to_variant_ref, kind, source_ref
-         FROM interec_agent.product_relationships WHERE registry_version = $1 ORDER BY relationship_ref`, values,
+         FROM retail_price_agent.product_relationships WHERE registry_version = $1 ORDER BY relationship_ref`, values,
       );
       const snapshot: ProductIdentitySnapshot = {
         schemaVersion: 1,

@@ -1,5 +1,5 @@
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
-import type { AgentModelCallObservation } from "@interec/agent";
+import type { AgentModelCallObservation } from "@retail-price/agent";
 
 import { telemetryContent } from "./telemetry-safety.js";
 

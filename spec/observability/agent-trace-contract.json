@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "interec-agent-trace-v4",
+  "schemaVersion": "retail-price-agent-trace-v4",
   "traceBoundary": "TURN_ATTEMPT",
   "rootObservation": "execute-turn-attempt",
   "enqueueTrace": {
@@ -109,13 +109,13 @@
   },
   "privacy": {
     "contentDefault": "ENABLED",
-    "contentOptOut": "INTEREC_LANGFUSE_CAPTURE_CONTENT=false",
+    "contentOptOut": "RETAIL_PRICE_LANGFUSE_CAPTURE_CONTENT=false",
     "alwaysRedactSecrets": true,
     "captureHiddenReasoning": false,
     "maxCapturedContentChars": 20000
   },
   "decisionProvenance": {
-    "schemaVersion": "interec-turn-decision-v5",
+    "schemaVersion": "retail-price-turn-decision-v5",
     "observation": "execute-turn-attempt",
     "alwaysCaptured": true,
     "independentOfContentGate": true,

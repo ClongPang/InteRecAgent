@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 
-import { runtimeMetrics, type ConversationRepository } from "@interec/runtime";
+import { runtimeMetrics, type ConversationRepository } from "@retail-price/runtime";
 
 import { ApiError, ownerFor } from "./api-errors.js";
 import type { IdentityVerifier } from "./auth.js";
